@@ -1,1 +1,4 @@
-# multires_connectivity
+# multires-connectivity
+
+A multi-resolution landscape connectivity algorithm
+
