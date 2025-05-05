@@ -9,7 +9,7 @@ pub fn multi_level_graph_optimized(
     level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>)>, 
     factor: f32
     // nb_size: i32
-) -> (HashMap<u32, Vec<(u32, NotNan<f32>)>>, u32) {
+) -> (HashMap<u32, Vec<(u32, u32)>>, u32) {
     // Pre-compute constants
     let i_ngb = [0, 1, 0, -1, 1, 1, -1, -1];
     let j_ngb = [1, 0, -1, 0, 1, -1, 1, -1];
@@ -238,8 +238,10 @@ fn process_higher_level_connections(
     }
 }
 
+
 /// Convert edge list to adjacency list format efficiently
-fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u32, Vec<(u32, NotNan<f32>)>> {
+/// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding
+fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u32, Vec<(u32, u32)>> {
     // First pass: count edges per node to allocate exact sizes
     let mut sizes: HashMap<u32, usize> = HashMap::new();
     for &(u, _) in graph_temp.keys() {
@@ -247,19 +249,44 @@ fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u
     }
     
     // Create graph with pre-allocated vectors
-    let mut graph: HashMap<u32, Vec<(u32, NotNan<f32>)>> = HashMap::with_capacity(sizes.len());
+    let mut graph: HashMap<u32, Vec<(u32, u32)>> = HashMap::with_capacity(sizes.len());
     for (&node, &size) in &sizes {
         graph.insert(node, Vec::with_capacity(size));
     }
     
-    // Second pass: fill the graph
+    // Second pass: fill the graph with converted weights
     for ((u, v), &weight) in graph_temp {
         if let Some(edges) = graph.get_mut(u) {
-            if let Ok(safe_weight) = NotNan::new(weight) {
-                edges.push((*v, safe_weight));
-            }
+            // Convert f32 weight to u32 by scaling and rounding
+            let int_val: u32 = (weight * 1_000_000.0).round() as u32;
+            edges.push((*v, int_val));
         }
     }
     
     graph
 }
+
+// /// Convert edge list to adjacency list format efficiently
+// fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u32, Vec<(u32, f32)>> {
+//     // First pass: count edges per node to allocate exact sizes
+//     let mut sizes: HashMap<u32, usize> = HashMap::new();
+//     for &(u, _) in graph_temp.keys() {
+//         *sizes.entry(u).or_insert(0) += 1;
+//     }
+    
+//     // Create graph with pre-allocated vectors
+//     let mut graph: HashMap<u32, Vec<(u32, f32)>> = HashMap::with_capacity(sizes.len());
+//     for (&node, &size) in &sizes {
+//         graph.insert(node, Vec::with_capacity(size));
+//     }
+    
+//     // Second pass: fill the graph
+//     for ((u, v), &weight) in graph_temp {
+//         if let Some(edges) = graph.get_mut(u) {
+//             edges.push((*v, weight));
+//         }
+//     }
+    
+//     graph
+// }
+

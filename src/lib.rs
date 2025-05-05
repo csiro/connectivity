@@ -64,26 +64,26 @@ fn py_multi_level_window(
         factor
     );
 
-    println!("graph: {:?}", graph);
+    // println!("graph: {:?}", graph);
 
     // let mut graph: HashMap<u32, Vec<(u32, NotNan<f32>)>> = HashMap::new();
 
-    // // Create the successors function that uses our adjacency map
-    // let successors = |node: &u32| -> Vec<(u32, NotNan<f32>)> {
-    //     // Return the neighbors of this node from our graph
-    //     // If the node isn't in our graph, return an empty vector
-    //     match graph.get(node) {
-    //         Some(neighbors) => neighbors.clone(),
-    //         None => Vec::new(),
-    //     }
-    // };
+    // Create the successors function that uses our adjacency map
+    let successors = |node: &u32| -> Vec<(u32, u32)> {
+        // Return the neighbors of this node from our graph
+        // If the node isn't in our graph, return an empty vector
+        match graph.get(node) {
+            Some(neighbors) => neighbors.clone(),
+            None => Vec::new(),
+        }
+    };
 
-    // // Using u32 for costs instead of f32 since f32 doesn't implement Ord
-    // let reachables: HashMap<u32, (u32, u32)> = dijkstra_all(&source, successors);
+    // Note: You may need to adapt the dijkstra_all function to work with f32 values
+    let reachables: HashMap<u32, (u32, u32)> = dijkstra_all(&source, successors);
     
-    // // Instead, you could print specific results if needed
-    // println!("Found {} reachable nodes", reachables.len());
-    // println!("Found {:?}", reachables);
+    // Instead, you could print specific results if needed
+    println!("Found {} reachable nodes", reachables.len());
+    println!("Found {:?}", reachables);
 
 
     Ok(multi_level_window(
