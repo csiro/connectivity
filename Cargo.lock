@@ -55,22 +55,10 @@ dependencies = [
 name = "multires_connectivity"
 version = "0.1.0"
 dependencies = [
- "ndarray 0.15.6",
+ "ndarray",
  "numpy",
  "pyo3",
-]
-
-[[package]]
-name = "ndarray"
-version = "0.15.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb12d4e967ec485a5f71c6311fe28158e9d6f4bc4a447b474184d0f91a8fa32"
-dependencies = [
- "matrixmultiply",
- "num-complex",
- "num-integer",
- "num-traits",
- "rawpointer",
+ "pyo3-built",
 ]
 
 [[package]]
@@ -122,7 +110,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edb929bc0da91a4d85ed6c0a84deaa53d411abfb387fc271124f91bf6b89f14e"
 dependencies = [
  "libc",
- "ndarray 0.16.1",
+ "ndarray",
  "num-complex",
  "num-integer",
  "num-traits",
@@ -187,6 +175,12 @@ dependencies = [
  "once_cell",
  "target-lexicon",
 ]
+
+[[package]]
+name = "pyo3-built"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35ee655adc94166665a1d714b439e27857dd199b947076891d6a17d32d396cde"
 
 [[package]]
 name = "pyo3-ffi"

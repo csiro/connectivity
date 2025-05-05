@@ -9,6 +9,8 @@ name = "multires_connectivity"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
-numpy = "0.22"
-ndarray = "0.15"
+pyo3 = {version = "0.22", default-features = false, features = ["macros", "gil-refs", "py-clone"]}
+pyo3-built = "0.5"
+numpy = {version = "0.22", features = ["gil-refs"]}
+ndarray = "0.16"
+
