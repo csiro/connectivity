@@ -258,35 +258,11 @@ fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u
     for ((u, v), &weight) in graph_temp {
         if let Some(edges) = graph.get_mut(u) {
             // Convert f32 weight to u32 by scaling and rounding
-            let int_val: u32 = (weight * 1_000_000.0).round() as u32;
+            let int_val: u32 = (weight * 10_000_000.0).round() as u32;
             edges.push((*v, int_val));
         }
     }
     
     graph
 }
-
-// /// Convert edge list to adjacency list format efficiently
-// fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u32, Vec<(u32, f32)>> {
-//     // First pass: count edges per node to allocate exact sizes
-//     let mut sizes: HashMap<u32, usize> = HashMap::new();
-//     for &(u, _) in graph_temp.keys() {
-//         *sizes.entry(u).or_insert(0) += 1;
-//     }
-    
-//     // Create graph with pre-allocated vectors
-//     let mut graph: HashMap<u32, Vec<(u32, f32)>> = HashMap::with_capacity(sizes.len());
-//     for (&node, &size) in &sizes {
-//         graph.insert(node, Vec::with_capacity(size));
-//     }
-    
-//     // Second pass: fill the graph
-//     for ((u, v), &weight) in graph_temp {
-//         if let Some(edges) = graph.get_mut(u) {
-//             edges.push((*v, weight));
-//         }
-//     }
-    
-//     graph
-// }
 

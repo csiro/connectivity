@@ -47,7 +47,7 @@ fn py_multi_level_window(
             multi_level_window(
                 base_i,
                 base_j,
-                current_level,
+                key,
                 &rust_data_dict,
                 nb_size,
                 last_nb_size,
@@ -55,7 +55,7 @@ fn py_multi_level_window(
         );
     }
 
-    let factor: f32 = 0.5;
+    let factor: f32 = 2.5;
 
     let (graph, source) = multi_level_graph_optimized(
         base_i,
@@ -64,6 +64,7 @@ fn py_multi_level_window(
         factor
     );
 
+    println!("source: {}", source);
     // println!("graph: {:?}", graph);
 
     // let mut graph: HashMap<u32, Vec<(u32, NotNan<f32>)>> = HashMap::new();

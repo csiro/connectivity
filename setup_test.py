@@ -33,34 +33,22 @@ def test_multi_level_window():
     """
 
     np.random.seed(90)
-    arr = random_image(128, 10)
+    arr = random_image(32, 3)
 
-
-    # # Create a dictionary of numpy arrays
-    # data_dict = {
-    #     1: np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
-    #     2: np.array([[5.0, 6.0], [7.0, 8.0]], dtype=np.float32),
-    #     3: np.array([[9.0, 10.0], [11.0, 12.0]], dtype=np.float32)
-    # }
     data_dict = {}
-    for level in [1, 2, 4, 8, 16]:
+    for level in [1, 2, 4, 8]:
         if level < 2:
             data_dict[level] = arr.astype(np.float32)
         else:
             lower_level = level/2
             data_dict[level] = aggregate_2x2(data_dict[lower_level]).astype(np.float32)
     
-    # # Print the last numpy array in the dictionary
-    # last_key = max(data_dict.keys())
-    # print(f"Last numpy array (key={last_key}):")
-    # print(data_dict[last_key])
-    
     # Call the Rust function
-    base_i = 0
-    base_j = 0
+    base_i = 6
+    base_j = 6
     current_level = 2
     nb_size = 3
-    last_nb_size = 2
+    last_nb_size = 3
     
     # Call the wrapped function
     row_indices, col_indices, values = py_multi_level_window(
