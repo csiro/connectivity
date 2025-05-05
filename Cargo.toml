@@ -13,4 +13,5 @@ pyo3 = {version = "0.22", default-features = false, features = ["macros", "gil-r
 pyo3-built = "0.5"
 numpy = {version = "0.22", features = ["gil-refs"]}
 ndarray = "0.16"
-
+pathfinding = "4.14.0"
+ordered-float = "4.2.0"

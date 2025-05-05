@@ -2,10 +2,16 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use numpy::PyArray2;
 use ndarray::Array2;
+
 use std::collections::HashMap;
+use ordered_float::NotNan;
+use pathfinding::prelude::dijkstra_all;
 
 mod window;
 use window::multi_level_window;
+
+mod graph;
+use graph::multi_level_graph_optimized;
 
 
 #[pyfunction]
@@ -32,6 +38,54 @@ fn py_multi_level_window(
         rust_data_dict.insert(key, array_owned);
     }
 
+    
+    let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>)> = HashMap::new();
+
+    for &key in rust_data_dict.keys() {
+        level_dict.insert(
+            key,
+            multi_level_window(
+                base_i,
+                base_j,
+                current_level,
+                &rust_data_dict,
+                nb_size,
+                last_nb_size,
+            ),
+        );
+    }
+
+    let factor: f32 = 0.5;
+
+    let (graph, source) = multi_level_graph_optimized(
+        base_i,
+        base_j,
+        &level_dict, 
+        factor
+    );
+
+    println!("graph: {:?}", graph);
+
+    // let mut graph: HashMap<u32, Vec<(u32, NotNan<f32>)>> = HashMap::new();
+
+    // // Create the successors function that uses our adjacency map
+    // let successors = |node: &u32| -> Vec<(u32, NotNan<f32>)> {
+    //     // Return the neighbors of this node from our graph
+    //     // If the node isn't in our graph, return an empty vector
+    //     match graph.get(node) {
+    //         Some(neighbors) => neighbors.clone(),
+    //         None => Vec::new(),
+    //     }
+    // };
+
+    // // Using u32 for costs instead of f32 since f32 doesn't implement Ord
+    // let reachables: HashMap<u32, (u32, u32)> = dijkstra_all(&source, successors);
+    
+    // // Instead, you could print specific results if needed
+    // println!("Found {} reachable nodes", reachables.len());
+    // println!("Found {:?}", reachables);
+
+
     Ok(multi_level_window(
         base_i,
         base_j,
@@ -40,6 +94,7 @@ fn py_multi_level_window(
         nb_size,
         last_nb_size,
     ))
+
 }
 
 #[pymodule]
