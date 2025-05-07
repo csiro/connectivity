@@ -3,13 +3,12 @@ use ordered_float::NotNan;
 // use rayon::prelude::*; // For parallelism
 
 /// Optimized implementation of multi-level graph generation
-pub fn multi_level_graph_optimized(
+pub fn multi_level_graph(
     i_base: i32, 
     j_base: i32, 
     level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>)>, 
     factor: f32
-    // nb_size: i32
-) -> (HashMap<u32, Vec<(u32, u32)>>, u32) {
+) -> (HashMap<(u32, u32), (f32, f32, f32)>, u32) {
     // Pre-compute constants
     let i_ngb = [0, 1, 0, -1, 1, 1, -1, -1];
     let j_ngb = [1, 0, -1, 0, 1, -1, 1, -1];
@@ -20,11 +19,15 @@ pub fn multi_level_graph_optimized(
     
     let max_level = *levels.last().unwrap_or(&0);
     
+    // // Pre-allocate with capacity for better performance
+    // let mut graph_temp: HashMap<(u32, u32), f32> = HashMap::with_capacity(
+    //     level_dict.values().map(|(i, _, _)| i.len() * 8).sum()
+    // );
     // Pre-allocate with capacity for better performance
-    let mut graph_temp: HashMap<(u32, u32), f32> = HashMap::with_capacity(
+    let mut graph_temp: HashMap<(u32, u32), (f32, f32, f32)> = HashMap::with_capacity(
         level_dict.values().map(|(i, _, _)| i.len() * 8).sum()
     );
-    
+        
     let mut source = 0;
     // let mut targets = Vec::new();
     
@@ -101,10 +104,62 @@ pub fn multi_level_graph_optimized(
     }
     
     // Convert to final graph format - this is more efficient than adding edges one by one
-    let graph = convert_to_adjacency_list(&graph_temp);
+    // let graph = convert_to_adjacency_list(&graph_temp);
     
     // (graph, source, targets)
-    (graph, source)
+    (graph_temp, source)
+}
+
+
+/// Process neighbors at current level
+#[inline]
+fn process_current_level_neighbors(
+    i: i32, j: i32, u: u32, level: i32,
+    i_ngb: &[i32], j_ngb: &[i32],
+    node_mapping: &HashMap<(i32, i32), (u32, f32)>,
+    factor: f32,
+    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32)>
+) {
+    for k in 0..8 {
+        let ni = i + i_ngb[k];
+        let nj = j + j_ngb[k];
+        
+        if let Some(&(v, z)) = node_mapping.get(&(ni, nj)) {
+            let dist = cell_distance(i, j, ni, nj) * level as f32;
+            let w = (1.0 - factor) * z + factor;
+            
+            // Store only the weighted distance in the temp graph
+            graph_temp.insert((u, v), (w * dist, z, dist));
+        }
+    }
+}
+
+
+/// Process connections to higher level
+#[inline]
+fn process_higher_level_connections(
+    i: i32, j: i32,
+    node_mapping: &HashMap<(i32, i32), (u32, f32)>,
+    node_mapping_higher: &HashMap<(i32, i32), (u32, f32)>,
+    factor: f32,
+    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32)>
+) {
+    if let Some(&(u_val, zz)) = node_mapping.get(&(i, j)) {
+        let wu = (1.0 - factor) * zz + factor;
+        
+        // Get all higher neighbors at once
+        let higher_neighbors = get_higher_neighbors(i, j);
+        
+        for (ni, nj, dist) in &higher_neighbors {
+            if let Some(&(v, z)) = node_mapping_higher.get(&(*ni, *nj)) {
+                let w = (1.0 - factor) * z + factor;
+                
+                // Both-way edge
+                graph_temp.insert((u_val, v), (w * *dist, z, *dist));
+                graph_temp.insert((v, u_val), (wu * *dist, z, *dist));
+            }
+        }
+    }
 }
 
 
@@ -168,6 +223,7 @@ fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32, f32); 8] {
     results
 }
 
+
 /// Create node mapping efficiently
 fn create_node_mapping_fast(
     i_array: &[i32],
@@ -188,60 +244,10 @@ fn create_node_mapping_fast(
     mapping
 }
 
-/// Process neighbors at current level
-#[inline]
-fn process_current_level_neighbors(
-    i: i32, j: i32, u: u32, level: i32,
-    i_ngb: &[i32], j_ngb: &[i32],
-    node_mapping: &HashMap<(i32, i32), (u32, f32)>,
-    factor: f32,
-    graph_temp: &mut HashMap<(u32, u32), f32>
-) {
-    for k in 0..8 {
-        let ni = i + i_ngb[k];
-        let nj = j + j_ngb[k];
-        
-        if let Some(&(v, z)) = node_mapping.get(&(ni, nj)) {
-            let dist = cell_distance(i, j, ni, nj) * level as f32;
-            let w = (1.0 - factor) * z + factor;
-            
-            // Store only the weighted distance in the temp graph
-            graph_temp.insert((u, v), w * dist);
-        }
-    }
-}
-
-/// Process connections to higher level
-#[inline]
-fn process_higher_level_connections(
-    i: i32, j: i32,
-    node_mapping: &HashMap<(i32, i32), (u32, f32)>,
-    node_mapping_higher: &HashMap<(i32, i32), (u32, f32)>,
-    factor: f32,
-    graph_temp: &mut HashMap<(u32, u32), f32>
-) {
-    if let Some(&(u_val, zz)) = node_mapping.get(&(i, j)) {
-        let wu = (1.0 - factor) * zz + factor;
-        
-        // Get all higher neighbors at once
-        let higher_neighbors = get_higher_neighbors(i, j);
-        
-        for (ni, nj, dist) in &higher_neighbors {
-            if let Some(&(v, z)) = node_mapping_higher.get(&(*ni, *nj)) {
-                let w = (1.0 - factor) * z + factor;
-                
-                // Both-way edge
-                graph_temp.insert((u_val, v), w * dist);
-                graph_temp.insert((v, u_val), wu * dist);
-            }
-        }
-    }
-}
-
 
 /// Convert edge list to adjacency list format efficiently
-/// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding
-fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u32, Vec<(u32, u32)>> {
+/// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding to be used in Dijkstra
+pub fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), (f32, f32, f32)>) -> HashMap<u32, Vec<(u32, u32)>> {
     // First pass: count edges per node to allocate exact sizes
     let mut sizes: HashMap<u32, usize> = HashMap::new();
     for &(u, _) in graph_temp.keys() {
@@ -255,10 +261,11 @@ fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), f32>) -> HashMap<u
     }
     
     // Second pass: fill the graph with converted weights
-    for ((u, v), &weight) in graph_temp {
+    // Using the weighted_dist (first element of value tuple)
+    for ((u, v), &(weighted_dist, _, _)) in graph_temp {
         if let Some(edges) = graph.get_mut(u) {
             // Convert f32 weight to u32 by scaling and rounding
-            let int_val: u32 = (weight * 10_000_000.0).round() as u32;
+            let int_val: u32 = (weighted_dist * 1_000_000.0).round() as u32;
             edges.push((*v, int_val));
         }
     }
