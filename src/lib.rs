@@ -68,6 +68,8 @@ fn path_connectedness(
 #[pyfunction]
 fn connectivity(
     data_dict: &PyAny,
+    lambda_val: f32,
+    scale: f32,
     nb_size: i32,
     last_nb_size: i32,
 ) -> PyResult<Py<PyArray2<f32>>> {
@@ -113,13 +115,11 @@ fn connectivity(
                     );
                 }
             
-                let factor: f32 = 2.5;
-            
                 let (edge_graph, source) = multi_level_graph(
                     i as i32,
                     j as i32,
                     &level_dict, 
-                    factor
+                    scale
                 );
             
                 // Convert to adjacency list
@@ -140,7 +140,7 @@ fn connectivity(
                 
                 for &k in reachables.keys() {
                     let optim_path = build_path(&k, &reachables);
-                    let connval = path_connectedness(&edge_graph, &optim_path, 2.0);
+                    let connval = path_connectedness(&edge_graph, &optim_path, lambda_val);
                     if connval > 0.0 {
                         len_paths += 1.0;
                     }

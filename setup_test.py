@@ -44,15 +44,14 @@ def test_multi_level_window():
             data_dict[level] = aggregate_2x2(data_dict[lower_level]).astype(np.float32)
     
     # Call the Rust function
-    base_i = 1
-    base_j = 1
-    current_level = 2
+    lambda_val = 2.0
     nb_size = 3
     last_nb_size = 3
     
     # Call the wrapped function
     array = connectivity(
         data_dict, 
+        lambda_val,
         nb_size, 
         last_nb_size
     )
