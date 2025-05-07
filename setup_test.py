@@ -45,6 +45,7 @@ def test_multi_level_window():
     
     # Call the Rust function
     lambda_val = 2.0
+    scale = 2.0
     nb_size = 3
     last_nb_size = 3
     
@@ -52,6 +53,7 @@ def test_multi_level_window():
     array = connectivity(
         data_dict, 
         lambda_val,
+        scale,
         nb_size, 
         last_nb_size
     )
