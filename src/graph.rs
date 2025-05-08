@@ -1,6 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use ordered_float::NotNan;
-// use rayon::prelude::*; // For parallelism
 
 /// Optimized implementation of multi-level graph generation
 pub fn multi_level_graph(
@@ -19,10 +17,6 @@ pub fn multi_level_graph(
     
     let max_level = *levels.last().unwrap_or(&0);
     
-    // // Pre-allocate with capacity for better performance
-    // let mut graph_temp: HashMap<(u32, u32), f32> = HashMap::with_capacity(
-    //     level_dict.values().map(|(i, _, _)| i.len() * 8).sum()
-    // );
     // Pre-allocate with capacity for better performance
     let mut graph_temp: HashMap<(u32, u32), (f32, f32, f32)> = HashMap::with_capacity(
         level_dict.values().map(|(i, _, _)| i.len() * 8).sum()
@@ -40,7 +34,7 @@ pub fn multi_level_graph(
     
     // Pre-compute edge indices for all levels
     for (&level, (i_array, j_array, _)) in level_dict {
-        let edge_indices = get_edge_indices_fast(i_array, j_array);
+        let edge_indices = get_edge_indices(i_array, j_array);
         all_edge_indices.insert(level, edge_indices);
     }
 
@@ -54,7 +48,7 @@ pub fn multi_level_graph(
         if level > 1 {
             node_mapping = node_mapping_higher.clone();
         } else {
-            node_mapping = create_node_mapping_fast(i_array, j_array, values, level);
+            node_mapping = create_node_mapping(i_array, j_array, values, level);
             
             // Find the base node index - do it once only
             for (k, &val) in &node_mapping {
@@ -69,7 +63,7 @@ pub fn multi_level_graph(
         if level < max_level {
             let higher_level = level * 2;
             if let Some((i_array2, j_array2, values2)) = level_dict.get(&higher_level) {
-                node_mapping_higher = create_node_mapping_fast(i_array2, j_array2, values2, higher_level);
+                node_mapping_higher = create_node_mapping(i_array2, j_array2, values2, higher_level);
             }
         }
         
@@ -97,16 +91,10 @@ pub fn multi_level_graph(
                     factor,
                     &mut graph_temp
                 );
-            } // else if edge_indices.contains(&(i, j)) {
-                // targets.push(u);
-            // }
+            }
         }
     }
-    
-    // Convert to final graph format - this is more efficient than adding edges one by one
-    // let graph = convert_to_adjacency_list(&graph_temp);
-    
-    // (graph, source, targets)
+
     (graph_temp, source)
 }
 
@@ -164,7 +152,7 @@ fn process_higher_level_connections(
 
 
 /// Get edge cells efficiently using HashSet
-fn get_edge_indices_fast(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
+fn get_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
     let i_min = *i_arr.iter().min().unwrap_or(&0);
     let i_max = *i_arr.iter().max().unwrap_or(&0);
     let j_min = *j_arr.iter().min().unwrap_or(&0);
@@ -182,6 +170,7 @@ fn get_edge_indices_fast(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
     edge_set
 }
 
+
 /// Calculate distance between two cells
 #[inline]
 fn cell_distance(i1: i32, j1: i32, i2: i32, j2: i32) -> f32 {
@@ -189,6 +178,7 @@ fn cell_distance(i1: i32, j1: i32, i2: i32, j2: i32) -> f32 {
     let dj = j2 - j1;
     ((di * di + dj * dj) as f32).sqrt()
 }
+
 
 /// Pre-compute all higher neighbor distances to avoid redundant calculations
 #[inline]
@@ -225,7 +215,7 @@ fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32, f32); 8] {
 
 
 /// Create node mapping efficiently
-fn create_node_mapping_fast(
+fn create_node_mapping(
     i_array: &[i32],
     j_array: &[i32],
     values: &[f32],
@@ -244,32 +234,4 @@ fn create_node_mapping_fast(
     mapping
 }
 
-
-/// Convert edge list to adjacency list format efficiently
-/// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding to be used in Dijkstra
-pub fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), (f32, f32, f32)>) -> HashMap<u32, Vec<(u32, u32)>> {
-    // First pass: count edges per node to allocate exact sizes
-    let mut sizes: HashMap<u32, usize> = HashMap::new();
-    for &(u, _) in graph_temp.keys() {
-        *sizes.entry(u).or_insert(0) += 1;
-    }
-    
-    // Create graph with pre-allocated vectors
-    let mut graph: HashMap<u32, Vec<(u32, u32)>> = HashMap::with_capacity(sizes.len());
-    for (&node, &size) in &sizes {
-        graph.insert(node, Vec::with_capacity(size));
-    }
-    
-    // Second pass: fill the graph with converted weights
-    // Using the weighted_dist (first element of value tuple)
-    for ((u, v), &(weighted_dist, _, _)) in graph_temp {
-        if let Some(edges) = graph.get_mut(u) {
-            // Convert f32 weight to u32 by scaling and rounding
-            let int_val: u32 = (weighted_dist * 1_000_000.0).round() as u32;
-            edges.push((*v, int_val));
-        }
-    }
-    
-    graph
-}
 

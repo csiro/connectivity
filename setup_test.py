@@ -33,7 +33,7 @@ def test_multi_level_window():
     """
 
     np.random.seed(90)
-    arr = random_image(32, 3)
+    arr = random_image(128, 10)
 
     data_dict = {}
     for level in [1, 2, 4, 8]:
