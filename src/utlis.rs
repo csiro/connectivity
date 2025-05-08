@@ -59,8 +59,8 @@ pub fn path_connectedness(
         // Look up the edge in the graph
         if let Some(&(dw, cond, dist)) = graph.get(&(from, to)) {
             // Update distances
-            dist_land += dist / ((0.5 * cond) + 0.5); // permeability calculation
-            dist_intact += dist; // distance of intact cells
+            dist_land += dist / ((0.5 * cond) + 0.5); // Permeability calculation
+            dist_intact += dist; // Distance of intact cells
             
             let dist_land_lm = dist_land / dispersal;
             let dist_intact_lm = dist_intact / dispersal;

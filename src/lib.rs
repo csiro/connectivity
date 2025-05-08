@@ -4,7 +4,7 @@ use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array2, s};
 use pathfinding::prelude::{dijkstra_all, build_path};
 use rayon::prelude::*;
-
+// local modules
 mod window;
 mod graph;
 mod utlis;
@@ -64,7 +64,9 @@ fn connectivity(
                         );
                     }
 
+                    // Get the graph and source node for cell ij
                     let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
+                    // Convert the graph to suitable format for dijkstra
                     let graph = convert_to_adjacency_list(&edge_graph);
                     let successors = |node: &u32| -> Vec<(u32, u32)> {
                         graph.get(node).cloned().unwrap_or_default()

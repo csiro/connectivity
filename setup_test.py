@@ -1,9 +1,6 @@
 import numpy as np
+from scipy.ndimage import gaussian_filter
 from multires_connectivity import connectivity
-
-from functools import reduce
-import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter, uniform_filter
 
 def random_image(size=50, sig=3):
     def scale(x):
