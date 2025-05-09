@@ -32,7 +32,7 @@ def connectivity(
         mask = np.where(data_dict[1].copy() < -9990, 0, 1)
         out_array = np.where(mask == 0, np.nan, out_array)
 
-    if len(filename < 2):
+    if len(filename) > 2:
         write_raster(out_array, outfile=filename, template=path)
 
     return out_array

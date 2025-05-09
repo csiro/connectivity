@@ -20,12 +20,13 @@ Installing the library into the environent:
 
 ```bash
 source activate spatial
+
+cd ~/multires_connectivity
 ```
 
 Option 1: Install in editable mode (develop locally)
 
 ```bash
-cd ~/multires_connectivity
 maturin develop
 ```
 
@@ -44,4 +45,19 @@ pip install target/wheels/multires_connectivity-*.whl
 
 ```python
 from multires_connectivity import connectivity
+```
+
+```python
+connd = connectivity(
+    path = "cog_file.tif",
+    disp_rate = 0.2,
+    scale = 2.5, 
+    nb_size = 3, 
+    last_nb_size = 5,
+    levels = [1, 2, 4, 8, 16],
+    mask = True, 
+    smooth = True,
+    filename = ""
+)
+
 ```
