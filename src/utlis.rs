@@ -4,7 +4,7 @@ use std::f32::consts::E;
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
 /// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding to be used in Dijkstra
-pub fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), (f32, f32, f32)>) -> HashMap<u32, Vec<(u32, u32)>> {
+pub fn convert_to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32)>) -> HashMap<u32, Vec<(u32, u32)>> {
     // First pass: count edges per node to allocate exact sizes
     let mut sizes: HashMap<u32, usize> = HashMap::new();
     for &(u, _) in graph_temp.keys() {
@@ -29,7 +29,6 @@ pub fn convert_to_adjacency_list(graph_temp: &HashMap<(u32, u32), (f32, f32, f32
     
     graph
 }
-
 
 
 /// Generate consecutive pairs from a slice of values

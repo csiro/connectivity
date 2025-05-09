@@ -10,7 +10,7 @@ mod graph;
 mod utlis;
 use window::multi_level_window;
 use graph::multi_level_graph;
-use utlis::{convert_to_adjacency_list, path_connectedness};
+use utlis::{convert_to_adjacency, path_connectedness};
 
 
 #[pyfunction]
@@ -26,6 +26,7 @@ fn connectivity(
     let items = data_dict.call_method0("items")?;
     let iter = items.iter()?;
 
+    // NOTE: check if copying mem happens here; if yes, need to avoid it.
     for pair in iter {
         let (key_obj, value_obj) = pair?.extract::<(&PyAny, &PyAny)>()?;
         let key = key_obj.extract::<i32>()?;
@@ -67,7 +68,7 @@ fn connectivity(
                     // Get the graph and source node for cell ij
                     let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
                     // Convert the graph to suitable format for dijkstra
-                    let graph = convert_to_adjacency_list(&edge_graph);
+                    let graph = convert_to_adjacency(&edge_graph);
                     let successors = |node: &u32| -> Vec<(u32, u32)> {
                         graph.get(node).cloned().unwrap_or_default()
                     };
@@ -81,11 +82,11 @@ fn connectivity(
                     // Loop through all reachable paths and calcaulate connectivity
                     for &k in reachables.keys() {
                         let optim_path = build_path(&k, &reachables);
-                        let connval = path_connectedness(&edge_graph, &optim_path, lambda_val);
-                        if connval > 0.0 {
+                        let path_conn = path_connectedness(&edge_graph, &optim_path, lambda_val);
+                        if path_conn > 0.0 {
                             len_paths += 1.0;
                         }
-                        conn += connval;
+                        conn += path_conn;
                     }
 
                     row_result[j] = if len_paths > 0.0 {
