@@ -1,6 +1,6 @@
 ## multires-connectivity: A multi-resolution landscape connectivity algorithm
 
-This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using mean aggregation, not nearest neighbor resampling.
+This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using `mean` aggregation, not `nearest neighbor` resampling.
 
 ### Installation
 
@@ -42,3 +42,6 @@ pip install target/wheels/multires_connectivity-*.whl
 
 ### Example
 
+```python
+from multires_connectivity import connectivity
+```

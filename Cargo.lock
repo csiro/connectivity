@@ -126,19 +126,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "multires_connectivity"
-version = "0.1.0"
-dependencies = [
- "ndarray",
- "numpy",
- "ordered-float",
- "pathfinding",
- "pyo3",
- "pyo3-built",
- "rayon",
-]
-
-[[package]]
 name = "ndarray"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,6 +337,19 @@ checksum = "1465873a3dfdaa8ae7cb14b4383657caab0b3e8a0aa9ae8e04b044854c8dfce2"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "rust_connectivity"
+version = "0.1.0"
+dependencies = [
+ "ndarray",
+ "numpy",
+ "ordered-float",
+ "pathfinding",
+ "pyo3",
+ "pyo3-built",
+ "rayon",
 ]
 
 [[package]]

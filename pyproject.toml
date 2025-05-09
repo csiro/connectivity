@@ -4,6 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "multires_connectivity"
+description = "A multi-resolution landscape connectivity algorithm"
+authors = [{ name = "Roozbeh Valavi", email = "roozbeh.valavi@csiro.au" }]
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
@@ -13,3 +15,5 @@ classifiers = [
 dynamic = ["version"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
+# Include all .py files in the package directory
+include = ["connectivity/*.py"]

@@ -14,7 +14,7 @@ use utlis::{convert_to_adjacency, path_connectedness};
 
 
 #[pyfunction]
-fn connectivity(
+fn _connectivity(
     data_dict: &PyAny,
     lambda_val: f32,
     scale: f32,
@@ -119,8 +119,8 @@ fn connectivity(
 
 
 #[pymodule]
-fn multires_connectivity(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(connectivity, _py)?)?;
+fn rust_connectivity(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(_connectivity, _py)?)?;
     Ok(())
 }
 

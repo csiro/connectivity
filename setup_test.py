@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from multires_connectivity import connectivity
+# from multires_connectivity import connectivity
+from rust_connectivity import _connectivity as fn_conn
 
 def random_image(size=50, sig=3):
     def scale(x):
@@ -47,7 +48,7 @@ def test_multi_level_window():
     last_nb_size = 3
     
     # Call the wrapped function
-    array = connectivity(
+    array = fn_conn
         data_dict, 
         lambda_val,
         scale,
