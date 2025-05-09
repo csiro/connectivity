@@ -2,7 +2,7 @@
 
 This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using mean aggregation, not nearest neighbor resampling.
 
-## Installation
+### Installation
 
 You need to load the module and create an environment if you don't alreay have one.
 
@@ -40,5 +40,5 @@ Then find the wheel under `target/wheels/`, and install it with:
 pip install target/wheels/multires_connectivity-*.whl
 ```
 
-## Example
+### Example
 
