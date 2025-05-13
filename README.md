@@ -47,6 +47,17 @@ pip install target/wheels/multires_connectivity-*.whl
 from multires_connectivity import connectivity
 ```
 
+Prepare the COG file:
+
+```python
+create_overviews(
+    input_raster = "file.tif",
+    output_raster = None, # keep None to update layer inplace
+    overview_levels = [1, 2, 4, 8, 16] # the overview levels
+)
+```
+
+
 ```python
 connd = connectivity(
     path = "cog_file.tif",
