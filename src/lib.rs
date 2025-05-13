@@ -1,44 +1,51 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
-use ndarray::{Array2, s};
+use ndarray::{Array3, Array2, ArrayView1, s};
 use pathfinding::prelude::{dijkstra_all, build_path};
 use rayon::prelude::*;
 // local modules
 mod window;
 mod graph;
 mod utlis;
-use window::multi_level_window;
+use window::{multi_level_window, multi_level_window2};
 use graph::multi_level_graph;
-use utlis::{convert_to_adjacency, path_connectedness};
+use utlis::{convert_to_adjacency, path_connectedness, to_2d_map, to_3d_map};
 
 
 #[pyfunction]
 fn _connectivity(
     data_dict: &PyAny,
+    trans_dict: &PyAny,
     lambda_val: f32,
     scale: f32,
     nb_size: i32,
     last_nb_size: i32,
 ) -> PyResult<Py<PyArray2<f32>>> {
-    let mut rust_data_dict: HashMap<i32, Array2<f32>> = HashMap::new();
 
-    let items = data_dict.call_method0("items")?;
-    let iter = items.iter()?;
+    // Create a Rust HashMap from Py data
+    let cond_map: HashMap<i32, Array2<f32>> = to_2d_map(data_dict);
+    let tans_map: HashMap<i32, Array3<f32>> = to_3d_map(trans_dict);
 
-    // NOTE: check if copying mem happens here; if yes, need to avoid it.
-    for pair in iter {
-        let (key_obj, value_obj) = pair?.extract::<(&PyAny, &PyAny)>()?;
-        let key = key_obj.extract::<i32>()?;
-        let py_array = value_obj.extract::<&PyArray2<f32>>()?;
-        let array_owned = unsafe { py_array.as_array().to_owned() };
-        rust_data_dict.insert(key, array_owned);
-    }
 
-    // number of level in data
-    let num_level: usize = rust_data_dict.len();
+    // if let Some(arr) = tans_map.get(&1) {
+    //     let focal_val: ArrayView1<f32> = arr.slice(s![.., 300, 300]);
+    //     println!(
+    //         "MLW: {:?}", 
+    //         multi_level_window2(
+    //             300,
+    //             300,
+    //             1,
+    //             &cond_map,
+    //             nb_size,
+    //             last_nb_size,
+    //             &tans_map,
+    //             focal_val
+    //         )
+    //     )
+    // }
 
-    if let Some(array) = rust_data_dict.get(&1) {
+    if let Some(array) = cond_map.get(&1) {
         let shape = array.shape();
         let nrows = shape[0];
         let ncols = shape[1];
@@ -53,17 +60,18 @@ fn _connectivity(
 
                 for j in 0..ncols {
 
-                    // let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>)> = HashMap::new();
-                    let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>)> = HashMap::with_capacity(num_level);
+                    let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>)> = HashMap::new();
 
-                    for &key in rust_data_dict.keys() {
+                    // let focal_val: ArrayView1<f32> = array.slice(s![.., i, j]);
+
+                    for &key in cond_map.keys() {
                         level_dict.insert(
                             key,
                             multi_level_window(
                                 i as i32,
                                 j as i32,
                                 key,
-                                &rust_data_dict,
+                                &cond_map,
                                 nb_size,
                                 last_nb_size,
                             ),

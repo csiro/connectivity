@@ -1,5 +1,51 @@
+use pyo3::prelude::*;
+use numpy::{PyArray2, PyArray3};
+use ndarray::{Array2, Array3};
 use std::collections::HashMap;
 use std::f32::consts::E;
+
+
+// Convert Python object to a rust_hashmap
+pub fn to_2d_map<'py>(
+    data_dict: &'py PyAny,
+) -> HashMap<i32, Array2<f32>> {
+    let mut rust_data_dict = HashMap::new();
+
+    let items = data_dict.call_method0("items").unwrap();
+    let iter = items.iter().unwrap();
+
+    for pair in iter {
+        let (key_obj, value_obj) = pair.unwrap().extract::<(&PyAny, &PyAny)>().unwrap();
+        let key = key_obj.extract::<i32>().unwrap();
+        let py_array = value_obj.extract::<&PyArray2<f32>>().unwrap();
+        let array_owned = unsafe { py_array.as_array().to_owned() };
+        rust_data_dict.insert(key, array_owned);
+    }
+
+    rust_data_dict
+}
+
+
+// Convert Python object to a rust_hashmap
+pub fn to_3d_map<'py>(
+    data_dict: &'py PyAny,
+) -> HashMap<i32, Array3<f32>> {
+    let mut rust_data_dict = HashMap::new();
+
+    let items = data_dict.call_method0("items").unwrap();
+    let iter = items.iter().unwrap();
+
+    for pair in iter {
+        let (key_obj, value_obj) = pair.unwrap().extract::<(&PyAny, &PyAny)>().unwrap();
+        let key = key_obj.extract::<i32>().unwrap();
+        let py_array = value_obj.extract::<&PyArray3<f32>>().unwrap();
+        let array_owned = unsafe { py_array.as_array().to_owned() };
+        rust_data_dict.insert(key, array_owned);
+    }
+
+    rust_data_dict
+}
+
 
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
@@ -37,7 +83,6 @@ fn consecutive_pairs<T: Copy>(values: &[T]) -> Vec<(T, T)> {
           .map(|window| (window[0], window[1]))
           .collect()
 }
-
 
 /// Calculate the connectedness of a path
 pub fn path_connectedness(
