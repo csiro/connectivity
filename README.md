@@ -1,4 +1,4 @@
-## multires-connectivity: A multi-resolution landscape connectivity algorithm
+## multires-connectivity: a multi-resolution landscape connectivity algorithm
 
 This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using `mean` aggregation, not `nearest neighbor` resampling.
 

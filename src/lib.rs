@@ -35,6 +35,9 @@ fn _connectivity(
         rust_data_dict.insert(key, array_owned);
     }
 
+    // number of level in data
+    let num_level: usize = rust_data_dict.len();
+
     if let Some(array) = rust_data_dict.get(&1) {
         let shape = array.shape();
         let nrows = shape[0];
@@ -49,7 +52,9 @@ fn _connectivity(
                 let mut row_result = vec![0.0; ncols];
 
                 for j in 0..ncols {
-                    let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>)> = HashMap::new();
+
+                    // let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>)> = HashMap::new();
+                    let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>)> = HashMap::with_capacity(num_level);
 
                     for &key in rust_data_dict.keys() {
                         level_dict.insert(

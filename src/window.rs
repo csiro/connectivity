@@ -1,4 +1,4 @@
-use ndarray::Array2;
+use ndarray::{Array2};
 use std::collections::HashMap;
 
 /// Get the indices of cells at current_level that fall within the neighborhood
@@ -22,11 +22,13 @@ pub fn multi_level_window(
     data_dict: &HashMap<i32, Array2<f32>>,
     nb_size: i32,
     last_nb_size: i32,
+    // gdm_dict: &HashMap<i32, Array3<f32>>,
 ) -> (Vec<i32>, Vec<i32>, Vec<f32>) {
     let agg_factor = 2;
     let higher_level = current_level * agg_factor;
     
     let current_array = &data_dict[&current_level];
+    // let gdm_array = &gdm_dict[&current_level];
     let current_height = current_array.shape()[0] as i32;
     let current_width = current_array.shape()[1] as i32;
     
@@ -72,6 +74,7 @@ pub fn multi_level_window(
     let mut row_indices = Vec::with_capacity(estimated_capacity);
     let mut col_indices = Vec::with_capacity(estimated_capacity);
     let mut values = Vec::with_capacity(estimated_capacity);
+    // let mut gdmvalues = Vec::with_capacity(estimated_capacity);
     
     // Determine higher level dimensions
     let (higher_height, higher_width) = if data_dict.contains_key(&higher_level) {
@@ -110,6 +113,8 @@ pub fn multi_level_window(
                     row_indices.push(curr_i);
                     col_indices.push(curr_j);
                     values.push(current_array[[curr_i as usize, curr_j as usize]]);
+                    // let dissim: f32 = dissimilarity(gdm_array[[curr_i as usize, curr_j as usize]]);
+                    // gdmvalues.push(dissim);
                 }
             }
         }
@@ -117,4 +122,12 @@ pub fn multi_level_window(
     
     (row_indices, col_indices, values)
 }
+
+
+// // Calcualte L1 distance of GDM layers
+// fn dissimilarity() {
+//     for j in 0..x.len() {
+
+//     }
+// }
 
