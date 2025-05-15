@@ -219,11 +219,11 @@ pub fn multi_level_window2(
                     row_indices.push(curr_i);
                     col_indices.push(curr_j);
                     values.push(current_array[[curr_i as usize, curr_j as usize]]);
-
                     // Calculate dissimilarity only if we have a trans_array for this level
                     if let Some(array) = trans_array.get(&current_level) {
-                        let focal_val: ArrayView1<f32> = array.slice(s![.., curr_i as usize, curr_j as usize]);
-                        gdmvals.push(dissimilarity(&trans_ij, &focal_val));
+                        // Get the transgird values for the segment i.e. higher level cells
+                        let seg_val: ArrayView1<f32> = array.slice(s![.., curr_i as usize, curr_j as usize]);
+                        gdmvals.push(similarity(&trans_ij, &seg_val));
                     } else {
                         // If no trans_array exists for this level, push a default value
                         gdmvals.push(0.0);
@@ -237,10 +237,9 @@ pub fn multi_level_window2(
 }
 
 
-// Calcualte dissimilarity of the transgrid layers
-fn dissimilarity(a: &ArrayView1<f32>, b: &ArrayView1<f32>) -> f32 {
-    let l1_dist: f32 = (a - b).sum();
-    
-    E.powf(-l1_dist)
+// Calcualte similarity of the transgrid layers
+fn similarity(a: &ArrayView1<f32>, b: &ArrayView1<f32>) -> f32 {
+    let l1_dist: f32 = (a - b).mapv(f32::abs).sum();
+    1.0 - E.powf(-l1_dist)
 }
 

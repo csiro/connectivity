@@ -36,3 +36,24 @@ def connectivity(
         write_raster(out_array, outfile=filename, template=path)
 
     return out_array
+
+
+
+
+def beri(
+        condition,
+        current,
+        future,
+        disp_rate,
+        scale=2.0, 
+        nb_size=3, 
+        last_nb_size=9,
+        levels=[1, 2, 4, 8, 16],
+        mask=True, 
+        smooth=True,
+        filename=""
+    ):
+
+
+
+    return 0
