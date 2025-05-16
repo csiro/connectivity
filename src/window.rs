@@ -1,4 +1,4 @@
-use ndarray::{Array3, Array2, ArrayView1, s};
+use ndarray::{Array3, Array2, Array1, ArrayView1, s};
 use std::collections::HashMap;
 use std::f32::consts::E;
 use std::iter::zip;
@@ -130,7 +130,7 @@ pub fn multi_level_window2(
     nb_size: i32,
     last_nb_size: i32,
     trans_vect: &Vec<HashMap<i32, Array3<f32>>>,
-    trans_ij: ArrayView1<f32>,
+    trans_ij: &Array1<f32>,
 ) -> (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>) {
     let agg_factor = 2;
     let higher_level = current_level * agg_factor;
@@ -225,7 +225,7 @@ pub fn multi_level_window2(
         }
     }
 
-    // Now, separately process the transgrids for all scenarios
+    // Now, separately process the transgrids for all scenarios; easier this way
     let gdmvals: Vec<Vec<f32>> = trans_vect
         .iter()
         .map(|scenario_map| {
@@ -249,7 +249,7 @@ pub fn multi_level_window2(
 
 // Calcualte similarity of the transgrid layers
 #[inline]
-fn similarity(a: &ArrayView1<f32>, b: &ArrayView1<f32>) -> f32 {
+fn similarity(a: &Array1<f32>, b: &ArrayView1<f32>) -> f32 {
     let l1_dist: f32 = (a - b).mapv(f32::abs).sum();
     1.0 - E.powf(-l1_dist)
 }

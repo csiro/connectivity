@@ -4,9 +4,9 @@ use std::collections::{HashMap, HashSet};
 pub fn multi_level_graph(
     i_base: i32, 
     j_base: i32, 
-    level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>)>, 
+    level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)>, 
     factor: f32
-) -> (HashMap<(u32, u32), (f32, f32, f32)>, u32) {
+) -> (HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>, u32) {
     // Pre-compute constants
     let i_ngb = [0, 1, 0, -1, 1, 1, -1, -1];
     let j_ngb = [1, 0, -1, 0, 1, -1, 1, -1];
@@ -18,8 +18,8 @@ pub fn multi_level_graph(
     let max_level = *levels.last().unwrap_or(&0);
     
     // Pre-allocate with capacity for better performance
-    let mut graph_temp: HashMap<(u32, u32), (f32, f32, f32)> = HashMap::with_capacity(
-        level_dict.values().map(|(i, _, _)| i.len() * 8).sum()
+    let mut graph_temp: HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)> = HashMap::with_capacity(
+        level_dict.values().map(|(i, _, _, _)| i.len() * 8).sum()
     );
         
     let mut source = 0;
@@ -33,14 +33,14 @@ pub fn multi_level_graph(
     let mut all_edge_indices: HashMap<i32, HashSet<(i32, i32)>> = HashMap::new();
     
     // Pre-compute edge indices for all levels
-    for (&level, (i_array, j_array, _)) in level_dict {
+    for (&level, (i_array, j_array, _, _)) in level_dict {
         let edge_indices = get_edge_indices(i_array, j_array);
         all_edge_indices.insert(level, edge_indices);
     }
 
     // Process each level
     for (level_idx, &level) in levels.iter().enumerate() {
-        let (i_array, j_array, values) = &level_dict[&level];
+        let (i_array, j_array, values, sims) = &level_dict[&level];
         let num_points = i_array.len();
         let edge_indices = &all_edge_indices[&level];
         
@@ -48,12 +48,18 @@ pub fn multi_level_graph(
         if level > 1 {
             node_mapping = node_mapping_higher.clone();
         } else {
-            node_mapping = create_node_mapping(i_array, j_array, values, level);
+            node_mapping = create_node_mapping(i_array, j_array, values, sims, level);
             
             // Find the base node index - do it once only
-            for (k, &val) in &node_mapping {
-                if k == &(i_base, j_base) {
-                    source = val.0;
+            // for (k, &val) in &node_mapping {
+            //     if k == &(i_base, j_base) {
+            //         source = val.0;
+            //         break;
+            //     }
+            // }
+            for (k, val) in &node_mapping {
+                if *k == (i_base, j_base) {
+                    source = val.0;  // `val` is a reference to a tuple, so `val.0` copies u32 (which is Copy)
                     break;
                 }
             }
@@ -62,8 +68,8 @@ pub fn multi_level_graph(
         // Pre-compute higher level node mapping if needed
         if level < max_level {
             let higher_level = level * 2;
-            if let Some((i_array2, j_array2, values2)) = level_dict.get(&higher_level) {
-                node_mapping_higher = create_node_mapping(i_array2, j_array2, values2, higher_level);
+            if let Some((i_array2, j_array2, values2, sims2)) = level_dict.get(&higher_level) {
+                node_mapping_higher = create_node_mapping(i_array2, j_array2, values2, sims2, higher_level);
             }
         }
         
@@ -104,20 +110,20 @@ pub fn multi_level_graph(
 fn process_current_level_neighbors(
     i: i32, j: i32, u: u32, level: i32,
     i_ngb: &[i32], j_ngb: &[i32],
-    node_mapping: &HashMap<(i32, i32), (u32, f32)>,
+    node_mapping: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32)>
+    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>
 ) {
     for k in 0..8 {
         let ni = i + i_ngb[k];
         let nj = j + j_ngb[k];
-        
-        if let Some(&(v, z)) = node_mapping.get(&(ni, nj)) {
+        // Use 'ref' to borrow Vec<f32> rather than moving it
+        if let Some(&(v, z, ref s)) = node_mapping.get(&(ni, nj)) {
             let dist = cell_distance(i, j, ni, nj) * level as f32;
             let w = (1.0 - factor) * z + factor;
             
             // Store only the weighted distance in the temp graph
-            graph_temp.insert((u, v), (w * dist, z, dist));
+            graph_temp.insert((u, v), (w * dist, z, dist, s.clone()));
         }
     }
 }
@@ -127,24 +133,25 @@ fn process_current_level_neighbors(
 #[inline]
 fn process_higher_level_connections(
     i: i32, j: i32,
-    node_mapping: &HashMap<(i32, i32), (u32, f32)>,
-    node_mapping_higher: &HashMap<(i32, i32), (u32, f32)>,
+    node_mapping: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
+    node_mapping_higher: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32)>
+    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>
 ) {
-    if let Some(&(u_val, zz)) = node_mapping.get(&(i, j)) {
+    if let Some(&(u_val, zz, ref ss)) = node_mapping.get(&(i, j)) {
         let wu = (1.0 - factor) * zz + factor;
         
         // Get all higher neighbors at once
         let higher_neighbors = get_higher_neighbors(i, j);
         
-        for (ni, nj, dist) in &higher_neighbors {
-            if let Some(&(v, z)) = node_mapping_higher.get(&(*ni, *nj)) {
+        // Use 'ref' to borrow Vec<f32> rather than moving it
+        for &(ni, nj, dist) in &higher_neighbors {
+            if let Some(&(v, z, ref s)) = node_mapping_higher.get(&(ni, nj)) {
                 let w = (1.0 - factor) * z + factor;
                 
                 // Both-way edge
-                graph_temp.insert((u_val, v), (w * *dist, z, *dist));
-                graph_temp.insert((v, u_val), (wu * *dist, z, *dist));
+                graph_temp.insert((u_val, v), (w * dist, z, dist, s.clone()));
+                graph_temp.insert((v, u_val), (wu * dist, zz, dist, ss.clone()));
             }
         }
     }
@@ -219,15 +226,18 @@ fn create_node_mapping(
     i_array: &[i32],
     j_array: &[i32],
     values: &[f32],
+    similarities: &[Vec<f32>],
     level: i32
-) -> HashMap<(i32, i32), (u32, f32)> {
+) -> HashMap<(i32, i32), (u32, f32, Vec<f32>)> {
     let level_id = level * 100;
     let mut mapping = HashMap::with_capacity(i_array.len());
     
     for i in 0..i_array.len() {
+        // collect the i-th value from each similarity vector
+        let sim_vals: Vec<f32> = similarities.iter().map(|v| v[i]).collect();
         mapping.insert(
             (i_array[i], j_array[i]),
-            (i as u32 + level_id as u32, values[i])
+            (i as u32 + level_id as u32, values[i], sim_vals)
         );
     }
     
