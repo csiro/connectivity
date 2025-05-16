@@ -51,12 +51,6 @@ pub fn multi_level_graph(
             node_mapping = create_node_mapping(i_array, j_array, values, sims, level);
             
             // Find the base node index - do it once only
-            // for (k, &val) in &node_mapping {
-            //     if k == &(i_base, j_base) {
-            //         source = val.0;
-            //         break;
-            //     }
-            // }
             for (k, val) in &node_mapping {
                 if *k == (i_base, j_base) {
                     source = val.0;  // `val` is a reference to a tuple, so `val.0` copies u32 (which is Copy)

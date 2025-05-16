@@ -9,50 +9,10 @@ use rayon::prelude::*;
 mod window;
 mod graph;
 mod utlis;
-use window::{multi_level_window, multi_level_window2};
+use window::{multi_level_window};
 use graph::multi_level_graph;
-use utlis::{to_adjacency, path_connectedness, to_2d_map, to_3d_map};
+use utlis::{*};
 
-#[pyfunction]
-fn get_list_rust(
-    list_of_dict: &PyAny
-) -> PyResult<Py<PyArray2<f32>>> {
-
-    let nrows = 10;
-    let ncols = 10;
-
-    
-    // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
-    let list = list_of_dict.downcast::<PyList>()?; // Convert PyAny to PyList
-    let rust_maps: Vec<HashMap<i32, Array3<f32>>> = list
-        .iter()
-        .map(|item| {
-            let dict = item.downcast::<PyDict>().unwrap(); // Handle errors properly in production
-            to_3d_map(dict) // Your existing conversion function
-        })
-        .collect();
-
-    for map in rust_maps {
-        println!("Parsed map with {} keys", map.len());
-    }
-
-
-    
-    // Initialize output with zeros
-    let mut outarray = Array2::<f32>::zeros((nrows, ncols));
-
-    for i in 0..nrows {
-        for j in 0..ncols {
-            outarray[[i, j]] = (i + j) as f32;
-        }
-    }
-
-    // Convert the array back to Python with gil
-    Python::with_gil(|py| {
-        let pyarray = outarray.to_pyarray_bound(py);
-        Ok(pyarray.unbind())
-    })
-}
 
 
 fn get_focal(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
@@ -115,7 +75,7 @@ fn _connectivity(
                     for &level in cond_map.keys() {
                         level_dict.insert(
                             level,
-                            multi_level_window2(
+                            multi_level_window(
                                 i as i32,
                                 j as i32,
                                 level,
@@ -142,12 +102,19 @@ fn _connectivity(
                     let mut conn: f32 = 0.0;
                     let mut len_paths: f32 = 0.0;
 
+                    for &k in reachables.keys() {
+                        let optim_path = build_path(&k, &reachables);
+
+                    }
+
+
+
                     // Loop through all reachable paths and calcaulate connectivity
                     for &k in reachables.keys() {
                         let optim_path = build_path(&k, &reachables);
                         // if beri {
                         // }
-                        let path_conn = path_connectedness(&edge_graph, &optim_path, lambda_val);
+                        let path_conn = connectedness(&edge_graph, &optim_path, lambda_val);
                         if path_conn > 0.0 {
                             len_paths += 1.0;
                         }
@@ -159,6 +126,8 @@ fn _connectivity(
                     } else {
                         f32::NAN
                     };
+
+
                 }
 
                 (i, row_result)
@@ -186,29 +155,6 @@ fn _connectivity(
 #[pymodule]
 fn rust_connectivity(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(_connectivity, _py)?)?;
-    m.add_function(wrap_pyfunction!(get_list_rust, _py)?)?;
     Ok(())
 }
-
-
-    // if let Some(array) = trans_maps[0].get(&1) {
-    //     let focal_val: ArrayView1<f32> = array.slice(s![.., 300, 300]);
-    //     // use `focal_val` here
-    //     let (a, b, c, d) = multi_level_window2(
-    //         300,
-    //         300,
-    //         1,
-    //         &cond_map,
-    //         nb_size,
-    //         last_nb_size,
-    //         &trans_maps,
-    //         focal_val
-    //     );
-    //     println!("i: {:?}", a);
-    //     println!("j: {:?}", b);
-    //     println!("cond: {:?}", c);
-    //     println!("diss: {:?}", d);
-    // } else {
-    //     println!("No array was found in the list")
-    // }
 

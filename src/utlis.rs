@@ -96,7 +96,7 @@ fn consecutive_pairs<T: Copy>(values: &[T]) -> Vec<(T, T)> {
 }
 
 // Calculate the connectedness of a path
-pub fn path_connectedness(
+pub fn connectedness(
     graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
     path: &[u32],
     dispersal: f32
@@ -136,14 +136,69 @@ pub fn path_connectedness(
 }
 
 
-// // Generate BERI for a path to a segment (low-res gird cell)
-// pub fn beri(
-//     graph: &HashMap<(u32, u32), (f32, f32, f32)>,
-//     path: &[u32],
-//     dispersal: f32
-// ) -> f32 {
+/// Return distance values and the condition/similarity of the last segment
+pub fn path_distance(
+    graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
+    path: &[u32]
+) -> (f32, f32, f32, Vec<f32>) {
+    let mut dist_adjusted = 0.0;
+    let mut dist_intact = 0.0;
+    let mut last_condition = 0.0;
+    let mut last_sims_ref: Option<&Vec<f32>> = None;
+
+    for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
+        if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
+            dist_adjusted += dist / (0.5 * cond + 0.5);
+            dist_intact += dist;
+            last_condition = cond;
+            last_sims_ref = Some(sims);
+        }
+    }
+
+    // Clone only once at the end
+    let last_sims = last_sims_ref.cloned().unwrap_or_default(); 
+
+    (dist_adjusted, dist_intact, last_condition, last_sims)
+}
 
 
+/// Compute a BERI score from a segment and a lambda vector
+pub fn beri_score(segment: (f32, f32, f32, Vec<f32>), lambda: &[f32], scenario: usize) -> f32 {
+    let denom_val: f32 = 283.465; // 5.785 * (50 - 1)
+    let (dist_adj, _dist, cond, similarities) = segment;
 
-// }
+    let values: Vec<f32> = lambda.iter().map(|d| {
+        let dist_lambda = dist_adj / d;
+        let exp_term = dist_lambda * dist_lambda / denom_val;
+        let s: f32 = similarities[scenario];
+        E.powf(-exp_term) * cond * s
+    }).collect();
+
+    let count = values.len();
+    if count > 0 {
+        values.iter().sum::<f32>() / count as f32
+    } else {
+        0.0
+    }
+}
+
+/// Compute a BERI score from a segment and a lambda vector
+pub fn beri_intact(segment: (f32, f32, f32, Vec<f32>), lambda: &[f32], scenario: usize) -> f32 {
+    let denom_val: f32 = 283.465;
+    let (dist_adj, _dist, cond, similarities) = segment;
+
+    let values: Vec<f32> = lambda.iter().map(|d| {
+        let dist_lambda = dist_adj / d;
+        let exp_term = dist_lambda * dist_lambda / denom_val;
+        let s: f32 = similarities[scenario];
+        E.powf(-exp_term) * cond * s
+    }).collect();
+
+    let count = values.len();
+    if count > 0 {
+        values.iter().sum::<f32>() / count as f32
+    } else {
+        0.0
+    }
+}
 
