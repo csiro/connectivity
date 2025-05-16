@@ -1,6 +1,7 @@
 use ndarray::{Array3, Array2, ArrayView1, s};
 use std::collections::HashMap;
 use std::f32::consts::E;
+use std::iter::zip;
 
 
 /// Get the indices of cells at current_level that fall within the neighborhood
@@ -128,9 +129,9 @@ pub fn multi_level_window2(
     data_dict: &HashMap<i32, Array2<f32>>,
     nb_size: i32,
     last_nb_size: i32,
-    trans_array: &HashMap<i32, Array3<f32>>,
+    trans_vect: &Vec<HashMap<i32, Array3<f32>>>,
     trans_ij: ArrayView1<f32>,
-) -> (Vec<i32>, Vec<i32>, Vec<f32>, Vec<f32>) {
+) -> (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>) {
     let agg_factor = 2;
     let higher_level = current_level * agg_factor;
     
@@ -180,7 +181,7 @@ pub fn multi_level_window2(
     let mut row_indices = Vec::with_capacity(estimated_capacity);
     let mut col_indices = Vec::with_capacity(estimated_capacity);
     let mut values = Vec::with_capacity(estimated_capacity);
-    let mut gdmvals = Vec::with_capacity(estimated_capacity);
+    // let mut gdmvals: Vec<Vec<f32>> = Vec::with_capacity(trans_vect.len());
     
     // Determine higher level dimensions
     let (higher_height, higher_width) = if data_dict.contains_key(&higher_level) {
@@ -219,25 +220,35 @@ pub fn multi_level_window2(
                     row_indices.push(curr_i);
                     col_indices.push(curr_j);
                     values.push(current_array[[curr_i as usize, curr_j as usize]]);
-                    // Calculate dissimilarity only if we have a trans_array for this level
-                    if let Some(array) = trans_array.get(&current_level) {
-                        // Get the transgird values for the segment i.e. higher level cells
-                        let seg_val: ArrayView1<f32> = array.slice(s![.., curr_i as usize, curr_j as usize]);
-                        gdmvals.push(similarity(&trans_ij, &seg_val));
-                    } else {
-                        // If no trans_array exists for this level, push a default value
-                        gdmvals.push(0.0);
-                    }
                 }
             }
         }
     }
+
+    // Now, separately process the transgrids for all scenarios
+    let gdmvals: Vec<Vec<f32>> = trans_vect
+        .iter()
+        .map(|scenario_map| {
+            if let Some(array) = scenario_map.get(&current_level) {
+                zip(row_indices.iter(), col_indices.iter())
+                    .map(|(&curr_i, &curr_j)| {
+                        let seg_val: ArrayView1<f32> = array.slice(s![.., curr_i as usize, curr_j as usize]);
+                        similarity(&trans_ij, &seg_val)
+                    })
+                    .collect::<Vec<f32>>()
+            } else {
+                // Return a vector of 0.0s the same length as the number of segments
+                vec![0.0; row_indices.len()]
+            }
+        })
+        .collect();
     
     (row_indices, col_indices, values, gdmvals)
 }
 
 
 // Calcualte similarity of the transgrid layers
+#[inline]
 fn similarity(a: &ArrayView1<f32>, b: &ArrayView1<f32>) -> f32 {
     let l1_dist: f32 = (a - b).mapv(f32::abs).sum();
     1.0 - E.powf(-l1_dist)

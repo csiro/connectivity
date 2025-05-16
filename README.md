@@ -47,7 +47,7 @@ pip install target/wheels/multires_connectivity-*.whl
 from multires_connectivity import connectivity, create_overviews, overview_info
 ```
 
-**1. Inspecting Overview Information**
+**1. Inspecting Overview Information**    
 You can inspect the overview metadata of a TIFF file using the overview_info() function:
 
 ```python
@@ -82,8 +82,8 @@ Overview Information:
   Band 1 overviews: []
 ```
 
-**2. Creating Overviews**
-Use the create_overviews() function to generate and embed overviews into the TIFF file.
+**2. Creating Overviews**     
+Use the `create_overviews()` function to generate and embed overviews into the TIFF file.
 
 ```python
 create_overviews(
@@ -93,7 +93,7 @@ create_overviews(
 )
 ```
 
-**3. Calculating connectivity or BERI**
+**3. Calculating connectivity or BERI**    
 
 ```python
 connd = connectivity(
