@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
-use ndarray::{Array3, Array2, Array1, ArrayView1, s};
+use ndarray::{Array3, Array2, Array1};
 use pathfinding::prelude::{dijkstra_all, build_path};
 use rayon::prelude::*;
 // local modules
@@ -14,26 +14,11 @@ use graph::multi_level_graph;
 use utlis::{*};
 
 
-
-fn get_focal(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
-    let trans_array = &trans_maps[0];
-
-    if let Some(array3) = trans_array.get(&1) {
-        if i < array3.shape()[1] && j < array3.shape()[2] {
-            return array3.slice(s![.., i, j]).to_owned(); // returns Array1<f32>
-        }
-    }
-
-    // Return empty array if anything fails
-    Array1::zeros(0)
-}
-
-
 #[pyfunction]
 fn _connectivity(
     data_dict: &PyAny,
     trans_list: &PyAny,
-    lambda_val: f32,
+    lambdas: Vec<f32>,
     scale: f32,
     nb_size: i32,
     last_nb_size: i32,
@@ -52,7 +37,10 @@ fn _connectivity(
         })
         .collect();
 
-
+    let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
+    println!("{}", run_beri);
+   
+    
     if let Some(array) = cond_map.get(&1) {
         let shape = array.shape();
         let nrows = shape[0];
@@ -99,35 +87,38 @@ fn _connectivity(
                     // Calculate all reachable paths; the end nodes
                     let reachables: HashMap<u32, (u32, u32)> = dijkstra_all(&source, successors);
 
-                    let mut conn: f32 = 0.0;
-                    let mut len_paths: f32 = 0.0;
+                    // let mut conn: f32 = 0.0;
+                    // let mut len_paths: f32 = 0.0;
+
+                    let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
 
                     for &k in reachables.keys() {
+                        // Calcaulate optimal path for each reachable path
                         let optim_path = build_path(&k, &reachables);
-
+                        // Get the path info for each target segment/node
+                        cell_paths.push(path_distance(&edge_graph, &optim_path));
                     }
 
 
-
-                    // Loop through all reachable paths and calcaulate connectivity
-                    for &k in reachables.keys() {
-                        let optim_path = build_path(&k, &reachables);
-                        // if beri {
-                        // }
-                        let path_conn = connectedness(&edge_graph, &optim_path, lambda_val);
-                        if path_conn > 0.0 {
-                            len_paths += 1.0;
+                    row_result[j] = if !lambdas.is_empty() {
+                        if run_beri {
+                            // Calculate BERI if transgrids are provided.
+                            let sum: f32 = lambdas
+                                .iter()
+                                .map(|&lambda| beri_score(&cell_paths, lambda))
+                                .sum();
+                            sum / lambdas.len() as f32
+                        } else {
+                            // Calcualte connectedness
+                            let sum: f32 = lambdas
+                                .iter()
+                                .map(|&lambda| connectedness(&cell_paths, lambda))
+                                .sum();
+                            sum / lambdas.len() as f32
                         }
-                        conn += path_conn;
-                    }
-
-                    row_result[j] = if len_paths > 0.0 {
-                        conn / len_paths
                     } else {
-                        f32::NAN
+                        0.0
                     };
-
-
                 }
 
                 (i, row_result)

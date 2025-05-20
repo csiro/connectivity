@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyAny};
 use numpy::{PyArray2, PyArray3};
-use ndarray::{Array2, Array3};
+use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
 use std::f32::consts::E;
 
@@ -88,51 +88,18 @@ pub fn to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>)
 }
 
 
-/// Generate consecutive pairs from a slice of values
-fn consecutive_pairs<T: Copy>(values: &[T]) -> Vec<(T, T)> {
-    values.windows(2)
-          .map(|window| (window[0], window[1]))
-          .collect()
-}
+/// Get the transgrid values for ij cell
+pub fn get_focal(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
+    let trans_array = &trans_maps[0];
 
-// Calculate the connectedness of a path
-pub fn connectedness(
-    graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
-    path: &[u32],
-    dispersal: f32
-) -> f32 {
-    // Convert path to pairs for lookup
-    let path_pairs = consecutive_pairs(path);
-    
-    let mut dsum: f32 = 0.0;
-    let mut dsum_max: f32 = 0.0;
-    let mut dist_land: f32 = 0.0;
-    let mut dist_intact: f32 = 0.0;
-    let denom_val: f32 = 283.465; // 5.785 * (50 - 1)
-    
-    for &(from, to) in &path_pairs {
-        // Look up the edge in the graph
-        if let Some(&(_, cond, dist, _)) = graph.get(&(from, to)) {
-            // Update distances
-            dist_land += dist / ((0.5 * cond) + 0.5); // Permeability calculation
-            dist_intact += dist; // Distance of intact cells
-            
-            let dist_land_lm = dist_land / dispersal;
-            let dist_intact_lm = dist_intact / dispersal;
-            
-            let exp_term = dist_land_lm * dist_land_lm / denom_val;
-            let exp_term_max = dist_intact_lm * dist_intact_lm / denom_val;
-            
-            dsum += E.powf(-exp_term) * cond;
-            dsum_max += E.powf(-exp_term_max);
+    if let Some(array3) = trans_array.get(&1) {
+        if i < array3.shape()[1] && j < array3.shape()[2] {
+            return array3.slice(s![.., i, j]).to_owned(); // returns Array1<f32>
         }
     }
-    
-    if dsum_max > 0.0 {
-        dsum / dsum_max
-    } else {
-        0.0
-    }
+
+    // Return empty array if anything fails
+    Array1::zeros(0)
 }
 
 
@@ -162,41 +129,96 @@ pub fn path_distance(
 }
 
 
+
+
+/// Aggregating senarios
+#[inline]
+fn minimax(x: &[f32]) -> f32 {
+    if x.is_empty() {
+        return 0.0;
+    }
+    
+    let mean = x.iter().sum::<f32>() / x.len() as f32;
+    
+    // Find the minimum value
+    let min = x.iter()
+        .fold(f32::INFINITY, |acc, &val| acc.min(val));
+    
+    0.5 * (mean + min)
+}
+
+
 /// Compute a BERI score from a segment and a lambda vector
-pub fn beri_score(segment: (f32, f32, f32, Vec<f32>), lambda: &[f32], scenario: usize) -> f32 {
-    let denom_val: f32 = 283.465; // 5.785 * (50 - 1)
-    let (dist_adj, _dist, cond, similarities) = segment;
+pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
+    const DENOM_VAL: f32 = 283.465; // 5.785 * (50 - 1)
+    
+    if segment.is_empty() {
+        return 0.0;
+    }
 
-    let values: Vec<f32> = lambda.iter().map(|d| {
-        let dist_lambda = dist_adj / d;
-        let exp_term = dist_lambda * dist_lambda / denom_val;
-        let s: f32 = similarities[scenario];
-        E.powf(-exp_term) * cond * s
-    }).collect();
+    // Get number of scenarios (including current)
+    let n_scenario = segment[0].3.len();
+    if n_scenario == 0 {
+        return 0.0;
+    }
+    
+    // Initialize numerator vector with capacity
+    let mut numerator = vec![0.0f32; n_scenario];
+    let mut denominator = 0.0f32;
 
-    let count = values.len();
-    if count > 0 {
-        values.iter().sum::<f32>() / count as f32
+    // Process each segment
+    for (dist_adj, dist, cond, similarities) in segment {
+        // Skip invalid data points
+        if similarities.len() < n_scenario {
+            continue;
+        }
+        
+        // Calculate numerator weight with dist_adj
+        let dist_lambda_num = dist_adj / lambda;
+        let exp_term_num = dist_lambda_num * dist_lambda_num / DENOM_VAL;
+        let weight_num = E.powf(-exp_term_num) * cond;
+        
+        // Update numerator values with similarity of scenarios
+        for (i, &sim) in similarities.iter().take(n_scenario).enumerate() {
+            numerator[i] += weight_num * sim;
+        }
+        
+        // Calculate denominator weight with dist
+        let dist_lambda_denom = dist / lambda;
+        let exp_term_denom = dist_lambda_denom * dist_lambda_denom / DENOM_VAL;
+        let weight_denom = E.powf(-exp_term_denom);
+        
+        // Update denominator (using first similarity value)
+        denominator += weight_denom * similarities[0];
+    }
+    
+    if denominator > 0.0 {
+        minimax(&numerator) / denominator
     } else {
         0.0
     }
 }
 
-/// Compute a BERI score from a segment and a lambda vector
-pub fn beri_intact(segment: (f32, f32, f32, Vec<f32>), lambda: &[f32], scenario: usize) -> f32 {
-    let denom_val: f32 = 283.465;
-    let (dist_adj, _dist, cond, similarities) = segment;
 
-    let values: Vec<f32> = lambda.iter().map(|d| {
-        let dist_lambda = dist_adj / d;
-        let exp_term = dist_lambda * dist_lambda / denom_val;
-        let s: f32 = similarities[scenario];
-        E.powf(-exp_term) * cond * s
-    }).collect();
+// Calculate the connectedness of a path
+pub fn connectedness(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
+    let sum_conn: f32 = segment
+        .iter()
+        .map(|(dist_adj, dist, condition, _)| {
+            let numerator = E.powf(- (dist_adj / lambda)) * condition;
+            let denominator = E.powf(- (dist / lambda));
+            if denominator > 0.0 {
+                numerator / denominator
+            } else {
+                0.0
+            }
+        })
+        .sum();
 
-    let count = values.len();
-    if count > 0 {
-        values.iter().sum::<f32>() / count as f32
+    let len_conn: f32 = segment.len() as f32;
+
+    if len_conn > 0.0 {
+        sum_conn / len_conn
     } else {
         0.0
     }
