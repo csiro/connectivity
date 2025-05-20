@@ -37,10 +37,10 @@ fn _connectivity(
         })
         .collect();
 
+    // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
-    println!("{}", run_beri);
-   
-    
+
+    // Check condition dictionay was not empty and run the code    
     if let Some(array) = cond_map.get(&1) {
         let shape = array.shape();
         let nrows = shape[0];

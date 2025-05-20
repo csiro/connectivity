@@ -148,7 +148,7 @@ fn minimax(x: &[f32]) -> f32 {
 }
 
 
-/// Compute a BERI score from a segment and a lambda vector
+/// Compute a BERI score from a segment and a lambda
 pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
     const DENOM_VAL: f32 = 283.465; // 5.785 * (50 - 1)
     
