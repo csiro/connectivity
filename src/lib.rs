@@ -9,7 +9,7 @@ use rayon::prelude::*;
 mod window;
 mod graph;
 mod utlis;
-use window::{multi_level_window};
+use window::multi_level_window;
 use graph::multi_level_graph;
 use utlis::{*};
 

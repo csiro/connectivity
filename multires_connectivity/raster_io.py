@@ -3,7 +3,14 @@ import numpy as np
 from osgeo import gdal
 from rasterio.enums import Resampling
 
-def read_overviews(file_path, levels=None):
+# Check grids are equal
+def check_grids(x, y):
+    x_shape = x if isinstance(x, tuple) else x.shape
+    y_shape = y if isinstance(y, tuple) else y.shape
+    return x_shape[-2:] == y_shape[-2:]
+
+
+def read_overviews(file_path, levels=None, fill_nodata=True):
     """
     Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
     and stores them in a dictionary.
@@ -11,6 +18,7 @@ def read_overviews(file_path, levels=None):
     Parameters:
     - file_path (str): Path to the COG file.
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
+    - fill_nodata (bool): to fill no-data value with 0s. If False, the no-data is returned as 'nodata' dictionary key
 
     Returns:
     - dict: A dictionary where keys are overview levels and values are 3D numpy arrays
@@ -20,6 +28,7 @@ def read_overviews(file_path, levels=None):
 
     with rasterio.open(file_path) as dataset:
         overviews = dataset.overviews(1)
+        nodata_value = dataset.nodata
 
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
@@ -46,7 +55,17 @@ def read_overviews(file_path, levels=None):
                 ),
                 resampling=Resampling.average
             )
+            # Fill the no-data values with 0
+            if fill_nodata:
+                if np.isnan(nodata_value):
+                    data = np.where(np.isnan(data), 0, data)
+                else:
+                    data = np.where(data == nodata_value, 0, data)
+            # Insert to dictionary 
             data_dict[level] = data.squeeze().astype(np.float32)
+
+        if not fill_nodata:
+            data_dict['nodata'] = nodata_value
 
     return data_dict
 

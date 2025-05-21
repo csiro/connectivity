@@ -44,7 +44,7 @@ pip install target/wheels/multires_connectivity-*.whl
 ### Example
 
 ```python
-from multires_connectivity import connectivity, create_overviews, overview_info
+from multires_connectivity import connectedness, beri, create_overviews, overview_info
 ```
 
 **1. Inspecting Overview Information**    
@@ -96,8 +96,8 @@ create_overviews(
 **3. Calculating connectivity or BERI**    
 
 ```python
-connd = connectivity(
-    path = "cog_file.tif",
+connd = connectedness(
+    condition_file = "cog_file.tif",
     disp_rate = 0.2,
     scale = 2.5, 
     nb_size = 3, 
