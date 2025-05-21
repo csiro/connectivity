@@ -89,7 +89,7 @@ pub fn to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>)
 
 
 /// Get the transgrid values for ij cell
-pub fn get_focal(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
+pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
     let trans_array = &trans_maps[0];
 
     if let Some(array3) = trans_array.get(&1) {

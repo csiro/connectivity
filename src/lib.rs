@@ -58,7 +58,7 @@ fn _connectivity(
 
                     let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
 
-                    let focal_val: Array1<f32> = get_focal(&trans_maps, i, j);
+                    let focal_val: Array1<f32> = get_values(&trans_maps, i, j);
 
                     for &level in cond_map.keys() {
                         level_dict.insert(
