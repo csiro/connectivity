@@ -39,7 +39,7 @@ pub fn multi_level_graph(
     }
 
     // Process each level
-    for (level_idx, &level) in levels.iter().enumerate() {
+    for (_level_idx, &level) in levels.iter().enumerate() {
         let (i_array, j_array, values, sims) = &level_dict[&level];
         let num_points = i_array.len();
         let edge_indices = &all_edge_indices[&level];

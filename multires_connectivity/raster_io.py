@@ -3,11 +3,28 @@ import numpy as np
 from osgeo import gdal
 from rasterio.enums import Resampling
 
+
 # Check grids are equal
 def check_grids(x, y):
     x_shape = x if isinstance(x, tuple) else x.shape
     y_shape = y if isinstance(y, tuple) else y.shape
     return x_shape[-2:] == y_shape[-2:]
+
+# Mask final resutls based on input data
+def mask_gird(array, mask_path):
+    """Mask an array based on the original layer"""
+    with rasterio.open(mask_path) as dataset:
+        nodata_value = dataset.nodata
+
+        # Read all bands at this resolution
+        data = dataset.read(1)
+        # Fill the no-data values with 0
+        if np.isnan(nodata_value):
+            masked_array = np.where(np.isnan(data), np.nan, array)
+        else:
+            masked_array = np.where(data == nodata_value, np.nan, array)
+       
+    return masked_array
 
 
 def read_overviews(file_path, levels=None, fill_nodata=True):
@@ -70,7 +87,6 @@ def read_overviews(file_path, levels=None, fill_nodata=True):
     return data_dict
 
 
-
 def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
     """
     Write a numpy array to a GeoTIFF file using the geographic transformation
@@ -120,7 +136,6 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
                     dst.write(in_array[i], i+1)
                     
     print(f"Successfully wrote raster to {outfile}")
-
 
 
 def create_overviews(input_raster, output_raster=None, overview_levels=[1, 2, 4, 8, 16, 32]):

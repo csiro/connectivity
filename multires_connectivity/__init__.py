@@ -1,3 +1,3 @@
-from .core import connectivity
+from .core import connectedness, beri
 
 __all__ = ["core"]

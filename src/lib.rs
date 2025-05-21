@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
+use pyo3::Bound;
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
@@ -16,8 +17,8 @@ use utlis::{*};
 
 #[pyfunction]
 fn _connectivity(
-    data_dict: &PyAny,
-    trans_list: &PyAny,
+    data_dict: &Bound<PyAny>,
+    trans_list: &Bound<PyAny>,
     lambdas: Vec<f32>,
     scale: f32,
     nb_size: i32,
@@ -58,7 +59,7 @@ fn _connectivity(
 
                     let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
 
-                    let focal_val: Array1<f32> = get_values(&trans_maps, i, j);
+                    let ij_values: Array1<f32> = get_values(&trans_maps, i, j);
 
                     for &level in cond_map.keys() {
                         level_dict.insert(
@@ -71,7 +72,7 @@ fn _connectivity(
                                 nb_size,
                                 last_nb_size,
                                 &trans_maps,
-                                &focal_val
+                                &ij_values
                             ),
                         );
                     }
@@ -99,7 +100,7 @@ fn _connectivity(
                         cell_paths.push(path_distance(&edge_graph, &optim_path));
                     }
 
-
+                    // Calculate BERI or Connectedness
                     row_result[j] = if !lambdas.is_empty() {
                         if run_beri {
                             // Calculate BERI if transgrids are provided.
@@ -144,8 +145,8 @@ fn _connectivity(
 
 
 #[pymodule]
-fn rust_connectivity(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(_connectivity, _py)?)?;
+fn rust_connectivity(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction_bound!(_connectivity, m)?)?;
     Ok(())
 }
 

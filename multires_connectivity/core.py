@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from rust_connectivity import _connectivity as rust_fn
-from .raster_io import read_overviews, write_raster, check_grids
+from .raster_io import read_overviews, write_raster, check_grids, mask_gird
 
 def connectedness(
         condition_file, 
@@ -14,6 +14,10 @@ def connectedness(
         smooth=True,
         filename=""
     ):
+    """
+    Habitat Condition Connectedness
+
+    """
     # read raster overview as a dictionary
     data_dict = read_overviews(file_path=condition_file, levels=levels, fill_nodata=True)
 
@@ -33,21 +37,18 @@ def connectedness(
 
     # mask the output
     if mask:
-        mask = np.where(data_dict[1].copy() < -9990, 0, 1)
-        out_array = np.where(mask == 0, np.nan, out_array)
+        out_array = mask_gird(out_array, condition_file)
 
-    if len(filename) > 2:
-        write_raster(out_array, outfile=filename, template=path)
+    if len(filename) > 3:
+        write_raster(out_array, outfile=filename, template=filename)
 
     return out_array
-
-
 
 
 def beri(
         condition_file,
         current_file,
-        future_files = [],
+        future_files=[],
         lambdas=[0.2, 2.0, 20.0],
         scale=2.0, 
         nb_size=3, 
@@ -57,17 +58,20 @@ def beri(
         smooth=True,
         filename=""
     ):
+    """
+    The Bioclimatic Ecosystem Resilience Index (BERI)
+    
+    """
+    # read raster overview as a dictionary
+    data_dict = read_overviews(file_path=condition_file, levels=levels, fill_nodata=True)
 
     # insert current climate as the first element in the list (this is important)
     future_files.insert(0, current_file)
-
-    # read raster overview as a dictionary
-    data_dict = read_overviews(file_path=condition_file, levels=levels, fill_nodata=True)
     trans_grids = [read_overviews(file_path=i, levels=levels, fill_nodata=True) for i in future_files]
 
     # fix this.....
-    if check_grids(data_dict[1], trans_grids[0][1]):
-        raise(ValueError)
+    if not check_grids(data_dict[1], trans_grids[0][1]):
+        raise(ValueError("The shape of the condition and transgrids doesn't match."))
 
     out_array = rust_fn(
         data_dict = data_dict,
@@ -85,11 +89,10 @@ def beri(
 
     # mask the output
     if mask:
-        # mask_gird()
-        mask = np.where(data_dict[1].copy() < -9990, 0, 1) # fix this....
-        out_array = np.where(mask == 0, np.nan, out_array)
+        out_array = mask_gird(out_array, condition_file)
 
-    if len(filename) > 2:
-        write_raster(out_array, outfile=filename, template=path)
+    if len(filename) > 3:
+        write_raster(out_array, outfile=filename, template=filename)
 
     return out_array
+

@@ -1,17 +1,16 @@
-use pyo3::prelude::*;
-use pyo3::types::{PyAny};
+use pyo3::types::{PyAny, PyAnyMethods};
+use pyo3::Bound;
 use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
 use std::f32::consts::E;
 
 
-// Convert Python object to a rust_hashmap
-pub fn to_2d_map<'py>(
-    data_dict: &'py PyAny,
-) -> HashMap<i32, Array2<f32>> {
+/// Convert a Python dict-of-arrays into a Rust `HashMap<i32, Array2<f32>>`.
+pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
     let mut rust_map = HashMap::new();
 
+    // call .items() on the Python dict
     let items = data_dict.call_method0("items").unwrap();
     let iter = items.iter().unwrap();
 
@@ -27,21 +26,8 @@ pub fn to_2d_map<'py>(
 }
 
 
-// pub fn to_3d_map(dict: &PyDict) -> HashMap<i32, Array3<f32>> {
-    //     let mut rust_map = HashMap::new();
-    //     for (key, value) in dict {
-        //         let k: i32 = key.extract()?;
-//         let py_array: &PyArray3<f32> = value.downcast()?;
-//         let arr = unsafe { py_array.as_array().to_owned() };
-//         rust_map.insert(k, arr);
-//     }
-//     rust_map
-// }
-
 // Convert Python object to a rust_hashmap
-pub fn to_3d_map<'py>(
-    data_dict: &'py PyAny,
-) -> HashMap<i32, Array3<f32>> {
+pub fn to_3d_map<'py>(data_dict: &Bound<PyAny>) -> HashMap<i32, Array3<f32>> {
     let mut rust_map = HashMap::new();
 
     let items = data_dict.call_method0("items").unwrap();
@@ -56,6 +42,20 @@ pub fn to_3d_map<'py>(
     }
 
     rust_map
+}
+
+
+/// Get the transgrid values for ij cell
+pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
+    let trans_array = &trans_maps[0];
+
+    if let Some(array3) = trans_array.get(&1) {
+        if i < array3.shape()[1] && j < array3.shape()[2] {
+            return array3.slice(s![.., i, j]).to_owned(); // returns Array1<f32>
+        }
+    }
+    // Return empty array if anything fails
+    Array1::zeros(0)
 }
 
 
@@ -88,21 +88,6 @@ pub fn to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>)
 }
 
 
-/// Get the transgrid values for ij cell
-pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
-    let trans_array = &trans_maps[0];
-
-    if let Some(array3) = trans_array.get(&1) {
-        if i < array3.shape()[1] && j < array3.shape()[2] {
-            return array3.slice(s![.., i, j]).to_owned(); // returns Array1<f32>
-        }
-    }
-
-    // Return empty array if anything fails
-    Array1::zeros(0)
-}
-
-
 /// Return distance values and the condition/similarity of the last segment
 pub fn path_distance(
     graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
@@ -129,8 +114,6 @@ pub fn path_distance(
 }
 
 
-
-
 /// Aggregating senarios
 #[inline]
 fn minimax(x: &[f32]) -> f32 {
@@ -138,15 +121,13 @@ fn minimax(x: &[f32]) -> f32 {
         return 0.0;
     }
     
-    let mean = x.iter().sum::<f32>() / x.len() as f32;
-    
+    let mean = x.iter().sum::<f32>() / x.len() as f32;  
     // Find the minimum value
     let min = x.iter()
         .fold(f32::INFINITY, |acc, &val| acc.min(val));
     
     0.5 * (mean + min)
 }
-
 
 /// Compute a BERI score from a segment and a lambda
 pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
@@ -200,7 +181,7 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
 }
 
 
-// Calculate the connectedness of a path
+// Compute the connectedness from a segment and a lambda
 pub fn connectedness(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
     let sum_conn: f32 = segment
         .iter()
