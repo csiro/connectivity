@@ -7,13 +7,13 @@ This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) 
 You need to load the module and create an environment if you don't alreay have one.
 
 ```bash
-module load Python/3.12.3
+module load python/3.12.3
 module load miniconda3/23.3.1
 module load rust/1.84.1
 ```
 
 ```bash
-conda create --name spatial # or any env name
+conda create --name spatial python=3.12.3 # must be the same python version
 conda init bash
 ```
 Installing the library into the environent:
@@ -27,7 +27,7 @@ cd ~/multires_connectivity
 Option 1: Install in editable mode (develop locally)
 
 ```bash
-maturin develop
+maturin develop --release
 ```
 
 Option 2: Build a wheel and install it
