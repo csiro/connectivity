@@ -95,8 +95,8 @@ create_overviews(
 ```python
 connd = connectedness(
     condition_file = "cog_file.tif",
-    disp_rate = 0.2,
-    scale = 2.5, 
+    lambdas = [2.0, 20.0, 200.0],
+    scale = 2.0, 
     nb_size = 3, 
     last_nb_size = 5,
     levels = [1, 2, 4, 8, 16],
