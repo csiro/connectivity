@@ -16,7 +16,7 @@ use utlis::{*};
 
 
 #[pyfunction]
-fn _connectivity(
+fn connectivity(
     data_dict: &Bound<PyAny>,
     trans_list: &Bound<PyAny>,
     lambdas: Vec<f32>,
@@ -146,7 +146,7 @@ fn _connectivity(
 
 #[pymodule]
 fn rust_connectivity(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction_bound!(_connectivity, m)?)?;
+    m.add_function(wrap_pyfunction_bound!(connectivity, m)?)?;
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from rust_connectivity import _connectivity as rust_fn
+from rust_connectivity import connectivity
 from .raster_io import read_overviews, write_raster, check_grids, mask_gird
 
 def connectedness(
@@ -21,7 +21,7 @@ def connectedness(
     # read raster overview as a dictionary
     data_dict = read_overviews(file_path=condition_file, levels=levels, fill_nodata=True)
 
-    out_array = rust_fn(
+    out_array = connectivity(
         data_dict = data_dict,
         trans_list = [{}], # empty dict in a list to calacualate connectedness
         lambdas = lambdas, 
@@ -73,7 +73,7 @@ def beri(
     if not check_grids(data_dict[1], trans_grids[0][1]):
         raise(ValueError("The shape of the condition and transgrids doesn't match."))
 
-    out_array = rust_fn(
+    out_array = connectivity(
         data_dict = data_dict,
         trans_list = trans_grids,
         lambdas = lambdas, 

@@ -79,7 +79,7 @@ pub fn to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>)
     for ((u, v), &(weighted_dist, _, _, _)) in graph_temp {
         if let Some(edges) = graph.get_mut(u) {
             // Convert f32 weight to u32 by scaling and rounding
-            let int_val: u32 = (weighted_dist * 1_000_000.0).round() as u32;
+            let int_val: u32 = (weighted_dist * 100.0).round() as u32;
             edges.push((*v, int_val));
         }
     }
