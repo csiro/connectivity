@@ -88,10 +88,8 @@ fn connectivity(
                     // Calculate all reachable paths; the end nodes
                     let reachables: HashMap<u16, (u16, u16)> = dijkstra_all(&source, successors);
 
-                    // let mut conn: f32 = 0.0;
-                    // let mut len_paths: f32 = 0.0;
-
                     let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
+                    // let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::new();
 
                     for &k in reachables.keys() {
                         // Calcaulate optimal path for each reachable path

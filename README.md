@@ -1,6 +1,8 @@
-## multires-connectivity: a multi-resolution landscape connectivity algorithm
+## connectivity: a multi-resolution landscape connectivity algorithm
 
-This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using `mean` aggregation, not `nearest neighbor` resampling.
+A multi-resolution landscape connectivity algorithm for calculating *Habitat Condition Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
+
+This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()` function for generting correct overview layers.
 
 ### Installation
 
@@ -8,31 +10,26 @@ You need to load the module and create an environment if you don't alreay have o
 
 ```bash
 module load python/3.12.3
-module load miniconda3/23.3.1
 module load rust/1.84.1
 ```
 
 ```bash
-conda create --name spatial python=3.12.3 # must be the same python version
-conda init bash
+python -m venv ~/myenv
 ```
 Installing the library into the environent:
 
 ```bash
-source activate spatial
+source ~/myenv/bin/activate
 
+# To make the virtual environment explicitly include system site packages, use:
+python -m venv ~/myenv --system-site-packages
+```
+
+Build a wheel and install it:
+
+```bash
 cd ~/multires_connectivity
-```
 
-Option 1: Install in editable mode (develop locally)
-
-```bash
-maturin develop --release
-```
-
-Option 2: Build a wheel and install it
-
-```bash
 maturin build --release
 ```
 Then find the wheel under `target/wheels/`, and install it with:
