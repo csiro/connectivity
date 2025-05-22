@@ -7,7 +7,7 @@ use ndarray::{Array3, Array2, Array1};
 use pathfinding::prelude::{dijkstra_all, build_path};
 use rayon::prelude::*;
 // local modules
-mod window, 
+mod window;
 mod graph;
 mod utlis;
 use window::multi_level_window;
@@ -81,12 +81,12 @@ fn connectivity(
                     let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
                     // Convert the graph to suitable format for dijkstra
                     let graph = to_adjacency(&edge_graph);
-                    let successors = |node: &u32| -> Vec<(u32, u32)> {
+                    let successors = |node: &u16| -> Vec<(u16, u16)> {
                         graph.get(node).cloned().unwrap_or_default()
                     };
 
                     // Calculate all reachable paths; the end nodes
-                    let reachables: HashMap<u32, (u32, u32)> = dijkstra_all(&source, successors);
+                    let reachables: HashMap<u16, (u16, u16)> = dijkstra_all(&source, successors);
 
                     // let mut conn: f32 = 0.0;
                     // let mut len_paths: f32 = 0.0;

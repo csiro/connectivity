@@ -6,7 +6,7 @@ pub fn multi_level_graph(
     j_base: i32, 
     level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)>, 
     factor: f32
-) -> (HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>, u32) {
+) -> (HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>, u16) {
     // Pre-compute constants
     let i_ngb = [0, 1, 0, -1, 1, 1, -1, -1];
     let j_ngb = [1, 0, -1, 0, 1, -1, 1, -1];
@@ -18,7 +18,7 @@ pub fn multi_level_graph(
     let max_level = *levels.last().unwrap_or(&0);
     
     // Pre-allocate with capacity for better performance
-    let mut graph_temp: HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)> = HashMap::with_capacity(
+    let mut graph_temp: HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)> = HashMap::with_capacity(
         level_dict.values().map(|(i, _, _, _)| i.len() * 8).sum()
     );
         
@@ -71,7 +71,7 @@ pub fn multi_level_graph(
         for point_idx in 0..num_points {
             let i = i_array[point_idx];
             let j = j_array[point_idx];
-            let u = point_idx as u32 + level as u32 * 100;
+            let u = point_idx as u16 + level as u16 * 100;
             
             // Process neighbors at current level
             process_current_level_neighbors(
@@ -102,11 +102,12 @@ pub fn multi_level_graph(
 /// Process neighbors at current level
 #[inline]
 fn process_current_level_neighbors(
-    i: i32, j: i32, u: u32, level: i32,
+    i: i32, j: i32, 
+    u: u16, level: i32,
     i_ngb: &[i32], j_ngb: &[i32],
-    node_mapping: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
+    node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>
+    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>
 ) {
     for k in 0..8 {
         let ni = i + i_ngb[k];
@@ -127,10 +128,10 @@ fn process_current_level_neighbors(
 #[inline]
 fn process_higher_level_connections(
     i: i32, j: i32,
-    node_mapping: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
-    node_mapping_higher: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
+    node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
+    node_mapping_higher: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>
+    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>
 ) {
     if let Some(&(u_val, zz, ref ss)) = node_mapping.get(&(i, j)) {
         let wu = (1.0 - factor) * zz + factor;
@@ -222,7 +223,7 @@ fn create_node_mapping(
     values: &[f32],
     similarities: &[Vec<f32>],
     level: i32
-) -> HashMap<(i32, i32), (u32, f32, Vec<f32>)> {
+) -> HashMap<(i32, i32), (u16, f32, Vec<f32>)> {
     let level_id = level * 100;
     let mut mapping = HashMap::with_capacity(i_array.len());
     
@@ -231,7 +232,7 @@ fn create_node_mapping(
         let sim_vals: Vec<f32> = similarities.iter().map(|v| v[i]).collect();
         mapping.insert(
             (i_array[i], j_array[i]),
-            (i as u32 + level_id as u32, values[i], sim_vals)
+            (i as u16 + level_id as u16, values[i], sim_vals)
         );
     }
     

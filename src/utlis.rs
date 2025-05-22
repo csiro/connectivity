@@ -26,6 +26,7 @@ pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
 }
 
 
+
 // Convert Python object to a rust_hashmap
 pub fn to_3d_map<'py>(data_dict: &Bound<PyAny>) -> HashMap<i32, Array3<f32>> {
     let mut rust_map = HashMap::new();
@@ -61,15 +62,15 @@ pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usiz
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
 /// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding to be used in Dijkstra
-pub fn to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>) -> HashMap<u32, Vec<(u32, u32)>> {
+pub fn to_adjacency(graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>) -> HashMap<u16, Vec<(u16, u16)>> {
     // First pass: count edges per node to allocate exact sizes
-    let mut sizes: HashMap<u32, usize> = HashMap::new();
+    let mut sizes: HashMap<u16, usize> = HashMap::new();
     for &(u, _) in graph_temp.keys() {
         *sizes.entry(u).or_insert(0) += 1;
     }
     
     // Create graph with pre-allocated vectors
-    let mut graph: HashMap<u32, Vec<(u32, u32)>> = HashMap::with_capacity(sizes.len());
+    let mut graph: HashMap<u16, Vec<(u16, u16)>> = HashMap::with_capacity(sizes.len());
     for (&node, &size) in &sizes {
         graph.insert(node, Vec::with_capacity(size));
     }
@@ -79,7 +80,7 @@ pub fn to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>)
     for ((u, v), &(weighted_dist, _, _, _)) in graph_temp {
         if let Some(edges) = graph.get_mut(u) {
             // Convert f32 weight to u32 by scaling and rounding
-            let int_val: u32 = (weighted_dist * 100.0).round() as u32;
+            let int_val: u16 = (weighted_dist * 100.0).round() as u16;
             edges.push((*v, int_val));
         }
     }
@@ -90,8 +91,8 @@ pub fn to_adjacency(graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>)
 
 /// Return distance values and the condition/similarity of the last segment
 pub fn path_distance(
-    graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
-    path: &[u32]
+    graph: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
+    path: &[u16]
 ) -> (f32, f32, f32, Vec<f32>) {
     let mut dist_adjusted = 0.0;
     let mut dist_intact = 0.0;

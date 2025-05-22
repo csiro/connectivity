@@ -44,7 +44,7 @@ pip install target/wheels/multires_connectivity-*.whl
 ### Example
 
 ```python
-from multires_connectivity import connectedness, beri, create_overviews, overview_info
+from connectivity import connectedness, beri, create_overviews, overview_info
 ```
 
 **1. Inspecting Overview Information**    

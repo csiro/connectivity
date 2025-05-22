@@ -11,7 +11,7 @@ use std::iter::zip;
 /// # Arguments
 /// * `base_i`, `base_j` - Coordinates in the original resolution
 /// * `current_level` - Current level (1, 2, 4, 8, etc.)
-/// * `data_dict` - HashMap mapping levels to arrays
+/// * `cond_dict` - HashMap mapping levels to arrays
 /// * `nb_size` - Size of the neighborhood for normal levels (3 for 3x3, 5 for 5x5, etc.).
 ///               Must be odd-numbered.
 /// * `last_nb_size` - Size of the neighborhood for the highest level only.
@@ -24,7 +24,7 @@ pub fn multi_level_window(
     base_i: i32,
     base_j: i32,
     current_level: i32,
-    data_dict: &HashMap<i32, Array2<f32>>,
+    cond_dict: &HashMap<i32, Array2<f32>>,
     nb_size: i32,
     last_nb_size: i32,
     trans_vect: &Vec<HashMap<i32, Array3<f32>>>,
@@ -33,7 +33,7 @@ pub fn multi_level_window(
     let agg_factor = 2;
     let higher_level = current_level * agg_factor;
     
-    let current_array = &data_dict[&current_level];
+    let current_array = &cond_dict[&current_level];
     let current_height = current_array.shape()[0] as i32;
     let current_width = current_array.shape()[1] as i32;
     
@@ -43,7 +43,7 @@ pub fn multi_level_window(
     let j = base_j / current_level;
     
     // Find the maximum level
-    let max_level = *data_dict.keys().max().unwrap_or(&current_level);
+    let max_level = *cond_dict.keys().max().unwrap_or(&current_level);
     let is_highest_level = current_level == max_level;
     
     // Ensure neighborhood sizes are odd
@@ -82,8 +82,8 @@ pub fn multi_level_window(
     // let mut gdmvals: Vec<Vec<f32>> = Vec::with_capacity(trans_vect.len());
     
     // Determine higher level dimensions
-    let (higher_height, higher_width) = if data_dict.contains_key(&higher_level) {
-        let higher_array = &data_dict[&higher_level];
+    let (higher_height, higher_width) = if cond_dict.contains_key(&higher_level) {
+        let higher_array = &cond_dict[&higher_level];
         (higher_array.shape()[0] as i32, higher_array.shape()[1] as i32)
     } else {
         (current_height / agg_factor, current_width / agg_factor)
