@@ -7,7 +7,7 @@ use ndarray::{Array3, Array2, Array1};
 use pathfinding::prelude::{dijkstra_all, build_path};
 use rayon::prelude::*;
 // local modules
-mod window;
+mod window, 
 mod graph;
 mod utlis;
 use window::multi_level_window;
@@ -145,7 +145,7 @@ fn connectivity(
 
 
 #[pymodule]
-fn rust_connectivity(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction_bound!(connectivity, m)?)?;
     Ok(())
 }

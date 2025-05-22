@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
-from rust_connectivity import connectivity
+from rust_conn import connectivity
 from .raster_io import read_overviews, write_raster, check_grids, mask_gird
+
 
 def connectedness(
         condition_file, 
