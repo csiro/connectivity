@@ -62,7 +62,7 @@ pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usiz
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
 /// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding to be used in Dijkstra
-pub fn to_adjacency(graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>) -> HashMap<u16, Vec<(u16, u16)>> {
+pub fn to_adjacency(graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>) -> HashMap<u16, Vec<(u16, u32)>> {
     // First pass: count edges per node to allocate exact sizes
     let mut sizes: HashMap<u16, usize> = HashMap::new();
     for &(u, _) in graph_temp.keys() {
@@ -70,7 +70,7 @@ pub fn to_adjacency(graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>)
     }
     
     // Create graph with pre-allocated vectors
-    let mut graph: HashMap<u16, Vec<(u16, u16)>> = HashMap::with_capacity(sizes.len());
+    let mut graph: HashMap<u16, Vec<(u16, u32)>> = HashMap::with_capacity(sizes.len());
     for (&node, &size) in &sizes {
         graph.insert(node, Vec::with_capacity(size));
     }
@@ -80,7 +80,7 @@ pub fn to_adjacency(graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>)
     for ((u, v), &(weighted_dist, _, _, _)) in graph_temp {
         if let Some(edges) = graph.get_mut(u) {
             // Convert f32 weight to u32 by scaling and rounding
-            let int_val: u16 = (weighted_dist * 100.0).round() as u16;
+            let int_val: u32 = (weighted_dist * 100.0).round() as u32;
             edges.push((*v, int_val));
         }
     }
