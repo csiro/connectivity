@@ -28,14 +28,14 @@ python -m venv ~/myenv --system-site-packages
 Build a wheel and install it:
 
 ```bash
-cd ~/multires_connectivity
+cd ~/connectivity
 
 maturin build --release
 ```
 Then find the wheel under `target/wheels/`, and install it with:
 
 ```bash
-pip install target/wheels/multires_connectivity-*.whl
+pip install target/wheels/connectivity-*.whl
 ```
 
 ### Example
