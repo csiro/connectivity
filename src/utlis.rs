@@ -3,7 +3,6 @@ use pyo3::Bound;
 use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
-use std::f32::consts::E;
 
 
 /// Convert a Python dict-of-arrays into a Rust `HashMap<i32, Array2<f32>>`.
@@ -24,7 +23,6 @@ pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
 
     rust_map
 }
-
 
 
 // Convert Python object to a rust_hashmap
@@ -115,94 +113,45 @@ pub fn path_distance(
 }
 
 
-/// Aggregating senarios
-#[inline]
-fn minimax(x: &[f32]) -> f32 {
-    if x.is_empty() {
-        return 0.0;
-    }
-    
-    let mean = x.iter().sum::<f32>() / x.len() as f32;  
-    // Find the minimum value
-    let min = x.iter()
-        .fold(f32::INFINITY, |acc, &val| acc.min(val));
-    
-    0.5 * (mean + min)
+// A progress struct to track where there's a need to update window for a level
+pub struct Progress {
+    tracker: HashMap<i32, (i32, i32)>,
 }
 
-/// Compute a BERI score from a segment and a lambda
-pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
-    const DENOM_VAL: f32 = 283.465; // 5.785 * (50 - 1)
-    
-    if segment.is_empty() {
-        return 0.0;
-    }
-
-    // Get number of scenarios (including current)
-    let n_scenario = segment[0].3.len();
-    if n_scenario == 0 {
-        return 0.0;
-    }
-    
-    // Initialize numerator vector with capacity
-    let mut numerator = vec![0.0f32; n_scenario];
-    let mut denominator = 0.0f32;
-
-    // Process each segment
-    for (dist_adj, dist, cond, similarities) in segment {
-        // Skip invalid data points
-        if similarities.len() < n_scenario {
-            continue;
+impl Progress {
+    pub fn new() -> Self {
+        Progress {
+            tracker: HashMap::new(),
         }
-        
-        // Calculate numerator weight with dist_adj
-        let dist_lambda_num = dist_adj / lambda;
-        let exp_term_num = dist_lambda_num * dist_lambda_num / DENOM_VAL;
-        let weight_num = E.powf(-exp_term_num) * cond;
-        
-        // Update numerator values with similarity of scenarios
-        for (i, &sim) in similarities.iter().take(n_scenario).enumerate() {
-            numerator[i] += weight_num * sim;
+    }
+
+    pub fn update(&mut self, i: i32, j: i32, factor: i32) -> bool {
+        let mut updated = false;
+
+        // Get current position or initialize to (-1, -1)
+        let (mut current_i, mut current_j) = self.tracker.get(&factor).copied().unwrap_or((-1, -1));
+
+        // Calculate new positions
+        let new_i = i / (factor * 2);
+        let new_j = j / (factor * 2);
+
+        // Check if position changed
+        if new_i != current_i {
+            current_i = new_i;
+            updated = true;
         }
-        
-        // Calculate denominator weight with dist
-        let dist_lambda_denom = dist / lambda;
-        let exp_term_denom = dist_lambda_denom * dist_lambda_denom / DENOM_VAL;
-        let weight_denom = E.powf(-exp_term_denom);
-        
-        // Update denominator (using first similarity value)
-        denominator += weight_denom * similarities[0];
+        if new_j != current_j {
+            current_j = new_j;
+            updated = true;
+        }
+
+        // Update tracker
+        self.tracker.insert(factor, (current_i, current_j));
+        updated
     }
-    
-    if denominator > 0.0 {
-        minimax(&numerator) / denominator
-    } else {
-        0.0
-    }
-}
 
-
-// Compute the connectedness from a segment and a lambda
-pub fn connectedness(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
-    let sum_conn: f32 = segment
-        .iter()
-        .map(|(dist_adj, dist, condition, _)| {
-            let numerator = E.powf(- (dist_adj / lambda)) * condition;
-            let denominator = E.powf(- (dist / lambda));
-            if denominator > 0.0 {
-                numerator / denominator
-            } else {
-                0.0
-            }
-        })
-        .sum();
-
-    let len_conn: f32 = segment.len() as f32;
-
-    if len_conn > 0.0 {
-        sum_conn / len_conn
-    } else {
-        0.0
-    }
+    // pub fn get_current(&self, factor: i32) -> (i32, i32) {
+    //     self.tracker.get(&factor).copied().unwrap_or((-1, -1))
+    // }
 }
 
