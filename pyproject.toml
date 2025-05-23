@@ -3,7 +3,7 @@ requires = ["maturin>=1.8,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "multires_connectivity"
+name = "connectivity"
 description = "A multi-resolution landscape connectivity algorithm"
 authors = [{ name = "Roozbeh Valavi", email = "roozbeh.valavi@csiro.au" }]
 requires-python = ">=3.8"

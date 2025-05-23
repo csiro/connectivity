@@ -3,7 +3,7 @@ use pyo3::types::{PyAny, PyDict, PyList};
 use pyo3::Bound;
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
-use ndarray::{Array3, Array2};
+use ndarray::{Array3, Array2, Array1};
 use pathfinding::prelude::{dijkstra_all, build_path};
 use rayon::prelude::*;
 // local modules
@@ -45,25 +45,26 @@ fn connectivity(
 
     // Check condition dictionay was not empty and run the code    
     if let Some(array) = cond_map.get(&1) {
-        let (nrows, ncols) = (array.shape()[0], array.shape()[1]);
+        let shape = array.shape();
+        let nrows = shape[0];
+        let ncols = shape[1];
+
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
-        
+
         // Parallel iteration over rows
         let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows).into_par_iter()
             .map(|i| {
                 let mut row_result = vec![0.0; ncols];
-        
-                // Create progress tracker for this row
-                let mut progress = Progress::new();
-
+                // let mut progress = Progress::new();
+                
                 for j in 0..ncols {
-
+                    
                     let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
+                    let ij_values: Array1<f32> = get_values(&trans_maps, i, j);
 
-                    // only recompute a level when we move into a new block
                     for &level in cond_map.keys() {
-                        if progress.update(i as i32, j as i32, level) {
+                        // if progress.update(i as i32, j as i32, level) || j == 0 {
                             let window = multi_level_window(
                                 i as i32,
                                 j as i32,
@@ -72,10 +73,10 @@ fn connectivity(
                                 nb_size,
                                 last_nb_size,
                                 &trans_maps,
-                                &get_values(&trans_maps, i, j),
+                                &ij_values,
                             );
                             level_dict.insert(level, window);
-                        }
+                        // }
                     }
 
                     // Get the graph and source node for cell ij
