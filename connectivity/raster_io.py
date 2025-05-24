@@ -27,7 +27,7 @@ def mask_gird(array, mask_path):
     return masked_array
 
 
-def read_overviews(file_path, levels=None, fill_nodata=True):
+def read_overviews(file_path, levels=None, nan_nodata=True):
     """
     Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
     and stores them in a dictionary.
@@ -35,7 +35,7 @@ def read_overviews(file_path, levels=None, fill_nodata=True):
     Parameters:
     - file_path (str): Path to the COG file.
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
-    - fill_nodata (bool): to fill no-data value with 0s. If False, the no-data is returned as 'nodata' dictionary key
+    - nan_nodata (bool): to fill no-data value with 0s. If False, the no-data is returned as 'nodata' dictionary key
 
     Returns:
     - dict: A dictionary where keys are overview levels and values are 3D numpy arrays
@@ -45,7 +45,6 @@ def read_overviews(file_path, levels=None, fill_nodata=True):
 
     with rasterio.open(file_path) as dataset:
         overviews = dataset.overviews(1)
-        nodata_value = dataset.nodata
 
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
@@ -70,19 +69,14 @@ def read_overviews(file_path, levels=None, fill_nodata=True):
                     out_height,
                     out_width
                 ),
-                resampling=Resampling.average
+                resampling=Resampling.average,
+                masked=True
             )
-            # Fill the no-data values with 0
-            if fill_nodata:
-                if np.isnan(nodata_value):
-                    data = np.where(np.isnan(data), 0, data)
-                else:
-                    data = np.where(data == nodata_value, 0, data)
-            # Insert to dictionary 
+            # Convert any no-data to nan to be skiped in Rust model
+            if nan_nodata:
+                data = np.where(data.mask, np.nan, data)
+                
             data_dict[level] = data.squeeze().astype(np.float32)
-
-        if not fill_nodata:
-            data_dict['nodata'] = nodata_value
 
     return data_dict
 

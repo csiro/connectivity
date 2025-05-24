@@ -114,10 +114,16 @@ pub fn multi_level_window(
                        (curr_j - j).abs() <= exclusion_radius {
                         continue;
                     }
-                    
-                    row_indices.push(curr_i);
-                    col_indices.push(curr_j);
-                    values.push(current_array[[curr_i as usize, curr_j as usize]]);
+
+                    // Skip the cell/segment if habitat condition is nan!
+                    let condition: f32 = current_array[[curr_i as usize, curr_j as usize]];
+                    if condition.is_nan() {
+                        continue;
+                    } else {
+                        row_indices.push(curr_i);
+                        col_indices.push(curr_j);
+                        values.push(condition);
+                    }                    
                 }
             }
         }

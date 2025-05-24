@@ -20,7 +20,7 @@ def connectedness(
 
     """
     # read raster overview as a dictionary
-    data_dict = read_overviews(file_path=condition_file, levels=levels, fill_nodata=True)
+    data_dict = read_overviews(file_path=condition_file, levels=levels, nan_nodata=True)
 
     out_array = connectivity(
         data_dict = data_dict,
@@ -64,11 +64,11 @@ def beri(
     
     """
     # read raster overview as a dictionary
-    data_dict = read_overviews(file_path=condition_file, levels=levels, fill_nodata=True)
+    data_dict = read_overviews(file_path=condition_file, levels=levels, nan_nodata=True)
 
     # insert current climate as the first element in the list (this is important)
     future_files.insert(0, current_file)
-    trans_grids = [read_overviews(file_path=i, levels=levels, fill_nodata=True) for i in future_files]
+    trans_grids = [read_overviews(file_path=i, levels=levels, nan_nodata=True) for i in future_files]
 
     # fix this.....
     if not check_grids(data_dict[1], trans_grids[0][1]):

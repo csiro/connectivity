@@ -57,7 +57,7 @@ fn connectivity(
             .map(|i| {
                 let mut row_result = vec![0.0; ncols];
                 // let mut progress = Progress::new();
-                
+               
                 for j in 0..ncols {
                     
                     let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
@@ -65,17 +65,17 @@ fn connectivity(
 
                     for &level in cond_map.keys() {
                         // if progress.update(i as i32, j as i32, level) || j == 0 {
-                            let window = multi_level_window(
-                                i as i32,
-                                j as i32,
-                                level,
-                                &cond_map,
-                                nb_size,
-                                last_nb_size,
-                                &trans_maps,
-                                &ij_values,
-                            );
-                            level_dict.insert(level, window);
+                        let window = multi_level_window(
+                            i as i32,
+                            j as i32,
+                            level,
+                            &cond_map,
+                            nb_size,
+                            last_nb_size,
+                            &trans_maps,
+                            &ij_values,
+                        );
+                        level_dict.insert(level, window);
                         // }
                     }
 
