@@ -45,22 +45,21 @@ fn connectivity(
 
     // Check condition dictionay was not empty and run the code    
     if let Some(array) = cond_map.get(&1) {
-        let shape = array.shape();
-        let nrows = shape[0];
-        let ncols = shape[1];
-
+        let (nrows, ncols) = (array.shape()[0], array.shape()[1]);
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
 
         // Parallel iteration over rows
-        let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows).into_par_iter()
+        let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)
+            .into_par_iter()
             .map(|i| {
                 let mut row_result = vec![0.0; ncols];
                 // let mut progress = Progress::new();
                
                 for j in 0..ncols {
-                    
+
                     let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
+                    // Get the transgrid values for ij cell in the current climate
                     let ij_values: Array1<f32> = get_values(&trans_maps, i, j);
 
                     for &level in cond_map.keys() {
@@ -87,7 +86,7 @@ fn connectivity(
                         graph.get(node).cloned().unwrap_or_default()
                     };
 
-                    // Calculate all reachable paths; the end nodes
+                    // Calculate all reachable paths; the end nodes/segments
                     let reachables: HashMap<u16, (u16, u32)> = dijkstra_all(&source, successors);
 
                     let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
@@ -101,24 +100,18 @@ fn connectivity(
                     }
 
                     // Calculate BERI or Connectedness
-                    row_result[j] = if !lambdas.is_empty() {
-                        if run_beri {
-                            // Calculate BERI if transgrids are provided.
-                            let sum: f32 = lambdas
-                                .iter()
-                                .map(|&lambda| beri_score(&cell_paths, lambda))
-                                .sum();
-                            sum / lambdas.len() as f32
-                        } else {
-                            // Calcualte connectedness
-                            let sum: f32 = lambdas
-                                .iter()
-                                .map(|&lambda| connectedness(&cell_paths, lambda))
-                                .sum();
-                            sum / lambdas.len() as f32
-                        }
-                    } else {
+                    row_result[j] = if lambdas.is_empty() {
                         0.0
+                    } else {
+                        let sum: f32 = lambdas.iter().map(|&lambda| {
+                            if run_beri {
+                                beri_score(&cell_paths, lambda)
+                            } else {
+                                connectedness(&cell_paths, lambda)
+                            }
+                        }).sum();
+                        
+                        sum / lambdas.len() as f32
                     };
                 }
 
