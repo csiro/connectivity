@@ -32,13 +32,10 @@ fn connectivity(
 
     // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
     let list = trans_list.downcast::<PyList>()?; // Convert PyAny to PyList
-    let trans_maps: Vec<HashMap<i32, Array3<f32>>> = list
-        .iter()
-        .map(|item| {
-            let dict = item.downcast::<PyDict>().unwrap(); // Handle errors properly in production
-            to_3d_map(dict) // Your existing conversion function
-        })
-        .collect();
+    let trans_maps: Vec<HashMap<i32, Array3<f32>>> = list.iter().map(|item| {
+            let dict = item.downcast::<PyDict>().unwrap(); // handling errors properly
+            to_3d_map(dict)
+        }).collect();
 
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
@@ -57,7 +54,6 @@ fn connectivity(
                 // let mut progress = Progress::new();
                
                 for j in 0..ncols {
-
                     let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
                     // Get the transgrid values for ij cell in the current climate
                     let ij_values: Array1<f32> = get_values(&trans_maps, i, j);

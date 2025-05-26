@@ -59,7 +59,7 @@ pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usiz
 
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
-/// Converts f32 weights to u32 by multiplying by 1,000,000 and rounding to be used in Dijkstra
+/// Converts f32 weights to u32 by multiplying by 100 and rounding to be used in Dijkstra
 pub fn to_adjacency(graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>) -> HashMap<u16, Vec<(u16, u32)>> {
     // First pass: count edges per node to allocate exact sizes
     let mut sizes: HashMap<u16, usize> = HashMap::new();
