@@ -41,7 +41,7 @@ def connectedness(
         out_array = mask_gird(out_array, condition_file)
 
     if len(filename) > 3:
-        write_raster(out_array, outfile=filename, template=filename)
+        write_raster(out_array, outfile=filename, template=condition_file)
 
     return out_array
 
@@ -93,7 +93,7 @@ def beri(
         out_array = mask_gird(out_array, condition_file)
 
     if len(filename) > 3:
-        write_raster(out_array, outfile=filename, template=filename)
+        write_raster(out_array, outfile=filename, template=condition_file)
 
     return out_array
 
