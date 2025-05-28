@@ -82,7 +82,7 @@ fn to_adjacency(
         let weight = if weighted {
             (weighted_dist * 100.0).round() as u32
         } else {
-            unweighted_dist.round() as u32
+            unweighted_dist.round() as u32 // not multipled by 100 as its sum is directly used as intact-dist
         };
 
         if let Some(neighbors) = adjacency.get_mut(&u) {
@@ -134,33 +134,6 @@ pub fn path_distance(
 
     (dist_adjusted, dist_intact, last_condition, last_sims)
 }
-
-
-// /// Return distance values and the condition/similarity of the last segment
-// pub fn path_distance(
-//     graph: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
-//     path: &[u16]
-// ) -> (f32, f32, f32, Vec<f32>) {
-//     let mut dist_adjusted = 0.0;
-//     let mut dist_intact = 0.0;
-//     let mut last_condition = 0.0;
-//     let mut last_sims_ref: Option<&Vec<f32>> = None;
-
-//     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
-//         if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
-//             dist_adjusted += dist / (0.5 * cond + 0.5);
-//             dist_intact += dist;
-//             last_condition = cond;
-//             last_sims_ref = Some(sims);
-//         }
-//     }
-
-//     // Clone only once at the end
-//     let last_sims = last_sims_ref.cloned().unwrap_or_default(); 
-
-//     (dist_adjusted, dist_intact, last_condition, last_sims)
-// }
-
 
 
 // // A progress struct to track where there's a need to update window for a level
