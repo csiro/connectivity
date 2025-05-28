@@ -3,6 +3,7 @@ use pyo3::Bound;
 use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
+use pathfinding::prelude::dijkstra_all;
 
 
 /// Convert a Python dict-of-arrays into a Rust `HashMap<i32, Array2<f32>>`.
@@ -92,7 +93,6 @@ fn to_adjacency(
     adjacency
 }
 
-use pathfinding::prelude::{dijkstra_all};
 
 /// Create the reachable path with dijkstra; weighted by condition or not
 pub fn dijkstra(
@@ -114,17 +114,16 @@ pub fn dijkstra(
 /// Return distance values and the condition/similarity of the last segment
 pub fn path_distance(
     graph: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
-    path: &[u16]
+    path: &[u16],
+    dist_intact: f32
 ) -> (f32, f32, f32, Vec<f32>) {
     let mut dist_adjusted = 0.0;
-    let mut dist_intact = 0.0;
     let mut last_condition = 0.0;
     let mut last_sims_ref: Option<&Vec<f32>> = None;
 
     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
         if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
             dist_adjusted += dist / (0.5 * cond + 0.5);
-            dist_intact += dist;
             last_condition = cond;
             last_sims_ref = Some(sims);
         }
@@ -135,6 +134,32 @@ pub fn path_distance(
 
     (dist_adjusted, dist_intact, last_condition, last_sims)
 }
+
+
+// /// Return distance values and the condition/similarity of the last segment
+// pub fn path_distance(
+//     graph: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
+//     path: &[u16]
+// ) -> (f32, f32, f32, Vec<f32>) {
+//     let mut dist_adjusted = 0.0;
+//     let mut dist_intact = 0.0;
+//     let mut last_condition = 0.0;
+//     let mut last_sims_ref: Option<&Vec<f32>> = None;
+
+//     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
+//         if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
+//             dist_adjusted += dist / (0.5 * cond + 0.5);
+//             dist_intact += dist;
+//             last_condition = cond;
+//             last_sims_ref = Some(sims);
+//         }
+//     }
+
+//     // Clone only once at the end
+//     let last_sims = last_sims_ref.cloned().unwrap_or_default(); 
+
+//     (dist_adjusted, dist_intact, last_condition, last_sims)
+// }
 
 
 

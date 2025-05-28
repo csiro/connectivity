@@ -4,7 +4,7 @@ use pyo3::Bound;
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
-use pathfinding::prelude::{dijkstra_all, build_path};
+use pathfinding::prelude::build_path;
 use rayon::prelude::*;
 // local modules
 mod window;
@@ -76,23 +76,20 @@ fn connectivity(
 
                     // Get the graph and source node for cell ij
                     let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
-                    // Convert the graph to suitable format for dijkstra
-                    // let graph = to_adjacency(&edge_graph);
-                    // let successors = |node: &u16| -> Vec<(u16, u32)> {
-                    //     graph.get(node).cloned().unwrap_or_default()
-                    // };
-
                     // Calculate all reachable paths; the end nodes/segments
                     let reachables: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
-
+                    let path_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false);
+                    
                     let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
                     // let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::new();
 
                     for &k in reachables.keys() {
                         // Calcaulate optimal path for each reachable path
                         let optim_path = build_path(&k, &reachables);
+                        // Get the intact distance from the intact Dijkstra
+                        let dist_intact = path_intact[&k].1 as f32; // Key MUST exist!
                         // Get the path info for each target segment/node
-                        cell_paths.push(path_distance(&edge_graph, &optim_path));
+                        cell_paths.push(path_distance(&edge_graph, &optim_path, dist_intact));
                     }
 
                     // Calculate BERI or Connectedness
