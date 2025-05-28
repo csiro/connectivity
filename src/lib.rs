@@ -77,13 +77,13 @@ fn connectivity(
                     // Get the graph and source node for cell ij
                     let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
                     // Convert the graph to suitable format for dijkstra
-                    let graph = to_adjacency(&edge_graph);
-                    let successors = |node: &u16| -> Vec<(u16, u32)> {
-                        graph.get(node).cloned().unwrap_or_default()
-                    };
+                    // let graph = to_adjacency(&edge_graph);
+                    // let successors = |node: &u16| -> Vec<(u16, u32)> {
+                    //     graph.get(node).cloned().unwrap_or_default()
+                    // };
 
                     // Calculate all reachable paths; the end nodes/segments
-                    let reachables: HashMap<u16, (u16, u32)> = dijkstra_all(&source, successors);
+                    let reachables: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
 
                     let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
                     // let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::new();

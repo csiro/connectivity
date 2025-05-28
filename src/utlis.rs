@@ -60,30 +60,54 @@ pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usiz
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
 /// Converts f32 weights to u32 by multiplying by 100 and rounding to be used in Dijkstra
-pub fn to_adjacency(graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>) -> HashMap<u16, Vec<(u16, u32)>> {
-    // First pass: count edges per node to allocate exact sizes
-    let mut sizes: HashMap<u16, usize> = HashMap::new();
+fn to_adjacency(
+    graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
+    weighted: bool,
+) -> HashMap<u16, Vec<(u16, u32)>> {
+    // First pass: count edges per source node
+    let mut edge_counts: HashMap<u16, usize> = HashMap::new();
     for &(u, _) in graph_temp.keys() {
-        *sizes.entry(u).or_insert(0) += 1;
+        *edge_counts.entry(u).or_insert(0) += 1;
     }
-    
-    // Create graph with pre-allocated vectors
-    let mut graph: HashMap<u16, Vec<(u16, u32)>> = HashMap::with_capacity(sizes.len());
-    for (&node, &size) in &sizes {
-        graph.insert(node, Vec::with_capacity(size));
+
+    // Initialize the adjacency list with pre-allocated space
+    let mut adjacency: HashMap<u16, Vec<(u16, u32)>> = HashMap::with_capacity(edge_counts.len());
+    for (&node, &count) in &edge_counts {
+        adjacency.insert(node, Vec::with_capacity(count));
     }
-    
-    // Second pass: fill the graph with converted weights
-    // Using the weighted_dist (first element of value tuple)
-    for ((u, v), &(weighted_dist, _, _, _)) in graph_temp {
-        if let Some(edges) = graph.get_mut(u) {
-            // Convert f32 weight to u32 by scaling and rounding
-            let int_val: u32 = (weighted_dist * 100.0).round() as u32;
-            edges.push((*v, int_val));
+
+    // Second pass: fill adjacency list
+    for (&(u, v), &(weighted_dist, _, unweighted_dist, _)) in graph_temp {
+        let weight = if weighted {
+            (weighted_dist * 100.0).round() as u32
+        } else {
+            unweighted_dist.round() as u32
+        };
+
+        if let Some(neighbors) = adjacency.get_mut(&u) {
+            neighbors.push((v, weight));
         }
     }
-    
-    graph
+
+    adjacency
+}
+
+use pathfinding::prelude::{dijkstra_all};
+
+/// Create the reachable path with dijkstra; weighted by condition or not
+pub fn dijkstra(
+    graph: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>, 
+    source: u16,
+    weighted: bool
+) -> HashMap<u16, (u16, u32)> {
+    // Convert the graph to suitable format for dijkstra
+    let graph_int = to_adjacency(&graph, weighted);
+    let successors = |node: &u16| -> Vec<(u16, u32)> {
+        graph_int.get(node).cloned().unwrap_or_default()
+    };
+
+    // Calculate all reachable paths; the end nodes/segments
+    dijkstra_all(&source, successors)
 }
 
 
@@ -111,6 +135,7 @@ pub fn path_distance(
 
     (dist_adjusted, dist_intact, last_condition, last_sims)
 }
+
 
 
 // // A progress struct to track where there's a need to update window for a level
