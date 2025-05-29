@@ -33,9 +33,9 @@ fn connectivity(
     // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
     let list = trans_list.downcast::<PyList>()?; // Convert PyAny to PyList
     let trans_maps: Vec<HashMap<i32, Array3<f32>>> = list.iter().map(|item| {
-            let dict = item.downcast::<PyDict>().unwrap(); // handling errors properly
-            to_3d_map(dict)
-        }).collect();
+        let dict = item.downcast::<PyDict>().unwrap(); // handling errors properly
+        to_3d_map(dict)
+    }).collect();
 
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
@@ -78,10 +78,10 @@ fn connectivity(
                     let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
                     // Calculate all reachable paths; the end nodes/segments
                     let reachables: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
-                    let path_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false);
+                    // Using unweighted distance, i.e. intact condition case for the denominator
+                    let path_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false); 
                     
                     let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
-                    // let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::new();
 
                     for &k in reachables.keys() {
                         // Calcaulate optimal path for each reachable path
