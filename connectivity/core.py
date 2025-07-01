@@ -1,6 +1,7 @@
 import numpy as np
 from rust_conn import connectivity
-from .raster_io import read_overviews, write_raster, check_grids, mask_gird, smoothing_filter
+from .rastio import read_overviews, write_raster
+from .utils import check_grids, mask_gird, smoothing_filter
 
 
 def connectedness(
