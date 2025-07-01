@@ -100,7 +100,7 @@ connd = connectedness(
     nb_size = 3, 
     last_nb_size = 5,
     levels = [1, 2, 4, 8, 16],
-    mask = True, 
+    smooth = True, 
     sigma = 5,
     filename = ""
 )

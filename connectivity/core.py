@@ -10,7 +10,7 @@ def connectedness(
         nb_size=3, 
         last_nb_size=9,
         levels=[1, 2, 4, 8, 16],
-        mask=True, 
+        smooth=True, 
         sigma=3,
         filename=""
     ):
@@ -18,7 +18,7 @@ def connectedness(
     Habitat Condition Connectedness
 
     
-    smooth: smoothing Gaussian filter sigma; set 0 to avoid smoothing
+    sigma: smoothing Gaussian filter sigma; set 0 to avoid smoothing
 
     """
     # read raster overview as a dictionary
@@ -33,18 +33,18 @@ def connectedness(
         last_nb_size = last_nb_size
     )
 
-    # fill the NAs with 0 to perform smoothing
-    if sigma > 0:
-        out_array = smoothing_filter(out_array, sigma=sigma)
+    # set the correct nan mask
+    out_array = mask_gird(out_array, condition_file)
 
-    # mask the output
-    if mask:
-        out_array = mask_gird(out_array, condition_file)
+    # smooth the output array with Gaussian filtering
+    if smooth:
+        out_array = smoothing_filter(out_array, sigma=sigma)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file)
 
     return out_array
+
 
 
 def beri(
@@ -56,14 +56,14 @@ def beri(
         nb_size=3, 
         last_nb_size=9,
         levels=[1, 2, 4, 8, 16],
-        mask=True, 
-        sigma=0,
+        smooth=False, 
+        sigma=3,
         filename=""
     ):
     """
     The Bioclimatic Ecosystem Resilience Index (BERI)
 
-    smooth: smoothing Gaussian filter sigma; set 0 to avoid smoothing
+    sigma: smoothing Gaussian filter sigma; set 0 to avoid smoothing
     
     """
     # read raster overview as a dictionary
@@ -86,13 +86,13 @@ def beri(
         last_nb_size = last_nb_size
     )
 
-    # fill the NAs with 0 to perform smoothing
-    if sigma > 0:
+    # set the correct nan mask
+    out_array = mask_gird(out_array, condition_file)
+
+    # smooth the output array with Gaussian filtering
+    if smooth:
         out_array = smoothing_filter(out_array, sigma=sigma)
 
-    # mask the output
-    if mask:
-        out_array = mask_gird(out_array, condition_file)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file)
