@@ -1,9 +1,6 @@
 import rasterio
-from rasterio.features import rasterize
 from scipy.ndimage import gaussian_filter
 import numpy as np
-import geopandas as gpd
-
 
 # Check grids are equal
 def check_grids(x, y):
@@ -26,48 +23,6 @@ def mask_gird(array, mask_path):
        
     return masked_array
 
-
-def polygon_mask(gdf, raster, overview_level=1, use_bbox=True):
-    if not isinstance(gdf, gpd.GeoDataFrame):
-        raise ValueError("First argument must be a geopandas GeoDataFrame")
-    
-    # Get geometries from GeoDataFrame
-    if use_bbox:
-        # Use bounding boxes instead of actual geometries
-        from shapely.geometry import box
-        geometries = [box(*geom.bounds) for geom in gdf.geometry]
-    else:
-        geometries = gdf.geometry.tolist()
-    
-    # Get raster info from specific overview level
-    with rasterio.open(raster) if isinstance(raster, str) else raster as src:
-        # Get overview at specified level
-        if overview_level < len(src.overviews(1)):
-            overview = src.overviews(1)[overview_level]
-            # Calculate overview dimensions and transform
-            height = src.height // overview
-            width = src.width // overview
-            transform = src.transform * src.transform.scale(
-                (src.width / width),
-                (src.height / height)
-            )
-        else:
-            # Fallback to full resolution if overview doesn't exist
-            height = src.height
-            width = src.width
-            transform = src.transform
-    
-    mask = rasterize(
-        geometries,
-        out_shape=(height, width),
-        transform=transform,
-        fill=0,
-        default_value=1,
-        dtype=np.uint8,
-        all_touched=True
-    )
-    
-    return mask
 
 
 def smoothing_filter(data, sigma=3, **kwargs):

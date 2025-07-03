@@ -1,15 +1,21 @@
-import rasterio
 import numpy as np
-from osgeo import gdal
+import rasterio
+from rasterio.mask import mask
 from rasterio.enums import Resampling
+from rasterio.features import geometry_mask
+from shapely.geometry import box, mapping
+from osgeo import gdal
 
-def read_overviews(file_path, levels=None, nan_nodata=True):
+
+# Still need to refine this...
+def read_raster(file, gdf=None, levels=None, expand_px=3):
     """
     Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
     and stores them in a dictionary.
 
     Parameters:
-    - file_path (str): Path to the COG file.
+    - file (str): Path to the COG file.
+    - gdf (GeoPandas):
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
     - nan_nodata (bool): to fill no-data value with 0s. If False, the no-data is returned as 'nodata' dictionary key
 
@@ -19,40 +25,98 @@ def read_overviews(file_path, levels=None, nan_nodata=True):
     """
     data_dict = {}
 
-    with rasterio.open(file_path) as dataset:
-        overviews = dataset.overviews(1)
-
+    # Get overview levels
+    with rasterio.open(file) as src:
+        overviews = src.overviews(1)
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
-        
-        if levels is None:
-            levels = overviews
+    # If levels are not provided get them
+    levels = overviews if levels is None else levels
 
-        for level in levels:
-            if level not in overviews:
-                print(f"Overview level {level} not found in the dataset.")
-                continue
+    # If gdf is not provided read the entire dataset
+    if gdf is None:
+        with rasterio.open(file) as dataset:
+            for level in levels:
+                if level not in overviews:
+                    raise(ValueError(f"Overview level {level} not found in the dataset."))
 
-            # Calculate the shape for output based on the overview level
-            scale = level
-            out_height = dataset.height // scale
-            out_width = dataset.width // scale
+                # Calculate the shape for output based on the overview level
+                scale = level
+                out_height = dataset.height // scale
+                out_width = dataset.width // scale
 
-            # Read all bands at this resolution
-            data = dataset.read(
-                out_shape=(
-                    dataset.count,
-                    out_height,
-                    out_width
-                ),
-                resampling=Resampling.average,
-                masked=True
-            )
-            # Convert any no-data to nan to be skiped in Rust model
-            if nan_nodata:
+                # Read all bands at this resolution
+                data = dataset.read(
+                    out_shape=(
+                        dataset.count,
+                        out_height,
+                        out_width
+                    ),
+                    resampling=Resampling.average,
+                    masked=True
+                )
+                # Convert any no-data to nan to be skiped in Rust model
                 data = np.where(data.mask, np.nan, data)
-                
-            data_dict[level] = data.squeeze().astype(np.float32)
+                    
+                data_dict[level] = data.squeeze().astype(np.float32)
+    else:
+        # Max level to get the correct buffered area that includes all required pixels for the neighbours
+        max_level = len(levels) - 1
+
+        # Use high-level overview to calculate buffer size to avoid edge effect
+        with rasterio.open(file, overview_level=max_level) as src:
+            if gdf.crs != src.crs:
+                gdf = gdf.to_crs(src.crs)
+
+            res_x, res_y = src.res
+            pad_x = expand_px * res_x + (res_x / max(levels) / 4)
+            pad_y = expand_px * res_y + (res_y / max(levels) / 4)
+            # Get the bbox of the buffered version to read all overviews based on it
+            buffer_geoms = [box(*geom.buffer(max(pad_x, pad_y)).bounds) for geom in gdf.geometry]
+
+        # Get all overview layers
+        for id, level in enumerate(levels):
+            if level not in overviews:
+                raise(ValueError(f"Overview level {level} not found in the dataset."))
+            
+            if level > 1:
+                orig_geoms = buffer_geoms
+            else:
+                orig_geoms = gdf.geometry.tolist()
+            
+            # Read data using desired level
+            with rasterio.open(file, overview_level=id, resampling=Resampling.average) as src:
+                # Step 1: Mask with buffered geometry (for extent)
+                out_image, out_transform = mask(
+                    src,
+                    [mapping(geom) for geom in buffer_geoms],
+                    crop=True,
+                    filled=True,
+                    all_touched=True
+                )
+                # Step 2: Create rasterized mask of original geometries (same shape as out_image)
+                # Geometry mask returns True outside, False inside → invert it
+                geom_mask = geometry_mask(
+                    geometries=[mapping(g) for g in orig_geoms],
+                    out_shape=out_image.shape[1:],  # height x width
+                    transform=out_transform,
+                    invert=True,
+                    all_touched=True
+                )
+
+                # Step 3: Combine with nodata mask
+                nodata = src.nodata
+                nodata_mask = (out_image == nodata)
+
+                # Mask everything not in original geometry or nodata
+                final_mask = nodata_mask | ~geom_mask[np.newaxis, :, :]  # add band dim
+                masked = np.ma.masked_array(out_image, mask=final_mask)
+
+                if level > 1:
+                    data_dict[level] = masked[0].squeeze().data.astype(np.float32)
+                else:
+                    nan_array = masked[0].squeeze().filled(np.nan)
+                    data_dict[level] = nan_array.astype(np.float32)
 
     return data_dict
 
