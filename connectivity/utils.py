@@ -9,22 +9,6 @@ def check_grids(x, y):
     return x_shape[-2:] == y_shape[-2:]
 
 
-# Mask an array based on the original layer
-def mask_gird(array, mask_path):
-    with rasterio.open(mask_path) as dataset:
-        nodata_value = dataset.nodata
-        # Read all bands at this resolution
-        data = dataset.read(1)
-        # Fill the no-data values with 0
-        if np.isnan(nodata_value):
-            masked_array = np.where(np.isnan(data), np.nan, array)
-        else:
-            masked_array = np.where(data == nodata_value, np.nan, array)
-       
-    return masked_array
-
-
-
 def smoothing_filter(data, sigma=3, **kwargs):
     """
     Apply a Gaussian filter on the an array to smooth the values. Only filters valid data points, 

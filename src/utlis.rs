@@ -48,6 +48,9 @@ pub fn to_3d_map<'py>(data_dict: &Bound<PyAny>) -> HashMap<i32, Array3<f32>> {
 /// Get the transgrid values for ij cell
 pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
     let trans_array = &trans_maps[0];
+    
+    // NOTE: I think this is worng! It must be trans_array.get(&0) to get the first one
+    //  that is the current climate
 
     if let Some(array3) = trans_array.get(&1) {
         if i < array3.shape()[1] && j < array3.shape()[2] {

@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 use pyo3::Bound;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
 use pathfinding::prelude::build_path;

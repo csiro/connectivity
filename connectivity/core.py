@@ -35,9 +35,6 @@ def connectedness(
         last_nb_size = last_nb_size
     )
 
-    # set the correct nan mask
-    out_array = mask_gird(out_array, condition_file)
-
     # smooth the output array with Gaussian filtering
     if smooth:
         out_array = smoothing_filter(out_array, sigma=sigma)
@@ -88,9 +85,6 @@ def beri(
         nb_size = nb_size,
         last_nb_size = last_nb_size
     )
-
-    # set the correct nan mask
-    out_array = mask_gird(out_array, condition_file)
 
     # smooth the output array with Gaussian filtering
     if smooth:
