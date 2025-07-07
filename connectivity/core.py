@@ -23,12 +23,16 @@ def connectedness(
     sigma: smoothing Gaussian filter sigma; set 0 to avoid smoothing
 
     """
+    # Before reading raster, fix neighbours window
+    if last_nb_size < nb_size:
+        last_nb_size = nb_size
+
     # read raster overview as a dictionary
     data_dict = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 
     out_array = connectivity(
         data_dict = data_dict,
-        trans_list = [{}], # empty dict in a list to calacualate connectedness
+        trans_list = [{}], # empty dict in a list to calacualate connectedness in Rust
         lambdas = lambdas, 
         scale = scale,
         nb_size = nb_size,
@@ -66,6 +70,10 @@ def beri(
     sigma: smoothing Gaussian filter sigma; set 0 to avoid smoothing
     
     """
+    # Before reading raster, fix neighbours window
+    if last_nb_size < nb_size:
+        last_nb_size = nb_size
+
     # read raster overview as a dictionary
     data_dict = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 

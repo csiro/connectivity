@@ -50,13 +50,12 @@ fn connectivity(
         let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)
             .into_par_iter()
             .map(|i| {
-                let mut row_result = vec![0.0; ncols];
+                let mut row_result = vec![f32::NAN; ncols];
                 // let mut progress = Progress::new();
                
                 for j in 0..ncols {
                     // Skip an NaN in the orginal resolution of the condition data
                     if array[[i, j]].is_nan() {
-                        row_result[j] = f32::NAN;
                         continue;
                     }
 

@@ -7,7 +7,6 @@ from shapely.geometry import box, mapping
 from osgeo import gdal
 
 
-# Still need to refine this...
 def read_raster(file, gdf=None, levels=None, expand_px=3):
     """
     Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
@@ -17,7 +16,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
     - file (str): Path to the COG file.
     - gdf (GeoPandas):
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
-    - nan_nodata (bool): to fill no-data value with 0s. If False, the no-data is returned as 'nodata' dictionary key
+    - expand_px (bool): The number of pixels to pad the polygon; this depends on the 
 
     Returns:
     - dict: A dictionary where keys are overview levels and values are 3D numpy arrays
@@ -30,6 +29,12 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
         overviews = src.overviews(1)
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
+        # Get the original overviews
+        res_x, res_y = src.res
+        pad_x = expand_px * res_x
+        pad_y = expand_px * res_y
+        orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in gdf.geometry]
+
     # If levels are not provided get them
     levels = overviews if levels is None else levels
 
@@ -69,7 +74,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 gdf = gdf.to_crs(src.crs)
 
             res_x, res_y = src.res
-            pad_x = expand_px * res_x + (res_x / max(levels) / 4)
+            pad_x = expand_px * res_x + (res_x / max(levels) / 4) # Just add 1/4 pixel more to make sure gets all borders
             pad_y = expand_px * res_y + (res_y / max(levels) / 4)
             # Get the bbox of the buffered version to read all overviews based on it
             buffer_geoms = [box(*geom.buffer(max(pad_x, pad_y)).bounds) for geom in gdf.geometry]
@@ -79,14 +84,12 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
             if level not in overviews:
                 raise(ValueError(f"Overview level {level} not found in the dataset."))
             
-            if level > 1:
-                orig_geoms = buffer_geoms
-            else:
-                orig_geoms = gdf.geometry.tolist()
+            # Get the polygon for masking the data
+            masking_geom = buffer_geoms if level > 1 else orig_buffer_geoms # gdf.geometry.tolist()
             
             # Read data using desired level
             with rasterio.open(file, overview_level=id, resampling=Resampling.average) as src:
-                # Step 1: Mask with buffered geometry (for extent)
+                # Step 1: Mask with buffered geometry (for extent) of the coarsest level i.e. 32
                 out_image, out_transform = mask(
                     src,
                     [mapping(geom) for geom in buffer_geoms],
@@ -97,7 +100,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 # Step 2: Create rasterized mask of original geometries (same shape as out_image)
                 # Geometry mask returns True outside, False inside → invert it
                 geom_mask = geometry_mask(
-                    geometries=[mapping(g) for g in orig_geoms],
+                    geometries=[mapping(g) for g in masking_geom],
                     out_shape=out_image.shape[1:],  # height x width
                     transform=out_transform,
                     invert=True,
