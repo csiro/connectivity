@@ -46,11 +46,8 @@ pub fn to_3d_map<'py>(data_dict: &Bound<PyAny>) -> HashMap<i32, Array3<f32>> {
 
 
 /// Get the transgrid values for ij cell
-pub fn get_values(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
+pub fn get_current(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usize) -> Array1<f32> {
     let trans_array = &trans_maps[0];
-    
-    // NOTE: I think this is worng! It must be trans_array.get(&0) to get the first one
-    //  that is the current climate
 
     if let Some(array3) = trans_array.get(&1) {
         if i < array3.shape()[1] && j < array3.shape()[2] {
@@ -80,11 +77,12 @@ fn to_adjacency(
         adjacency.insert(node, Vec::with_capacity(count));
     }
 
-    // Second pass: fill adjacency list
+    // Second pass: fill adjacency list; u32 to avoid integer overflow
     for (&(u, v), &(weighted_dist, _, unweighted_dist, _)) in graph_temp {
         let weight = if weighted {
             (weighted_dist * 100.0).round() as u32
         } else {
+            // NOTE: fix this by * 100 then divided when intact distance is calcualted.. this ignores sub unit of crs
             unweighted_dist.round() as u32 // not multipled by 100 as its sum is directly used as intact-dist
         };
 

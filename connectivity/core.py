@@ -53,8 +53,8 @@ def connectedness(
 def beri(
         condition_file,
         current_file,
-        polygon_mask=None,
         future_files=[],
+        polygon_mask=None,
         lambdas=[0.2, 2.0, 20.0],
         scale=2.0, 
         nb_size=3, 
@@ -77,10 +77,10 @@ def beri(
     # read raster overview as a dictionary
     data_dict = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 
-    # insert current climate as the first element in the list (this is important)
+    # insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)
     trans_grids = [read_raster(file=i, gdf=polygon_mask, levels=levels, expand_px=last_nb_size) for i in future_files]
-
+    
     # fix this.....
     if not check_grids(data_dict[1], trans_grids[0][1]):
         raise(ValueError("The shape of the condition and transgrids doesn't match."))

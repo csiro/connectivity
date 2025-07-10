@@ -40,7 +40,7 @@ fn connectivity(
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
   
-    // Check condition dictionay was not empty and run the code    
+    // Check condition dictionay was not empty and run the code for level 1 (original resolution)
     if let Some(array) = cond_map.get(&1) {
         let (nrows, ncols) = (array.shape()[0], array.shape()[1]);
         // Initialize output with zeros
@@ -60,8 +60,8 @@ fn connectivity(
                     }
 
                     let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
-                    // Get the transgrid values for ij cell in the current climate
-                    let ij_values: Array1<f32> = get_values(&trans_maps, i, j);
+                    // Get the transgrid values for ij cell for the current climate
+                    let ij_values: Array1<f32> = get_current(&trans_maps, i, j);
 
                     for &level in cond_map.keys() {
                         // if progress.update(i as i32, j as i32, level) || j == 0 {

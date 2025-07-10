@@ -15,11 +15,11 @@ use std::iter::zip;
 /// * `nb_size` - Size of the neighborhood for normal levels (3 for 3x3, 5 for 5x5, etc.).
 ///               Must be odd-numbered.
 /// * `last_nb_size` - Size of the neighborhood for the highest level only.
-/// * `trans_vect` -
-/// *  `trans_ij` - 
+/// * `trans_vect`   - Transgrids values hashmap
+/// * `trans_ij`     - The current climate values of i, j
 ///
 /// # Returns
-/// * Tuple of row indices, column indices, and values for the neighborhood as vectors
+/// * Tuple of row indices, column indices, conditon and similarity values for the neighborhood as vectors
 pub fn multi_level_window(
     base_i: i32,
     base_j: i32,

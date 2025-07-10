@@ -80,7 +80,7 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
         let exp_term_denom = dist_lambda_denom * dist_lambda_denom / DENOM_VAL;
         let weight_denom = E.powf(-exp_term_denom);
         
-        // Update denominator (using first similarity value)
+        // Update denominator using the first similarity value (i.e. current climate)
         denominator += weight_denom * similarities[0];
     }
     
