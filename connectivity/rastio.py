@@ -30,10 +30,11 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
         # Get the original overviews
-        res_x, res_y = src.res
-        pad_x = expand_px * res_x
-        pad_y = expand_px * res_y
-        orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in gdf.geometry]
+        if gdf is not None:
+            res_x, res_y = src.res
+            pad_x = expand_px * res_x
+            pad_y = expand_px * res_y
+            orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in gdf.geometry]
 
     # If levels are not provided get them
     levels = overviews if levels is None else levels

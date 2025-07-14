@@ -155,6 +155,6 @@ pub fn multi_level_window(
 #[inline]
 fn similarity(a: &Array1<f32>, b: &ArrayView1<f32>) -> f32 {
     let l1_dist: f32 = (a - b).mapv(f32::abs).sum();
-    1.0 - E.powf(-l1_dist)
+    E.powf(-l1_dist)
 }
 

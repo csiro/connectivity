@@ -27,10 +27,10 @@ def connectedness(
     if last_nb_size < nb_size:
         last_nb_size = nb_size
 
-    # read raster overview as a dictionary
+    # Read raster overview as a dictionary
     data_dict = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 
-    out_array = connectivity(
+    conn_array = connectivity(
         data_dict = data_dict,
         trans_list = [{}], # empty dict in a list to calacualate connectedness in Rust
         lambdas = lambdas, 
@@ -39,9 +39,12 @@ def connectedness(
         last_nb_size = last_nb_size
     )
 
-    # smooth the output array with Gaussian filtering
+    # Smooth the output array with Gaussian filtering
     if smooth:
-        out_array = smoothing_filter(out_array, sigma=sigma)
+        conn_array = smoothing_filter(conn_array, sigma=sigma)
+
+    # Mutiply connectedness with conditon to calculate connected habitat
+    out_array = conn_array # * data_dict[1]
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file)
@@ -74,10 +77,10 @@ def beri(
     if last_nb_size < nb_size:
         last_nb_size = nb_size
 
-    # read raster overview as a dictionary
+    # Read raster overview as a dictionary
     data_dict = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 
-    # insert current climate as the first element in the list (this is important) before reading
+    # Insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)
     trans_grids = [read_raster(file=i, gdf=polygon_mask, levels=levels, expand_px=last_nb_size) for i in future_files]
     
@@ -94,10 +97,9 @@ def beri(
         last_nb_size = last_nb_size
     )
 
-    # smooth the output array with Gaussian filtering
+    # Smooth the output array with Gaussian filtering
     if smooth:
         out_array = smoothing_filter(out_array, sigma=sigma)
-
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file)

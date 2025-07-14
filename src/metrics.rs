@@ -67,7 +67,7 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
         
         // Calculate numerator weight with dist_adj
         let dist_lambda_num = dist_adj / lambda;
-        let exp_term_num = dist_lambda_num * dist_lambda_num / DENOM_VAL;
+        let exp_term_num = (dist_lambda_num * dist_lambda_num) / DENOM_VAL;
         let weight_num = E.powf(-exp_term_num) * cond;
         
         // Update numerator values with similarity of scenarios
