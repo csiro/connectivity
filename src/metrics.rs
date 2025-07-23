@@ -2,23 +2,19 @@ use std::f32::consts::E;
 
 // Compute the connectedness from a segment and a lambda
 pub fn connectedness(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
-    let sum_conn: f32 = segment
+    let (sum_numerator, sum_denominator): (f32, f32) = segment
         .iter()
         .map(|(dist_adj, dist, condition, _)| {
-            let numerator = E.powf(- (dist_adj / lambda)) * condition;
-            let denominator = E.powf(- (dist / lambda));
-            if denominator > 0.0 {
-                numerator / denominator
-            } else {
-                0.0
-            }
+            let numerator = E.powf(-(dist_adj / lambda)) * condition;
+            let denominator = E.powf(-(dist / lambda));
+            (numerator, denominator)
         })
-        .sum();
+        .fold((0.0, 0.0), |(acc_num, acc_den), (num, den)| {
+            (acc_num + num, acc_den + den)
+        });
 
-    let len_conn: f32 = segment.len() as f32;
-
-    if len_conn > 0.0 {
-        sum_conn / len_conn
+    if sum_denominator > 0.0  {
+        sum_numerator / sum_denominator
     } else {
         0.0
     }
