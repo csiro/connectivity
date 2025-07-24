@@ -18,10 +18,8 @@ def connectedness(
     ):
     """
     Computes multi-scale connectedness metrics from a condition image using 
-    hierarchical neighborhood-based analysis and optional spatial masking.
-
-    The function supports analysis over multiple resolution levels (COG overviews),
-    and optionally applies Gaussian smoothing. Results can be written to disk. 
+    hierarchical neighborhood-based over multiple resolution levels (COG overviews),
+    and optionally applies Gaussian smoothing. 
 
     This algorithm operates on the overview layers of Cloud Optimized 
     GeoTIFF (COG) files. Please ensure that these overview layers are generated
@@ -29,7 +27,7 @@ def connectedness(
     function for generting correct overview layers.
     
     The maximum distance the algorithm searches for cells (in the condition 
-    raster) to calculate connectivity in BERI is computed as:
+    raster) to calculate connectivity is computed as:
     max-distance = last_nb_size * max(levels) * resolution
 
     Parameters

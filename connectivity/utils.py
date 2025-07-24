@@ -11,6 +11,8 @@ def fn(connectivity, habitat, option=3):
             return habitat * connectivity
         case 3:
             return np.sqrt(habitat * connectivity)
+        case _:
+            raise ValueError("option must be one of 1, 2, or 3.")
 
 
 # Check grids are equal
