@@ -90,7 +90,10 @@ create_overviews(
 )
 ```
 
-**3. Calculating connectivity or BERI**    
+**3. Calculating connectivity or BERI**   
+
+The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
+`max_distance = last_nb_size × max(levels) × resolution`
 
 ```python
 connd = connectedness(
@@ -99,9 +102,8 @@ connd = connectedness(
     scale = 2.0, 
     nb_size = 3, 
     last_nb_size = 5,
-    levels = [1, 2, 4, 8, 16],
-    smooth = True, 
-    sigma = 5,
+    levels = [1, 2, 4, 8, 16], 
+    sigma = 3,
     filename = ""
 )
 

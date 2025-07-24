@@ -2,6 +2,17 @@ import rasterio
 from scipy.ndimage import gaussian_filter
 import numpy as np
 
+# Calculate connected condition
+def fn(connectivity, habitat, option=3):
+    match option:
+        case 1:
+            return connectivity
+        case 2:
+            return habitat * connectivity
+        case 3:
+            return np.sqrt(habitat * connectivity)
+
+
 # Check grids are equal
 def check_grids(x, y):
     x_shape = x if isinstance(x, tuple) else x.shape
@@ -9,6 +20,7 @@ def check_grids(x, y):
     return x_shape[-2:] == y_shape[-2:]
 
 
+# Gaussian smoothing with no edge effect
 def smoothing_filter(data, sigma=3, **kwargs):
     """
     Apply a Gaussian filter on the an array to smooth the values. Only filters valid data points, 
