@@ -4,6 +4,7 @@ from .rastio import read_raster, write_raster
 from .utils import check_grids, smoothing_filter, fn
 
 
+# Connectedness main funciton
 def connectedness(
         condition_file,
         polygon_mask=None,
@@ -17,18 +18,18 @@ def connectedness(
         filename=""
     ):
     """
-    Computes multi-scale connectedness metrics from a condition image using 
-    hierarchical neighborhood-based over multiple resolution levels (COG overviews),
-    and optionally applies Gaussian smoothing. 
+    Computes a multi-scale connectedness metrics 
+    
+    This based on condition using a hierarchical neighborhood-based over multiple resolution
+    levels (COG overviews), and optionally applies Gaussian smoothing. 
 
     This algorithm operates on the overview layers of Cloud Optimized 
     GeoTIFF (COG) files. Please ensure that these overview layers are generated
     using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()`
     function for generting correct overview layers.
     
-    The maximum distance the algorithm searches for cells (in the condition 
-    raster) to calculate connectivity is computed as:
-    max-distance = last_nb_size * max(levels) * resolution
+    The maximum distance the algorithm searches for cells (in the condition raster) to
+    calculate connectivity is computed as: max-distance = last_nb_size * max(levels) * resolution
 
     Parameters
     ----------
@@ -81,7 +82,7 @@ def connectedness(
     if last_nb_size < nb_size:
         last_nb_size = nb_size
 
-    # Read raster overview as a dictionary
+    # Read raster overviews as a dictionary
     data_dict = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 
     conn_array = connectivity(
@@ -107,7 +108,7 @@ def connectedness(
     return out_array
 
 
-
+# BERI main funciton
 def beri(
         condition_file,
         current_file,
