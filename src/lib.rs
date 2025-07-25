@@ -25,6 +25,7 @@ fn connectivity(
     scale: f32,
     nb_size: i32,
     last_nb_size: i32,
+    n_threads: Option<usize>,
 ) -> PyResult<Py<PyArray2<f32>>> {
 
     // Create a Rust HashMap from Py data
@@ -45,6 +46,9 @@ fn connectivity(
         let (nrows, ncols) = (array.shape()[0], array.shape()[1]);
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
+
+        // Set the number of cores for parallel processing with Rayon
+        init_rayon_internal(n_threads);
 
         // Parallel iteration over rows
         let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)

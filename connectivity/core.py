@@ -15,6 +15,7 @@ def connectedness(
         levels=[1, 2, 4, 8, 16],
         sigma=None,
         option=3,
+        n_threads = None,
         filename=""
     ):
     """
@@ -63,6 +64,9 @@ def connectedness(
             - 1: connectedness
             - 2: connectedness * condition
             - 3: sqrt(connectedness * condition)
+    n_threads : int, optional
+        The number of CPU cores for parallel processing. 
+        Default is None (all available cores).
     filename : str, optional
         Path to save the output file. If empty, the result is not written to disk.
         Default is "".
@@ -91,7 +95,8 @@ def connectedness(
         lambdas = lambdas, 
         scale = scale,
         nb_size = nb_size,
-        last_nb_size = last_nb_size
+        last_nb_size = last_nb_size,
+        n_threads = n_threads,
     )
 
     # Smooth the output array with Gaussian filtering
@@ -120,6 +125,7 @@ def beri(
         last_nb_size=9,
         levels=[1, 2, 4, 8, 16],
         sigma=None,
+        n_threads = None,
         filename=""
     ):
     """
@@ -172,6 +178,9 @@ def beri(
     sigma : float, optional
         Standard deviation for the Gaussian kernel if smoothing is applied to input layers.
         Default is None (no smoothing).
+    n_threads : int, optional
+        The number of CPU cores for parallel processing. 
+        Default is None (all available cores).
     filename : str, optional
         Path to save the resulting BERI raster. If empty, the output is not written to disk.
         Default is "".
@@ -209,7 +218,8 @@ def beri(
         lambdas = lambdas, 
         scale = scale,
         nb_size = nb_size,
-        last_nb_size = last_nb_size
+        last_nb_size = last_nb_size,
+        n_threads = n_threads,
     )
 
     # Smooth the output array with Gaussian filtering
