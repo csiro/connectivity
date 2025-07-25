@@ -15,7 +15,7 @@ def connectedness(
         levels=[1, 2, 4, 8, 16],
         sigma=None,
         option=3,
-        n_threads = None,
+        n_threads=None,
         filename=""
     ):
     """
@@ -125,7 +125,7 @@ def beri(
         last_nb_size=9,
         levels=[1, 2, 4, 8, 16],
         sigma=None,
-        n_threads = None,
+        n_threads=None,
         filename=""
     ):
     """

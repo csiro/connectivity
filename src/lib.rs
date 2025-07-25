@@ -9,15 +9,15 @@ use rayon::prelude::*;
 // local modules
 mod window;
 mod graph;
-mod utlis;
+mod utils;
 mod metrics;
 use metrics::{beri_score, connectedness};
 use window::multi_level_window;
 use graph::multi_level_graph;
-use utlis::{*};
+use utils::{*};
 
 
-#[pyfunction]
+#[pyfunction(signature = (data_dict, trans_list, lambdas, scale, nb_size, last_nb_size, n_threads=None))]
 fn connectivity(
     data_dict: &Bound<PyAny>,
     trans_list: &Bound<PyAny>,
@@ -48,78 +48,88 @@ fn connectivity(
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
 
         // Set the number of cores for parallel processing with Rayon
-        init_rayon_internal(n_threads);
+        let threads = match n_threads {
+            Some(n) if n > 0 => n,
+            _ => num_cpus::get(),
+        };
+        // Create an isolated custom thread pool as a local setting rather than global
+        let custom_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("Failed to build thread pool");
 
-        // Parallel iteration over rows
-        let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)
-            .into_par_iter()
-            .map(|i| {
-                let mut row_result = vec![f32::NAN; ncols];
-                // let mut progress = Progress::new();
-               
-                for j in 0..ncols {
-                    // Skip an NaN in the orginal resolution of the condition data
-                    if array[[i, j]].is_nan() {
-                        continue;
-                    }
+        // Parallel iteration over rows in the thread pool
+        let out_vec: Vec<(usize, Vec<f32>)> = custom_pool.install(|| {
+            (0..nrows)
+                .into_par_iter()
+                .map(|i| {
+                    let mut row_result = vec![f32::NAN; ncols];
+                    // let mut progress = Progress::new();
+                
+                    for j in 0..ncols {
+                        // Skip an NaN in the orginal resolution of the condition data
+                        if array[[i, j]].is_nan() {
+                            continue;
+                        }
 
-                    let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
-                    // Get the transgrid values for ij cell for the current climate
-                    let ij_values: Array1<f32> = get_current(&trans_maps, i, j);
+                        let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
+                        // Get the transgrid values for ij cell for the current climate
+                        let ij_values: Array1<f32> = get_current(&trans_maps, i, j);
 
-                    for &level in cond_map.keys() {
-                        // if progress.update(i as i32, j as i32, level) || j == 0 {
-                        let window = multi_level_window(
-                            i as i32,
-                            j as i32,
-                            level,
-                            &cond_map,
-                            nb_size,
-                            last_nb_size,
-                            &trans_maps,
-                            &ij_values,
-                        );
-                        level_dict.insert(level, window);
-                        // }
-                    }
+                        for &level in cond_map.keys() {
+                            // if progress.update(i as i32, j as i32, level) || j == 0 {
+                            let window = multi_level_window(
+                                i as i32,
+                                j as i32,
+                                level,
+                                &cond_map,
+                                nb_size,
+                                last_nb_size,
+                                &trans_maps,
+                                &ij_values,
+                            );
+                            level_dict.insert(level, window);
+                            // }
+                        }
 
-                    // Get the graph and source node for cell ij
-                    let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
-                    // Calculate all reachable paths; the end nodes/segments
-                    let reachables: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
-                    // Using unweighted distance, i.e. intact condition case for the denominator
-                    let path_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false); 
-                    
-                    let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
-
-                    for &k in reachables.keys() {
-                        // Calcaulate optimal path for each reachable path
-                        let optim_path = build_path(&k, &reachables);
-                        // Get the intact distance from the intact Dijkstra
-                        let dist_intact = path_intact[&k].1 as f32; // Key MUST exist!
-                        // Get the path info for each target segment/node
-                        cell_paths.push(path_distance(&edge_graph, &optim_path, dist_intact));
-                    }
-
-                    // Calculate BERI or Connectedness
-                    row_result[j] = if lambdas.is_empty() {
-                        0.0
-                    } else {
-                        let sum: f32 = lambdas.iter().map(|&lambda| {
-                            if run_beri {
-                                beri_score(&cell_paths, lambda)
-                            } else {
-                                connectedness(&cell_paths, lambda)
-                            }
-                        }).sum();
+                        // Get the graph and source node for cell ij
+                        let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
+                        // Calculate all reachable paths; the end nodes/segments
+                        let reachables: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
+                        // Using unweighted distance, i.e. intact condition case for the denominator
+                        let path_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false); 
                         
-                        sum / lambdas.len() as f32
-                    };
-                }
+                        let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
 
-                (i, row_result)
-            })
-            .collect();
+                        for &k in reachables.keys() {
+                            // Calcaulate optimal path for each reachable path
+                            let optim_path = build_path(&k, &reachables);
+                            // Get the intact distance from the intact Dijkstra
+                            let dist_intact = path_intact[&k].1 as f32; // Key MUST exist!
+                            // Get the path info for each target segment/node
+                            cell_paths.push(path_distance(&edge_graph, &optim_path, dist_intact));
+                        }
+
+                        // Calculate BERI or Connectedness
+                        row_result[j] = if lambdas.is_empty() {
+                            0.0
+                        } else {
+                            let sum: f32 = lambdas.iter().map(|&lambda| {
+                                if run_beri {
+                                    beri_score(&cell_paths, lambda)
+                                } else {
+                                    connectedness(&cell_paths, lambda)
+                                }
+                            }).sum();
+                            
+                            sum / lambdas.len() as f32
+                        };
+                    }
+
+                    (i, row_result)
+                })
+                .collect()
+        });
 
         // Write back results into outarray
         for (i, row) in out_vec {

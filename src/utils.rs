@@ -4,26 +4,6 @@ use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
 use pathfinding::prelude::dijkstra_all;
-use rayon::ThreadPoolBuilder;
-use std::sync::Once;
-
-
-static INIT_RAYON: Once = Once::new();
-
-/// Initiate rayon with a specified number of cores
-pub fn init_rayon_internal(n_threads: Option<usize>) {
-    INIT_RAYON.call_once(|| {
-        let threads = match n_threads {
-            Some(n) if n > 0 => n,
-            _ => num_cpus::get(),
-        };
-
-        ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build_global()
-            .expect("Failed to build global thread pool");
-    });
-}
 
 
 /// Convert a Python dict-of-arrays into a Rust `HashMap<i32, Array2<f32>>`.
