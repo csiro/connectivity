@@ -6,7 +6,6 @@ use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
 use pathfinding::prelude::build_path;
 use rayon::prelude::*;
-use rayon::join;
 // local modules
 mod window;
 mod graph;
