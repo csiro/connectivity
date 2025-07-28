@@ -10,9 +10,10 @@ use pathfinding::prelude::dijkstra_all;
 pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
     let mut rust_map = HashMap::new();
 
-    // call .items() on the Python dict
-    let items = data_dict.call_method0("items").unwrap();
-    let iter = items.iter().unwrap();
+    // Convert to iterable
+    let iter = data_dict
+        .call_method0("items").unwrap()
+        .iter().unwrap();
 
     for pair in iter {
         let (key_obj, value_obj) = pair.unwrap().extract::<(&PyAny, &PyAny)>().unwrap();
@@ -30,8 +31,10 @@ pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
 pub fn to_3d_map<'py>(data_dict: &Bound<PyAny>) -> HashMap<i32, Array3<f32>> {
     let mut rust_map = HashMap::new();
 
-    let items = data_dict.call_method0("items").unwrap();
-    let iter = items.iter().unwrap();
+    // Convert to iterable
+    let iter = data_dict
+        .call_method0("items").unwrap()
+        .iter().unwrap();
 
     for pair in iter {
         let (key_obj, value_obj) = pair.unwrap().extract::<(&PyAny, &PyAny)>().unwrap();

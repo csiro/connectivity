@@ -49,33 +49,37 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
     if n_scenario == 0 {
         return 0.0;
     }
-    
     // Initialize numerator vector with capacity
     let mut numerator = vec![0.0f32; n_scenario];
     let mut denominator = 0.0f32;
 
+    let inv_lambda = 1.0 / lambda;
+
     // Process each segment
-    for (dist_adj, dist, cond, similarities) in segment {
+    for (dist_adj, dist, cond, ref similarities) in segment {
         // Skip invalid data points
         if similarities.len() < n_scenario {
             continue;
         }
         
         // Calculate numerator weight with dist_adj
-        let dist_lambda_num = dist_adj / lambda;
-        let exp_term_num = (dist_lambda_num * dist_lambda_num) / DENOM_VAL;
-        let weight_num = E.powf(-exp_term_num) * cond;
+        let weight_num = {
+            let t = dist_adj * inv_lambda;
+            let exp_term = (t * t) / DENOM_VAL;
+            cond * (-exp_term).exp()
+        };
+        // Calculate denominator weight with dist
+        let weight_denom = {
+            let t = dist * inv_lambda;
+            let exp_term = (t * t) / DENOM_VAL;
+            (-exp_term).exp()
+        };
         
         // Update numerator values with similarity of scenarios
         for (i, &sim) in similarities.iter().take(n_scenario).enumerate() {
             numerator[i] += weight_num * sim;
         }
-        
-        // Calculate denominator weight with dist
-        let dist_lambda_denom = dist / lambda;
-        let exp_term_denom = dist_lambda_denom * dist_lambda_denom / DENOM_VAL;
-        let weight_denom = E.powf(-exp_term_denom);
-        
+
         // Update denominator using the first similarity value (i.e. current climate)
         denominator += weight_denom * similarities[0];
     }

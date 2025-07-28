@@ -6,6 +6,7 @@ use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
 use pathfinding::prelude::build_path;
 use rayon::prelude::*;
+use rayon::join;
 // local modules
 mod window;
 mod graph;
@@ -94,18 +95,18 @@ fn connectivity(
 
                         // Get the graph and source node for cell ij
                         let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
-                        // Calculate all reachable paths; the end nodes/segments
-                        let reachables: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
+                        // Calculate all reachable paths using weighted distance by conditon; altered condition
+                        let nodes_altered: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
                         // Using unweighted distance, i.e. intact condition case for the denominator
-                        let path_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false); 
+                        let nodes_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false); 
                         
-                        let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(reachables.len());
+                        let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(nodes_altered.len());
 
-                        for &k in reachables.keys() {
+                        for &k in nodes_altered.keys() {
                             // Calcaulate optimal path for each reachable path
-                            let optim_path = build_path(&k, &reachables);
+                            let optim_path = build_path(&k, &nodes_altered);
                             // Get the intact distance from the intact Dijkstra
-                            let dist_intact = path_intact[&k].1 as f32; // Key MUST exist!
+                            let dist_intact = nodes_intact[&k].1 as f32; // Key MUST exist!
                             // Get the path info for each target segment/node
                             cell_paths.push(path_distance(&edge_graph, &optim_path, dist_intact));
                         }
