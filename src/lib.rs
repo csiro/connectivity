@@ -77,7 +77,6 @@ fn connectivity(
                         let ij_values: Array1<f32> = get_current(&trans_maps, i, j);
 
                         for &level in cond_map.keys() {
-                            // if progress.update(i as i32, j as i32, level) || j == 0 {
                             let window = multi_level_window(
                                 i as i32,
                                 j as i32,
@@ -89,7 +88,6 @@ fn connectivity(
                                 &ij_values,
                             );
                             level_dict.insert(level, window);
-                            // }
                         }
 
                         // Get the graph and source node for cell ij

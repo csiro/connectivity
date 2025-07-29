@@ -56,20 +56,20 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
     let inv_lambda = 1.0 / lambda;
 
     // Process each segment
-    for (dist_adj, dist, cond, ref similarities) in segment {
+    for (dist_adj, dist, cond, similarities) in segment {
         // Skip invalid data points
         if similarities.len() < n_scenario {
             continue;
         }
         
         // Calculate numerator weight with dist_adj
-        let weight_num = {
+        let weight_num: f32 = {
             let t = dist_adj * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
             cond * (-exp_term).exp()
         };
         // Calculate denominator weight with dist
-        let weight_denom = {
+        let weight_denom: f32 = {
             let t = dist * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
             (-exp_term).exp()
