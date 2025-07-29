@@ -95,16 +95,41 @@ create_overviews(
 The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
 `max_distance = last_nb_size × max(levels) × resolution`
 
+Use option argument to generate the connected condition from connectedness and input condition:
+    - 1: connectedness
+    - 2: connectedness * condition
+    - 3: sqrt(connectedness * condition) (default)
+
+
 ```python
 connd = connectedness(
-    condition_file = "cog_file.tif",
-    lambdas = [2.0, 20.0, 200.0],
+    condition_file = "./data/condition_cog.tif",
+    lambdas = [2, 20, 200],
     scale = 2.0, 
     nb_size = 3, 
     last_nb_size = 5,
     levels = [1, 2, 4, 8, 16], 
     sigma = 3,
-    filename = ""
+    option = 3,
+    filename = "./results/ceonnectivity.tif"
+)
+
+```
+
+For BERI, you need the transgrid of current and future scenarios.
+
+```python
+beris = beri(
+    condition_file = "./data/condition_cog.tif",
+    current_file = "./data/transgrids/1990.tif",
+    future_files = ["./data/transgrids/IPS50_45.tif", "./data/transgrids/GFD50_85.tif"],
+    lambdas = [2, 20, 200], 
+    scale = 2.0, 
+    nb_size = 13, 
+    last_nb_size = 15,
+    levels = [1, 2, 4, 8, 16],
+    sigma = None,
+    filename = "./results/berri.tif"
 )
 
 ```
