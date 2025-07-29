@@ -94,11 +94,11 @@ create_overviews(
 
 The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
 `max_distance = last_nb_size × max(levels) × resolution`
-
-Use option argument to generate the connected condition from connectedness and input condition:
-    - 1: connectedness
-    - 2: connectedness * condition
-    - 3: sqrt(connectedness * condition) (default)
+    
+Use option argument to generate the connected condition from connectedness and input condition:    
+1. connectedness    
+2. connectedness * condition    
+3. sqrt(connectedness * condition) (default)    
 
 
 ```python
