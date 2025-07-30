@@ -41,8 +41,9 @@ def connectedness(
         Path to a polygon shapefile or mask file used to limit the analysis area.
         If None, the entire image is processed.
     lambdas : list of float, optional
-        List of lambda (bandwidth) values for the connectivity kernels. Controls the 
-        distance over which the condition is used in the connectivity. Default is [2, 20, 200].
+        The bandwidth values for the connectivity kernels. Controls the distance over 
+        which the condition is used in the connectivity as a measure of organism 
+        dispersal. Default is [2, 20, 200].
     scale : float, optional
         Used in weighting the condition for connectivity computation (default = 2). 
         Applied as: `w = (1.0 - scale) * condition + scale`.
@@ -159,9 +160,9 @@ def beri(
         Path to a polygon shapefile or mask used to limit the analysis area.
         If None, the entire input extent is analyzed.
     lambdas : list of float, optional
-        List of lambda (bandwidth) values for the connectivity kernels.
-        Controls the distance over which the condition influences connectivity.
-        Default is [2, 20, 200].
+        The bandwidth values for the connectivity kernels. Controls the distance over 
+        which the condition is used in the connectivity as a measure of organism 
+        dispersal. Default is [2, 20, 200].
     scale : float, optional
         Weighting factor for the condition in the connectivity calculation. 
         Used as: `w = (1.0 - scale) * condition + scale`.

@@ -99,6 +99,30 @@ pub fn multi_level_graph(
 }
 
 
+/// Create node mapping efficiently
+fn create_node_mapping(
+    i_array: &[i32],
+    j_array: &[i32],
+    values: &[f32],
+    similarities: &[Vec<f32>],
+    level: i32
+) -> HashMap<(i32, i32), (u16, f32, Vec<f32>)> {
+    let level_id = level * 100;
+    let mut mapping = HashMap::with_capacity(i_array.len());
+    
+    for i in 0..i_array.len() {
+        // collect the i-th value from each similarity vector
+        let sim_vals: Vec<f32> = similarities.iter().map(|v| v[i]).collect();
+        mapping.insert(
+            (i_array[i], j_array[i]),
+            (i as u16 + level_id as u16, values[i], sim_vals)
+        );
+    }
+    
+    mapping
+}
+
+
 /// Process neighbors at current level
 /// output graph: (u, v) (adj_cond, cond, dist, similarities)
 #[inline]
@@ -217,27 +241,4 @@ fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32, f32); 8] {
     results
 }
 
-
-/// Create node mapping efficiently
-fn create_node_mapping(
-    i_array: &[i32],
-    j_array: &[i32],
-    values: &[f32],
-    similarities: &[Vec<f32>],
-    level: i32
-) -> HashMap<(i32, i32), (u16, f32, Vec<f32>)> {
-    let level_id = level * 100;
-    let mut mapping = HashMap::with_capacity(i_array.len());
-    
-    for i in 0..i_array.len() {
-        // collect the i-th value from each similarity vector
-        let sim_vals: Vec<f32> = similarities.iter().map(|v| v[i]).collect();
-        mapping.insert(
-            (i_array[i], j_array[i]),
-            (i as u16 + level_id as u16, values[i], sim_vals)
-        );
-    }
-    
-    mapping
-}
 

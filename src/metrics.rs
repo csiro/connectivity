@@ -53,7 +53,7 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
     let mut numerator = vec![0.0f32; n_scenario];
     let mut denominator = 0.0f32;
 
-    let inv_lambda = 1.0 / lambda;
+    let inv_lambda: f32 = 1.0 / lambda;
 
     // Process each segment
     for (dist_adj, dist, cond, similarities) in segment {
