@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+
 /// Optimized implementation of multi-level graph generation
 pub fn multi_level_graph(
     i_base: i32, 
@@ -179,32 +180,18 @@ fn process_higher_level_connections(
 }
 
 
-/// Get edge cells efficiently using HashSet
-fn get_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
-    let i_min = *i_arr.iter().min().unwrap_or(&0);
-    let i_max = *i_arr.iter().max().unwrap_or(&0);
-    let j_min = *j_arr.iter().min().unwrap_or(&0);
-    let j_max = *j_arr.iter().max().unwrap_or(&0);
-    
-    // Pre-allocate approximately the right size
-    let perimeter = 2 * (i_max - i_min + j_max - j_min);
-    let mut edge_set = HashSet::with_capacity(perimeter as usize);
-    
-    // Use iterator for better cache locality
-    i_arr.iter().zip(j_arr.iter())
-        .filter(|(&i, &j)| i == i_min || i == i_max || j == j_min || j == j_max)
-        .for_each(|(&i, &j)| { edge_set.insert((i, j)); });
-    
-    edge_set
-}
-
-
 /// Calculate distance between two cells
+/// NOTE: add resolution here as well.
 #[inline]
-fn cell_distance(i1: i32, j1: i32, i2: i32, j2: i32) -> f32 {
-    let di = i2 - i1;
-    let dj = j2 - j1;
-    ((di * di + dj * dj) as f32).sqrt()
+fn cell_distance<T>(i1: T, j1: T, i2: T, j2: T) -> f32
+where
+    T: Copy + Into<f64>,
+{
+    let di = i2.into() - i1.into();
+    let dj = j2.into() - j1.into();
+    let dist_meters = (di * di + dj * dj).sqrt(); // in same units as indices
+    // (dist_meters * resolution / 1000.0) as f32 // kilometres as f32
+    dist_meters as f32
 }
 
 
@@ -231,9 +218,7 @@ fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32, f32); 8] {
         let x_higher = nj_shifted as f32 * higher_res + 1.0;
         let y_higher = ni_shifted as f32 * higher_res + 1.0;
         
-        let dx = x_higher - x;
-        let dy = y_higher - y;
-        let dist = (dx * dx + dy * dy).sqrt();
+        let dist = cell_distance(x, y, x_higher, y_higher);
         
         results[k] = (ni_shifted, nj_shifted, dist);
     }
@@ -241,4 +226,23 @@ fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32, f32); 8] {
     results
 }
 
+
+/// Get edge cells efficiently using HashSet
+fn get_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
+    let i_min = *i_arr.iter().min().unwrap_or(&0);
+    let i_max = *i_arr.iter().max().unwrap_or(&0);
+    let j_min = *j_arr.iter().min().unwrap_or(&0);
+    let j_max = *j_arr.iter().max().unwrap_or(&0);
+    
+    // Pre-allocate approximately the right size
+    let perimeter = 2 * (i_max - i_min + j_max - j_min);
+    let mut edge_set = HashSet::with_capacity(perimeter as usize);
+    
+    // Use iterator for better cache locality
+    i_arr.iter().zip(j_arr.iter())
+        .filter(|(&i, &j)| i == i_min || i == i_max || j == j_min || j == j_max)
+        .for_each(|(&i, &j)| { edge_set.insert((i, j)); });
+    
+    edge_set
+}
 
