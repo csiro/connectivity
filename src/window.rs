@@ -19,7 +19,7 @@ use std::iter::zip;
 /// * `trans_ij`     - The current climate values of i, j
 ///
 /// # Returns
-/// * Tuple of row indices, column indices, conditon and similarity values for the neighborhood as vectors
+/// * Tuple of row-indices, column-indices, conditon, and similarity values for the neighborhood as vectors
 pub fn multi_level_window(
     base_i: i32,
     base_j: i32,

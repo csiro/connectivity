@@ -47,6 +47,7 @@ pub fn multi_level_graph(
         
         // Update node mappings
         if level > 1 {
+            // Recycle the node mapping already calculated for the hihger level 
             node_mapping = node_mapping_higher.clone();
         } else {
             node_mapping = create_node_mapping(i_array, j_array, values, sims, level);
@@ -181,17 +182,25 @@ fn process_higher_level_connections(
 
 
 /// Calculate distance between two cells
-/// NOTE: add resolution here as well.
 #[inline]
 fn cell_distance<T>(i1: T, j1: T, i2: T, j2: T) -> f32
 where
     T: Copy + Into<f64>,
 {
+
+    // NOTE: This must get XY coords only 
+
+    // if is_latlong {
+    //     dist_meters = distance_haversine(i1, j1, i2, j2)
+    //     (dist_meters / 1000.0) as f32
+    // } else {
+    //
     let di = i2.into() - i1.into();
     let dj = j2.into() - j1.into();
     let dist_meters = (di * di + dj * dj).sqrt(); // in same units as indices
     // (dist_meters * resolution / 1000.0) as f32 // kilometres as f32
     dist_meters as f32
+    // }
 }
 
 

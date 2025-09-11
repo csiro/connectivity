@@ -19,10 +19,11 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
     - expand_px (bool): The number of pixels to pad the polygon; this depends on the 
 
     Returns:
-    - dict: A dictionary where keys are overview levels and values are 3D numpy arrays
-            with shape (bands, height, width) for the corresponding overview.
+    - dict: A two dictionaries where keys are overview levels and values are 3D numpy arrays
+            with shape (bands, height, width) for the corresponding overview, and their respective transform info.
     """
     data_dict = {}
+    tran_dict = {}
 
     # Get overview levels
     with rasterio.open(file) as src:
@@ -42,6 +43,9 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
     # If gdf is not provided read the entire dataset
     if gdf is None:
         with rasterio.open(file) as dataset:
+
+            original_transform = dataset.transform
+
             for level in levels:
                 if level not in overviews:
                     raise(ValueError(f"Overview level {level} not found in the dataset."))
@@ -50,6 +54,11 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 scale = level
                 out_height = dataset.height // scale
                 out_width = dataset.width // scale
+
+                # Update the transform
+                scale_x = dataset.width / out_width
+                scale_y = dataset.height / out_height
+                level_transform = original_transform * rasterio.Affine.scale(scale_x, scale_y)
 
                 # Read all bands at this resolution
                 data = dataset.read(
@@ -65,12 +74,14 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 data = np.where(data.mask, np.nan, data)
                     
                 data_dict[level] = data.squeeze().astype(np.float32)
+                tran_dict[level] = level_transform
     else:
         # Max level to get the correct buffered area that includes all required pixels for the neighbours
-        max_level = len(levels) - 1
+        max_level = max(levels)
+        max_level_idx = overviews.index(max_level)
 
-        # Use high-level overview to calculate buffer size to avoid edge effect
-        with rasterio.open(file, overview_level=max_level) as src:
+        # Use coarsest overview to calculate buffer size to avoid edge effect
+        with rasterio.open(file, overview_level=max_level_idx) as src:
             if gdf.crs != src.crs:
                 gdf = gdf.to_crs(src.crs)
 
@@ -81,15 +92,18 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
             buffer_geoms = [box(*geom.buffer(max(pad_x, pad_y)).bounds) for geom in gdf.geometry]
 
         # Get all overview layers
-        for id, level in enumerate(levels):
+        for level in levels:
             if level not in overviews:
-                raise(ValueError(f"Overview level {level} not found in the dataset."))
+                raise ValueError(f"Overview decimation {level} not found in dataset.")
             
-            # Get the polygon for masking the data
+            # NOTE: check this works correctly for all overview levels
+            ov_idx = overviews.index(level) + 1  # +1 because 0 is base resolution
+            
+            # Choose masking geometry
             masking_geom = buffer_geoms if level > 1 else orig_buffer_geoms # gdf.geometry.tolist()
             
             # Read data using desired level
-            with rasterio.open(file, overview_level=id, resampling=Resampling.average) as src:
+            with rasterio.open(file, overview_level=ov_idx, resampling=Resampling.average) as src:
                 # Step 1: Mask with buffered geometry (for extent) of the coarsest level i.e. 32
                 out_image, out_transform = mask(
                     src,
@@ -121,8 +135,11 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 else:
                     nan_array = masked[0].squeeze().filled(np.nan)
                     data_dict[level] = nan_array.astype(np.float32)
+                
+                tran_dict[level] = out_transform
 
-    return data_dict
+    return data_dict, tran_dict
+
 
 
 def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
@@ -176,9 +193,7 @@ def create_overviews(input_raster, output_raster=None, overview_levels=[1, 2, 4,
         input_raster (str): Path to the input raster file
         output_raster (str, optional): Path to the output raster file. If None, overviews are added to the input file.
         overview_levels (list, optional): List of overview levels to generate. Default is [1, 2, 4, 8, 16, 32].
-        resampling_method (str, optional): The resampling method to use. Default is "AVERAGE".
-                                          Other options include "NEAREST", "GAUSS", "CUBIC", etc.
-    
+        
     Returns:
         bool: True if operation was successful, False otherwise
     """

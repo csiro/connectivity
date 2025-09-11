@@ -91,6 +91,9 @@ fn connectivity(
                         }
 
                         // Get the graph and source node for cell ij
+
+                        // UPDATE: add the tranform info of each layer here...
+
                         let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
                         let nodes_altered: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
