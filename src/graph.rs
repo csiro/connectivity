@@ -181,6 +181,16 @@ fn process_higher_level_connections(
 }
 
 
+fn distance_km(x1: f64, y1: f64, x2: f64, y2: f64, geo: bool) -> f32 {
+    if geo {
+        let dist = distance::haversine(x1, y1, x2, y2);
+    } else {
+        let dist = distance::euclidean(x1, y1, x2, y2);
+    }
+
+    (dist / 1000.0)  as f32
+}
+
 /// Calculate distance between two cells
 #[inline]
 fn cell_distance<T>(i1: T, j1: T, i2: T, j2: T) -> f32

@@ -11,10 +11,6 @@ mod window;
 mod graph;
 mod utils;
 mod metrics;
-use metrics::{beri_score, connectedness};
-use window::multi_level_window;
-use graph::multi_level_graph;
-use utils::{*};
 
 
 #[pyfunction(signature = (data_dict, trans_list, lambdas, scale, nb_size, last_nb_size, n_threads=None))]
@@ -29,13 +25,13 @@ fn connectivity(
 ) -> PyResult<Py<PyArray2<f32>>> {
 
     // Create a Rust HashMap from Py data
-    let cond_map: HashMap<i32, Array2<f32>> = to_2d_map(data_dict);
+    let cond_map: HashMap<i32, Array2<f32>> = utils::to_2d_map(data_dict);
 
     // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
     let list = trans_list.downcast::<PyList>()?; // Convert PyAny to PyList
     let trans_maps: Vec<HashMap<i32, Array3<f32>>> = list.iter().map(|item| {
         let dict = item.downcast::<PyDict>().unwrap(); // handling errors properly
-        to_3d_map(dict)
+        utils::to_3d_map(dict)
     }).collect();
 
     // If transgrids are provided run BERI, otherwise connectedness.
@@ -74,10 +70,10 @@ fn connectivity(
 
                         let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
                         // Get the transgrid values for ij cell for the current climate
-                        let ij_values: Array1<f32> = get_current(&trans_maps, i, j);
+                        let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
 
                         for &level in cond_map.keys() {
-                            let window = multi_level_window(
+                            let window = window::multi_level_window(
                                 i as i32,
                                 j as i32,
                                 level,
@@ -94,11 +90,11 @@ fn connectivity(
 
                         // UPDATE: add the tranform info of each layer here...
 
-                        let (edge_graph, source) = multi_level_graph(i as i32, j as i32, &level_dict, scale);
+                        let (edge_graph, source) = graph::multi_level_graph(i as i32, j as i32, &level_dict, scale);
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
-                        let nodes_altered: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, true);
+                        let nodes_altered: HashMap<u16, (u16, u32)> = utils::dijkstra(&edge_graph, source, true);
                         // Using unweighted distance, i.e. intact condition case for the denominator
-                        let nodes_intact: HashMap<u16, (u16, u32)> = dijkstra(&edge_graph, source, false); 
+                        let nodes_intact: HashMap<u16, (u16, u32)> = utils::dijkstra(&edge_graph, source, false); 
                         
                         let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(nodes_altered.len());
 
@@ -108,7 +104,7 @@ fn connectivity(
                             // Get the intact distance from the intact Dijkstra
                             let dist_intact = nodes_intact[&k].1 as f32; // Key MUST exist!
                             // Get the path info for each target segment/node
-                            cell_paths.push(path_distance(&edge_graph, &optim_path, dist_intact));
+                            cell_paths.push(utils::path_distance(&edge_graph, &optim_path, dist_intact));
                         }
 
                         // Calculate BERI or Connectedness
@@ -117,9 +113,9 @@ fn connectivity(
                         } else {
                             let sum: f32 = lambdas.iter().map(|&lambda| {
                                 if run_beri {
-                                    beri_score(&cell_paths, lambda)
+                                    metrics::beri_score(&cell_paths, lambda)
                                 } else {
-                                    connectedness(&cell_paths, lambda)
+                                    metrics::connectedness(&cell_paths, lambda)
                                 }
                             }).sum();
                             
