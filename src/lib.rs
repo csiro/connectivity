@@ -11,11 +11,12 @@ mod window;
 mod graph;
 mod utils;
 mod metrics;
+mod distances;
 mod affine;
 use affine::Affine;
 
 
-#[pyfunction(signature = (data_dict, trans_list, lambdas, scale, nb_size, last_nb_size, n_threads=None))]
+#[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, scale, nb_size, last_nb_size, n_threads=None))]
 fn connectivity(
     data_dict: &Bound<PyAny>,
     trans_list: &Bound<PyAny>,
@@ -97,7 +98,14 @@ fn connectivity(
 
                         // UPDATE: add the tranform info of each layer here...
 
-                        let (edge_graph, source) = graph::multi_level_graph(i as i32, j as i32, &level_dict, scale);
+                        let (edge_graph, source) = graph::multi_level_graph(
+                            i as i32, 
+                            j as i32, 
+                            &level_dict, 
+                            scale,
+                            &transform_map,
+                            is_geo
+                        );
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
                         let nodes_altered: HashMap<u16, (u16, u32)> = utils::dijkstra(&edge_graph, source, true);
                         // Using unweighted distance, i.e. intact condition case for the denominator

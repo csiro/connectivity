@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
-mod distances;
+use crate::affine::Affine;
+use crate::distances;
 
 /// Optimized implementation of multi-level graph generation
 pub fn multi_level_graph(
     i_base: i32, 
     j_base: i32, 
     level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)>, 
-    factor: f32
+    factor: f32,
+    transforms: &HashMap<i32, Affine>,
+    geographic: bool,
 ) -> (HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>, u16) {
     // Pre-compute constants
     let i_ngb = [0, 1, 0, -1, 1, 1, -1, -1];
@@ -40,10 +43,12 @@ pub fn multi_level_graph(
     }
 
     // Process each level
-    for (_level_idx, &level) in levels.iter().enumerate() {
+    for level in levels {
         let (i_array, j_array, values, sims) = &level_dict[&level];
         let num_points = i_array.len();
         let edge_indices = &all_edge_indices[&level];
+
+        let level_affine: &Affine = transforms.get(&level).unwrap();
         
         // Update node mappings
         if level > 1 {
@@ -77,11 +82,14 @@ pub fn multi_level_graph(
             
             // Process neighbors at current level
             process_current_level_neighbors(
-                i, j, u, level,
+                i, j, u, 
+                //level,
                 &i_ngb, &j_ngb,
                 &node_mapping,
                 factor,
-                &mut graph_temp
+                &mut graph_temp,
+                &level_affine,
+                geographic,
             );
             
             // Process connections to higher level if needed
@@ -91,7 +99,10 @@ pub fn multi_level_graph(
                     &node_mapping,
                     &node_mapping_higher,
                     factor,
-                    &mut graph_temp
+                    &mut graph_temp,
+                    level,
+                    &transforms,
+                    geographic,
                 );
             }
         }
@@ -129,19 +140,31 @@ fn create_node_mapping(
 /// output graph: (u, v) (adj_cond, cond, dist, similarities)
 #[inline]
 fn process_current_level_neighbors(
-    i: i32, j: i32, 
-    u: u16, level: i32,
-    i_ngb: &[i32], j_ngb: &[i32],
+    i: i32, 
+    j: i32, 
+    u: u16, 
+    // level: i32,
+    i_ngb: &[i32], 
+    j_ngb: &[i32],
     node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>
+    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
+    transform: &Affine,
+    is_wgs: bool,
 ) {
     for k in 0..8 {
         let ni = i + i_ngb[k];
         let nj = j + j_ngb[k];
+
+        // Get XY coords from IJ and transfrom object
+        // NOTE: ********* check i and j are corrected assigned to row and column *********
+        let (x1, y1) = transform.xy(j as f64, i as f64);
+        let (x2, y2) = transform.xy(nj as f64, ni as f64);
+
         // Use 'ref' to borrow Vec<f32> rather than moving it
         if let Some(&(v, z, ref s)) = node_mapping.get(&(ni, nj)) {
-            let dist = cell_distance(i, j, ni, nj) * level as f32;
+            // let dist = cell_distance(i, j, ni, nj) * level as f32;
+            let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
             let w = (1.0 - factor) * z + factor;
             
             // Store only the weighted distance in the temp graph
@@ -159,19 +182,35 @@ fn process_higher_level_connections(
     node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
     node_mapping_higher: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>
+    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
+    level: i32, 
+    transforms: &HashMap<i32, Affine>,
+    is_wgs: bool,
 ) {
     if let Some(&(u_val, zz, ref ss)) = node_mapping.get(&(i, j)) {
         let wu = (1.0 - factor) * zz + factor;
+        let higher_level: i32 = level * 2;
         
         // Get all higher neighbors at once
         let higher_neighbors = get_higher_neighbors(i, j);
+
+        // Get the Affines for distance calc
+        let transform: &Affine = transforms.get(&level).unwrap();
+        let transform_upper: &Affine = transforms.get(&higher_level).unwrap();
+        // Get the actual coordinates values for distance calc
+        let (x1, y1) = transform.xy(j as f64, i as f64);
         
         // Use 'ref' to borrow Vec<f32> rather than moving it
-        for &(ni, nj, dist) in &higher_neighbors {
+        for &(ni, nj) in &higher_neighbors {
+            // Only if the neghbours are in the higher mapping proceess
             if let Some(&(v, z, ref s)) = node_mapping_higher.get(&(ni, nj)) {
                 let w = (1.0 - factor) * z + factor;
-                
+
+                // Get the real coordinates of the higher level
+                let (x2, y2) = transform_upper.xy(nj as f64, ni as f64);
+                // Distance in kilometer
+                let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
+                        
                 // Both-way edge
                 graph_temp.insert((u_val, v), (w * dist, z, dist, s.clone()));
                 graph_temp.insert((v, u_val), (wu * dist, zz, dist, ss.clone()));
@@ -181,45 +220,15 @@ fn process_higher_level_connections(
 }
 
 
-/// Calculate distance of cells in kilometer
-fn distance_km(x1: f64, y1: f64, x2: f64, y2: f64, geo: bool) -> f32 {
-    let mut dist: f64 = 0.0;
-    if geo {
-        dist = distances::haversine(x1, y1, x2, y2);
-    } else {
-        dist = distances::euclidean(x1, y1, x2, y2);
-    }
-
-    (dist / 1000.0)  as f32
-}
-
-
-/// Calculate distance between two cells
+/// Pre-compute all higher neighbor ij
 #[inline]
-fn cell_distance<T>(i1: T, j1: T, i2: T, j2: T) -> f32
-where
-    T: Copy + Into<f64>,
-{
-    let di = i2.into() - i1.into();
-    let dj = j2.into() - j1.into();
-    let dist_meters = (di * di + dj * dj).sqrt(); // in same units as indices
-    dist_meters as f32
-}
-
-
-/// Pre-compute all higher neighbor distances to avoid redundant calculations
-#[inline]
-fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32, f32); 8] {
+fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32); 8] {
     let i_shifted = i >> 1;
     let j_shifted = j >> 1;
-    let x = j as f32 + 0.5;
-    let y = i as f32 + 0.5;
-    let higher_res = 2.0;
     
     let neighbour_i = [-1, 1, 0, 0, -1, -1, 1, 1];
     let neighbour_j = [0, 0, -1, 1, -1, 1, -1, 1];
-    
-    let mut results = [(0, 0, 0.0); 8];
+    let mut results = [(0, 0); 8];
     
     for k in 0..8 {
         let ni = neighbour_i[k];
@@ -227,12 +236,7 @@ fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32, f32); 8] {
         let ni_shifted = i_shifted + ni;
         let nj_shifted = j_shifted + nj;
         
-        let x_higher = nj_shifted as f32 * higher_res + 1.0;
-        let y_higher = ni_shifted as f32 * higher_res + 1.0;
-        
-        let dist = cell_distance(x, y, x_higher, y_higher);
-        
-        results[k] = (ni_shifted, nj_shifted, dist);
+        results[k] = (ni_shifted, nj_shifted);
     }
     
     results

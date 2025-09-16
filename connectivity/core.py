@@ -93,7 +93,9 @@ def connectedness(
     conn_array = connectivity(
         data_dict = data_dict,
         trans_list = [{}], # empty dict in a list to calacualate connectedness in Rust
+        transforms = tran_dict,
         lambdas = lambdas, 
+        is_geo = is_geo,
         scale = scale,
         nb_size = nb_size,
         last_nb_size = last_nb_size,
@@ -220,7 +222,9 @@ def beri(
     out_array = connectivity(
         data_dict = data_dict,
         trans_list = trans_grids,
+        transforms = tran_dict,
         lambdas = lambdas, 
+        is_geo = is_geo,
         scale = scale,
         nb_size = nb_size,
         last_nb_size = last_nb_size,
