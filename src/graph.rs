@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-
+mod distances;
 
 /// Optimized implementation of multi-level graph generation
 pub fn multi_level_graph(
@@ -181,15 +181,18 @@ fn process_higher_level_connections(
 }
 
 
+/// Calculate distance of cells in kilometer
 fn distance_km(x1: f64, y1: f64, x2: f64, y2: f64, geo: bool) -> f32 {
+    let mut dist: f64 = 0.0;
     if geo {
-        let dist = distance::haversine(x1, y1, x2, y2);
+        dist = distances::haversine(x1, y1, x2, y2);
     } else {
-        let dist = distance::euclidean(x1, y1, x2, y2);
+        dist = distances::euclidean(x1, y1, x2, y2);
     }
 
     (dist / 1000.0)  as f32
 }
+
 
 /// Calculate distance between two cells
 #[inline]
@@ -197,20 +200,10 @@ fn cell_distance<T>(i1: T, j1: T, i2: T, j2: T) -> f32
 where
     T: Copy + Into<f64>,
 {
-
-    // NOTE: This must get XY coords only 
-
-    // if is_latlong {
-    //     dist_meters = distance_haversine(i1, j1, i2, j2)
-    //     (dist_meters / 1000.0) as f32
-    // } else {
-    //
     let di = i2.into() - i1.into();
     let dj = j2.into() - j1.into();
     let dist_meters = (di * di + dj * dj).sqrt(); // in same units as indices
-    // (dist_meters * resolution / 1000.0) as f32 // kilometres as f32
     dist_meters as f32
-    // }
 }
 
 

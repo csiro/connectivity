@@ -11,6 +11,8 @@ mod window;
 mod graph;
 mod utils;
 mod metrics;
+mod affine;
+use affine::Affine;
 
 
 #[pyfunction(signature = (data_dict, trans_list, lambdas, scale, nb_size, last_nb_size, n_threads=None))]
