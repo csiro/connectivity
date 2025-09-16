@@ -88,7 +88,7 @@ def connectedness(
         last_nb_size = nb_size
 
     # Read raster overviews as a dictionary
-    data_dict, tran_dict = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
+    data_dict, tran_dict, is_geo = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 
     conn_array = connectivity(
         data_dict = data_dict,
@@ -203,7 +203,7 @@ def beri(
         last_nb_size = nb_size
 
     # Read raster overview as a dictionary
-    data_dict, tran_dict  = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
+    data_dict, tran_dict, is_geo  = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
 
     # Insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)

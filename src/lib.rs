@@ -19,7 +19,9 @@ use affine::Affine;
 fn connectivity(
     data_dict: &Bound<PyAny>,
     trans_list: &Bound<PyAny>,
+    transforms: &Bound<PyAny>,
     lambdas: Vec<f32>,
+    is_geo: bool,
     scale: f32,
     nb_size: i32,
     last_nb_size: i32,
@@ -35,6 +37,9 @@ fn connectivity(
         let dict = item.downcast::<PyDict>().unwrap(); // handling errors properly
         utils::to_3d_map(dict)
     }).collect();
+
+    // Convert the tranform of each level for coordinate and distance calcaulations
+    let transform_map: HashMap<i32, Affine> = utils::to_transform_map(transforms);
 
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());

@@ -22,6 +22,29 @@ def check_grids(x, y):
     return x_shape[-2:] == y_shape[-2:]
 
 
+def guess_geographic(src):
+    """Guess CRS type from transform and bounds when CRS is missing."""
+    transform = src.transform
+    xres = abs(transform.a)
+    yres = abs(transform.e)
+    bounds = src.bounds
+
+    # Heuristic 1: resolution
+    if xres < 1 and yres < 1:
+        return True  # likely geographic (degrees)
+    if xres > 1 and yres > 1:
+        return False  # likely projected (metres)
+
+    # Heuristic 2: extent ranges
+    if (-180 <= bounds.left <= 180 and
+        -180 <= bounds.right <= 180 and
+        -90 <= bounds.bottom <= 90 and
+        -90 <= bounds.top <= 90):
+        return True
+
+    return False  # default to projected if unsure
+    
+
 # Gaussian smoothing with no edge effect
 def smoothing_filter(data, sigma=3, **kwargs):
     """

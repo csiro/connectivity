@@ -4,6 +4,32 @@ use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
 use pathfinding::prelude::dijkstra_all;
+// local module
+use crate::affine::Affine;
+
+
+/// Convert a Python dict-of-arrays into a Rust HashMap.
+pub fn to_transform_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Affine> {
+    let mut rust_map = HashMap::new();
+
+    // Convert to iterable
+    let iter = data_dict
+        .call_method0("items").unwrap()
+        .iter().unwrap();
+
+    for pair in iter {
+        let (key_obj, value_obj) = pair.unwrap().extract::<(&PyAny, &PyAny)>().unwrap();
+        let key = key_obj.extract::<i32>().unwrap();
+        // Extract the 6 f64 values from the tuple/sequence
+        let transform_tuple = value_obj.extract::<(f64, f64, f64, f64, f64, f64)>().unwrap();
+        // Convert to Affile class
+        let affine_obj: Affine = transform_tuple.into();
+
+        rust_map.insert(key, affine_obj);
+    }
+
+    rust_map
+}
 
 
 /// Convert a Python dict-of-arrays into a Rust `HashMap<i32, Array2<f32>>`.

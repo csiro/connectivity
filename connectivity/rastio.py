@@ -5,6 +5,7 @@ from rasterio.enums import Resampling
 from rasterio.features import geometry_mask
 from shapely.geometry import box, mapping
 from osgeo import gdal
+from .utils import guess_geographic
 
 
 def read_raster(file, gdf=None, levels=None, expand_px=3):
@@ -27,6 +28,15 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
 
     # Get overview levels
     with rasterio.open(file) as src:
+        # Is the crs geographic or projected?
+        try:
+            if src.crs is None:
+                is_geo = guess_geographic(src)
+            else:
+                is_geo = src.crs.is_geographic
+        except Exception as e:
+            raise RuntimeError(f"Error reading CRS info: {e}")
+        # Read the overviews
         overviews = src.overviews(1)
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
@@ -74,7 +84,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 data = np.where(data.mask, np.nan, data)
                     
                 data_dict[level] = data.squeeze().astype(np.float32)
-                tran_dict[level] = level_transform
+                tran_dict[level] = tuple(level_transform)[:6]
     else:
         # Max level to get the correct buffered area that includes all required pixels for the neighbours
         max_level = max(levels)
@@ -136,9 +146,9 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                     nan_array = masked[0].squeeze().filled(np.nan)
                     data_dict[level] = nan_array.astype(np.float32)
                 
-                tran_dict[level] = out_transform
+                tran_dict[level] = tuple(out_transform)[:6]
 
-    return data_dict, tran_dict
+    return data_dict, tran_dict, is_geo
 
 
 
