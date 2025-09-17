@@ -36,7 +36,6 @@ pub fn multi_level_graph(
     
     // Edge indices as HashSet for faster lookups
     let mut all_edge_indices: HashMap<i32, HashSet<(i32, i32)>> = HashMap::new();
-    
     // Pre-compute edge indices for all levels
     for (&level, (i_array, j_array, _, _)) in level_dict {
         let edge_indices = get_edge_indices(i_array, j_array);
@@ -158,7 +157,6 @@ fn process_current_level_neighbors(
         let nj = j + j_ngb[k];
 
         // Get XY coords from IJ and transfrom object
-        // NOTE: ********* check i and j are corrected assigned to row and column *********
         let (x1, y1) = transform.xy(j as f64, i as f64);
         let (x2, y2) = transform.xy(nj as f64, ni as f64);
 
@@ -188,8 +186,8 @@ fn process_higher_level_connections(
     transforms: &HashMap<i32, Affine>,
     is_wgs: bool,
 ) {
-    if let Some(&(u_val, zz, ref ss)) = node_mapping.get(&(i, j)) {
-        let wu = (1.0 - factor) * zz + factor;
+    if let Some(&(u_val, _, _)) = node_mapping.get(&(i, j)) {
+        // let wu = (1.0 - factor) * zz + factor;
         let higher_level: i32 = level * 2;
         
         // Get all higher neighbors at once
@@ -212,36 +210,57 @@ fn process_higher_level_connections(
                 // Distance in kilometer
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                         
-                // Both-way edge
                 graph_temp.insert((u_val, v), (w * dist, z, dist, s.clone()));
-                graph_temp.insert((v, u_val), (wu * dist, zz, dist, ss.clone()));
+                // Both-way edge
+                // graph_temp.insert((v, u_val), (wu * dist, zz, dist, ss.clone()));
             }
         }
     }
 }
 
 
-/// Pre-compute all higher neighbor ij
-/// NOTE: check this doesn't create duplicared higher level cell id!
-#[inline]
-fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32); 8] {
-    let i_shifted = i >> 1;
-    let j_shifted = j >> 1;
+/// Get the 3 possible neighbours in the higher level 
+/// i.e. the link between a level edge to its higher level cells
+fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32); 3] {
+    // Higher level cell containing the target cell
+    let target_higher = (i >> 1, j >> 1);    
+    // 8 neighbor offsets: N, S, W, E, NW, NE, SW, SE
+    const OFFSETS: [(i32, i32); 8] = [
+        (-1, 0), (1, 0), (0, -1), (0, 1),
+        (-1, -1), (-1, 1), (1, -1), (1, 1)
+    ];
     
-    let neighbour_i = [-1, 1, 0, 0, -1, -1, 1, 1];
-    let neighbour_j = [0, 0, -1, 1, -1, 1, -1, 1];
-    let mut results = [(0, 0); 8];
+    // Collect unique higher cells (exactly 3 after excluding target_higher)
+    let mut higher_cells = [(0, 0); 3];
+    let mut count = 0;
     
-    for k in 0..8 {
-        let ni = neighbour_i[k];
-        let nj = neighbour_j[k];
-        let ni_shifted = i_shifted + ni;
-        let nj_shifted = j_shifted + nj;
+    for (di, dj) in OFFSETS {
+        let ni = i + di;
+        let nj = j + dj;
+        let higher = (ni >> 1, nj >> 1);
         
-        results[k] = (ni_shifted, nj_shifted);
+        // Skip if it's the same as target's higher cell
+        if higher == target_higher {
+            continue;
+        }
+        
+        // Check if we already have this higher cell
+        let mut found = false;
+        for k in 0..count {
+            if higher_cells[k] == higher {
+                found = true;
+                break;
+            }
+        }
+        
+        // Add if not found and we have space
+        if !found && count < 3 {
+            higher_cells[count] = higher;
+            count += 1;
+        }
     }
     
-    results
+    higher_cells
 }
 
 
