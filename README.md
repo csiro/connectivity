@@ -1,6 +1,6 @@
 ## connectivity: a multi-resolution landscape connectivity algorithm
 
-A multi-resolution landscape connectivity algorithm for calculating *Habitat Condition Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
+A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
 
 This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()` function for generting correct overview layers.
 
