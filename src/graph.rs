@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use crate::affine::Affine;
 use crate::distances;
 
+
 /// Optimized implementation of multi-level graph generation
 pub fn multi_level_graph(
     i_base: i32, 
@@ -163,7 +164,7 @@ fn process_current_level_neighbors(
 
         // Use 'ref' to borrow Vec<f32> rather than moving it
         if let Some(&(v, z, ref s)) = node_mapping.get(&(ni, nj)) {
-            // let dist = cell_distance(i, j, ni, nj) * level as f32;
+            // Distance in kilometer
             let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
             let w = (1.0 - factor) * z + factor;
             
@@ -221,6 +222,7 @@ fn process_higher_level_connections(
 
 
 /// Pre-compute all higher neighbor ij
+/// NOTE: check this doesn't create duplicared higher level cell id!
 #[inline]
 fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32); 8] {
     let i_shifted = i >> 1;

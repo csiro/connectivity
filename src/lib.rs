@@ -16,14 +16,14 @@ mod affine;
 use affine::Affine;
 
 
-#[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, scale, nb_size, last_nb_size, n_threads=None))]
+#[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, max_cost, nb_size, last_nb_size, n_threads=None))]
 fn connectivity(
     data_dict: &Bound<PyAny>,
     trans_list: &Bound<PyAny>,
     transforms: &Bound<PyAny>,
     lambdas: Vec<f32>,
     is_geo: bool,
-    scale: f32,
+    max_cost: f32,
     nb_size: i32,
     last_nb_size: i32,
     n_threads: Option<usize>,
@@ -102,7 +102,7 @@ fn connectivity(
                             i as i32, 
                             j as i32, 
                             &level_dict, 
-                            scale,
+                            max_cost,
                             &transform_map,
                             is_geo
                         );

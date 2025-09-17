@@ -105,7 +105,7 @@ Use option argument to generate the connected condition from connectedness and i
 connd = connectedness(
     condition_file = "./data/condition_cog.tif",
     lambdas = [2, 20, 200],
-    scale = 2.0, 
+    max_cost = 2.0, 
     nb_size = 3, 
     last_nb_size = 5,
     levels = [1, 2, 4, 8, 16], 
@@ -124,7 +124,7 @@ beris = beri(
     current_file = "./data/transgrids/1990.tif",
     future_files = ["./data/transgrids/IPS50_45.tif", "./data/transgrids/GFD50_85.tif"],
     lambdas = [2, 20, 200], 
-    scale = 2.0, 
+    max_cost = 2.0, 
     nb_size = 13, 
     last_nb_size = 15,
     levels = [1, 2, 4, 8, 16],

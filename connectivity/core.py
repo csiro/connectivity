@@ -9,7 +9,7 @@ def connectedness(
         condition_file,
         polygon_mask=None,
         lambdas=[2, 20, 200],
-        scale=2.0, 
+        max_cost=2.0, 
         nb_size=3, 
         last_nb_size=9,
         levels=[1, 2, 4, 8, 16],
@@ -44,9 +44,9 @@ def connectedness(
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
         dispersal. Default is [2, 20, 200].
-    scale : float, optional
-        Used in weighting the condition for connectivity computation (default = 2). 
-        Applied as: `w = (1.0 - scale) * condition + scale`.
+    max_cost : float, optional
+        The cost of moving through a removed site (condition zero). Used in weighting the condition for 
+        connectivity computation (default = 2). Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     nb_size : int, optional
         Neighborhood size (e.g., 3 for 3x3). Determines the local window for most scales.
         Default is 3.
@@ -96,7 +96,7 @@ def connectedness(
         transforms = tran_dict,
         lambdas = lambdas, 
         is_geo = is_geo,
-        scale = scale,
+        max_cost = max_cost,
         nb_size = nb_size,
         last_nb_size = last_nb_size,
         n_threads = n_threads,
@@ -123,7 +123,7 @@ def beri(
         future_files=[],
         polygon_mask=None,
         lambdas=[2, 20, 200],
-        scale=2.0, 
+        max_cost=2.0, 
         nb_size=3, 
         last_nb_size=9,
         levels=[1, 2, 4, 8, 16],
@@ -165,10 +165,9 @@ def beri(
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
         dispersal. Default is [2, 20, 200].
-    scale : float, optional
-        Weighting factor for the condition in the connectivity calculation. 
-        Used as: `w = (1.0 - scale) * condition + scale`.
-        Default is 2.0.
+    max_cost : float, optional
+        The cost of moving through a removed site (condition zero). Used in weighting the condition for 
+        connectivity computation (default = 2). Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     nb_size : int, optional
         Neighborhood size (e.g., 3 for 3x3). Determines the local window for most scales.
         Default is 3.
@@ -225,7 +224,7 @@ def beri(
         transforms = tran_dict,
         lambdas = lambdas, 
         is_geo = is_geo,
-        scale = scale,
+        max_cost = max_cost,
         nb_size = nb_size,
         last_nb_size = last_nb_size,
         n_threads = n_threads,
