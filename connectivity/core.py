@@ -18,8 +18,7 @@ def connectedness(
         n_threads=None,
         filename=""
     ):
-    """
-    Computes a multi-scale connectedness metrics 
+    """Computes a multi-scale habitat connectedness metrics 
     
     This based on condition using a hierarchical neighborhood-based over multiple resolution
     levels (COG overviews), and optionally applies Gaussian smoothing. 
@@ -132,8 +131,7 @@ def beri(
         n_threads=None,
         filename=""
     ):
-    """
-    Computes the Bioclimatic Ecosystem Resilience Index (BERI).
+    """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
     BERI measures the capacity of ecosystems to retain biodiversity under 
     projected future climate scenarios. It combines spatial connectedness 

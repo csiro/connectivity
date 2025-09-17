@@ -138,6 +138,7 @@ fn create_node_mapping(
 
 /// Process neighbors at current level
 /// output graph: (u, v) (adj_cond, cond, dist, similarities)
+/// u: source, v: destination
 #[inline]
 fn process_current_level_neighbors(
     i: i32, 
@@ -175,6 +176,7 @@ fn process_current_level_neighbors(
 
 /// Process connections to higher level
 /// output graph: (u, v) (adj_cond, cond, dist, similarities)
+/// u: source, v: destination
 #[inline]
 fn process_higher_level_connections(
     i: i32, j: i32,

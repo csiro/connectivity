@@ -9,8 +9,7 @@ from .utils import guess_geographic
 
 
 def read_raster(file, gdf=None, levels=None, expand_px=3):
-    """
-    Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
+    """Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
     and stores them in a dictionary.
 
     Parameters:
@@ -153,23 +152,17 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
 
 
 def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
-    """
-    Write a numpy array to a GeoTIFF file using the geographic transformation
+    """Write a numpy array to a GeoTIFF file using the geographic transformation
     and projection information from a template raster file.
     
     Parameters:
     -----------
-    in_array : numpy.ndarray
-        Array containing the data to be written to the raster file
-    outfile : str, default="output.tif"
-        Path to the output GeoTIFF file
-    template : str, default="somefile.tif"
-        Path to the template GeoTIFF file containing the desired 
-        transform and projection information
+    in_array (numpy.ndarray): Array containing the data to be written to the raster file
+    outfile (str): Path to the output GeoTIFF file. default="output.tif".
+    template (str): Path to the template GeoTIFF file containing the desired transform and projection information.
+    default="somefile.tif"
     
-    Returns:
-    --------
-    None
+    Returns: None
     """
     # Open the template raster to get metadata
     with rasterio.open(template) as src:
@@ -196,8 +189,7 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
 
 
 def create_overviews(input_raster, output_raster=None, overview_levels=[1, 2, 4, 8, 16, 32]):
-    """
-    Reads a raster file and saves it with overviews at specified levels.
+    """Reads a raster file and saves it with overviews at specified levels.
     
     Args:
         input_raster (str): Path to the input raster file
@@ -243,8 +235,7 @@ def create_overviews(input_raster, output_raster=None, overview_levels=[1, 2, 4,
 
 
 def overview_info(file_path):
-    """
-    Display information about all available overviews in a COG file.
+    """Display information about all available overviews in a COG file.
     
     Parameters:
     - file_path (str): Path to the COG file.

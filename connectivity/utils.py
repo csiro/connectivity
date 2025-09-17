@@ -47,9 +47,8 @@ def guess_geographic(src):
 
 # Gaussian smoothing with no edge effect
 def smoothing_filter(data, sigma=3, **kwargs):
-    """
-    Apply a Gaussian filter on the an array to smooth the values. Only filters valid data points, 
-    NaN areas remain NaN.
+    """Apply a Gaussian filter on the an array to smooth the values. 
+    Only filters valid data points, NaN areas remain NaN.
 
     Args:
         sigma: the standard deviation for Gaussian kernel.
