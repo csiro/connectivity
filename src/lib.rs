@@ -95,9 +95,6 @@ fn connectivity(
                         }
 
                         // Get the graph and source node for cell ij
-
-                        // UPDATE: add the tranform info of each layer here...
-
                         let (edge_graph, source) = graph::multi_level_graph(
                             i as i32, 
                             j as i32, 

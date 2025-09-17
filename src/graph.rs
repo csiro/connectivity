@@ -164,7 +164,7 @@ fn process_current_level_neighbors(
         if let Some(&(v, z, ref s)) = node_mapping.get(&(ni, nj)) {
             // Distance in kilometer
             let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
-            let w = (1.0 - factor) * z + factor;
+            let w: f32 = (1.0 - factor) * z + factor;
             
             // Store only the weighted distance in the temp graph
             graph_temp.insert((u, v), (w * dist, z, dist, s.clone()));
@@ -187,7 +187,6 @@ fn process_higher_level_connections(
     is_wgs: bool,
 ) {
     if let Some(&(u_val, _, _)) = node_mapping.get(&(i, j)) {
-        // let wu = (1.0 - factor) * zz + factor;
         let higher_level: i32 = level * 2;
         
         // Get all higher neighbors at once
@@ -205,14 +204,12 @@ fn process_higher_level_connections(
             if let Some(&(v, z, ref s)) = node_mapping_higher.get(&(ni, nj)) {
                 let w = (1.0 - factor) * z + factor;
 
-                // Get the real coordinates of the higher level
+                // Get the actual coordinates of the higher level
                 let (x2, y2) = transform_upper.xy(nj as f64, ni as f64);
                 // Distance in kilometer
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                         
                 graph_temp.insert((u_val, v), (w * dist, z, dist, s.clone()));
-                // Both-way edge
-                // graph_temp.insert((v, u_val), (wu * dist, zz, dist, ss.clone()));
             }
         }
     }

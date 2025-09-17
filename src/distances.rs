@@ -1,5 +1,5 @@
 /// Euclidean distance for projected coordinates systems
-pub fn euclidean(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+fn euclidean(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
     let dx = x2 - x1;
     let dy = y2 - y1;
     // Use hypot to avoid intermediate overflow/underflow and get accurate result
@@ -9,7 +9,7 @@ pub fn euclidean(x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
 
 
 // Calculate Haversine distance for points in geographic coordinates system
-pub fn haversine(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
+fn haversine(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
     let r = 6_371_000.0; // mean Earth radius in meters
     let (lat1, lon1) = (lat1.to_radians(), lon1.to_radians());
     let (lat2, lon2) = (lat2.to_radians(), lon2.to_radians());

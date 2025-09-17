@@ -89,7 +89,7 @@ pub fn get_current(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usi
 
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
-/// Converts f32 weights to u32 by multiplying by 100 and rounding to be used in Dijkstra
+/// Converts f32 weights to u32 by multiplying with 100 and rounding to be used in Dijkstra
 fn to_adjacency(
     graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
     weighted: bool,
