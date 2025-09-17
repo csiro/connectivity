@@ -45,8 +45,9 @@ def connectedness(
         which the condition is used in the connectivity as a measure of organism 
         dispersal. Default is [2, 20, 200].
     max_cost : float, optional
-        The cost of moving through a removed site (condition zero). Used in weighting the condition for 
-        connectivity computation (default = 2). Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
+        The cost of moving through a removed site (cell with condition zero). Used in weighting habitat condition
+        for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
+        Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     nb_size : int, optional
         Neighborhood size (e.g., 3 for 3x3). Determines the local window for most scales.
         Default is 3.
@@ -166,8 +167,9 @@ def beri(
         which the condition is used in the connectivity as a measure of organism 
         dispersal. Default is [2, 20, 200].
     max_cost : float, optional
-        The cost of moving through a removed site (condition zero). Used in weighting the condition for 
-        connectivity computation (default = 2). Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
+        The cost of moving through a removed site (cell with condition zero). Used in weighting habitat condition
+        for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
+        Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     nb_size : int, optional
         Neighborhood size (e.g., 3 for 3x3). Determines the local window for most scales.
         Default is 3.
