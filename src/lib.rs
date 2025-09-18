@@ -113,8 +113,8 @@ fn connectivity(
                         for &k in nodes_altered.keys() {
                             // Calcaulate optimal path for each reachable path
                             let optim_path = build_path(&k, &nodes_altered);
-                            // Get the intact distance from the intact Dijkstra
-                            let dist_intact = nodes_intact[&k].1 as f32; // Key MUST exist!
+                            // Get the intact distance from source; divided by 100 to cancel out from path adjacency
+                            let dist_intact: f32 = nodes_intact[&k].1 as f32 / 100.0;
                             // Get the path info for each target segment/node
                             cell_paths.push(utils::path_distance(&edge_graph, &optim_path, dist_intact));
                         }

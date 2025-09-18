@@ -108,11 +108,11 @@ fn to_adjacency(
 
     // Second pass: fill adjacency list; u32 to avoid integer overflow
     for (&(u, v), &(weighted_dist, _, unweighted_dist, _)) in graph_temp {
+        // This is needed in integers, so multiplied by 100 to get upto 2 digits precision
         let weight = if weighted {
             (weighted_dist * 100.0).round() as u32
         } else {
-            // NOTE: fix this by * 100 then divided when intact distance is calcualted.. this ignores sub unit of crs
-            unweighted_dist.round() as u32 // not multipled by 100 as its sum is directly used as intact-dist
+            (unweighted_dist * 100.0).round() as u32
         };
 
         if let Some(neighbors) = adjacency.get_mut(&u) {

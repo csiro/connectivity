@@ -79,8 +79,7 @@ pub fn multi_level_graph(
             
             // Process neighbors at current level
             process_current_level_neighbors(
-                i, j, u, 
-                //level,
+                i, j, u,
                 &COLS, &ROWS,
                 &node_mapping,
                 factor,
