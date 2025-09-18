@@ -3,7 +3,8 @@ use crate::affine::Affine;
 use crate::distances;
 
 
-/// Optimized implementation of multi-level graph generation
+/// A graph strcuture of the multi-level window data
+/// HashMap<(source, destination) (adj-dist, condtion, dist, sims)>, source-node
 pub fn multi_level_graph(
     i_base: i32, 
     j_base: i32, 
@@ -13,8 +14,8 @@ pub fn multi_level_graph(
     geographic: bool,
 ) -> (HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>, u16) {
     // Pre-compute constants
-    let i_ngb = [0, 1, 0, -1, 1, 1, -1, -1];
-    let j_ngb = [1, 0, -1, 0, 1, -1, 1, -1];
+    const COLS: [i32; 8] = [0, 1, 0, -1, 1, 1, -1, -1];
+    const ROWS: [i32; 8] = [1, 0, -1, 0, 1, -1, 1, -1];
     
     // Get and sort levels
     let mut levels: Vec<i32> = level_dict.keys().cloned().collect();
@@ -26,9 +27,8 @@ pub fn multi_level_graph(
     let mut graph_temp: HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)> = HashMap::with_capacity(
         level_dict.values().map(|(i, _, _, _)| i.len() * 8).sum()
     );
-        
-    let mut source = 0;
-    // let mut targets = Vec::new();
+    
+    let mut source: u16 = 0;
     
     // Node mappings - pre-compute sizes for better allocation
     let mut node_mapping = HashMap::new();
@@ -43,7 +43,7 @@ pub fn multi_level_graph(
     }
 
     // Process each level
-    for level in levels {
+    for (iter_level, &level) in levels.iter().enumerate() {
         let (i_array, j_array, values, sims) = &level_dict[&level];
         let num_points = i_array.len();
         let edge_indices = &all_edge_indices[&level];
@@ -51,19 +51,16 @@ pub fn multi_level_graph(
         let level_affine: &Affine = transforms.get(&level).unwrap();
         
         // Update node mappings
-        if level > 1 {
-            // Recycle the node mapping already calculated for the hihger level 
-            node_mapping = node_mapping_higher.clone();
-        } else {
+        if iter_level < 1 {
+            // This branch runs only once; for the first level
             node_mapping = create_node_mapping(i_array, j_array, values, sims, level);
-            
-            // Find the base node index - do it once only
-            for (k, val) in &node_mapping {
-                if *k == (i_base, j_base) {
-                    source = val.0;  // `val` is a reference to a tuple, so `val.0` copies u32 (which is Copy)
-                    break;
-                }
+            // Find the base node index only once
+            if let Some((_, (u, _, _))) = node_mapping.get_key_value(&(i_base, j_base)) {
+                source = *u;
             }
+        } else {
+            // Recycle the node mapping already calculated for the hihger level from previous round
+            node_mapping = std::mem::take(&mut node_mapping_higher);
         }
         
         // Pre-compute higher level node mapping if needed
@@ -84,7 +81,7 @@ pub fn multi_level_graph(
             process_current_level_neighbors(
                 i, j, u, 
                 //level,
-                &i_ngb, &j_ngb,
+                &COLS, &ROWS,
                 &node_mapping,
                 factor,
                 &mut graph_temp,
@@ -158,8 +155,8 @@ fn process_current_level_neighbors(
         let nj = j + j_ngb[k];
 
         // Get XY coords from IJ and transfrom object
-        let (x1, y1) = transform.xy(j as f64, i as f64);
-        let (x2, y2) = transform.xy(nj as f64, ni as f64);
+        let (x1, y1) = transform.xy(j, i);
+        let (x2, y2) = transform.xy(nj, ni);
 
         // Use 'ref' to borrow Vec<f32> rather than moving it
         if let Some(&(v, z, ref s)) = node_mapping.get(&(ni, nj)) {
@@ -188,7 +185,7 @@ fn process_higher_level_connections(
     transforms: &HashMap<i32, Affine>,
     is_wgs: bool,
 ) {
-    if let Some(&(u_val, _, _)) = node_mapping.get(&(i, j)) {
+    if let Some(&(uu, _, _)) = node_mapping.get(&(i, j)) {
         let higher_level: i32 = level * 2;
         
         // Get all higher neighbors at once
@@ -198,7 +195,7 @@ fn process_higher_level_connections(
         let transform: &Affine = transforms.get(&level).unwrap();
         let transform_upper: &Affine = transforms.get(&higher_level).unwrap();
         // Get the actual coordinates values for distance calc
-        let (x1, y1) = transform.xy(j as f64, i as f64);
+        let (x1, y1) = transform.xy(j, i);
         
         // Use 'ref' to borrow Vec<f32> rather than moving it
         for &(ni, nj) in &higher_neighbors {
@@ -207,11 +204,11 @@ fn process_higher_level_connections(
                 let w = (1.0 - factor) * z + factor;
 
                 // Get the actual coordinates of the higher level
-                let (x2, y2) = transform_upper.xy(nj as f64, ni as f64);
+                let (x2, y2) = transform_upper.xy(nj, ni);
                 // Distance in kilometer
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                         
-                graph_temp.insert((u_val, v), (w * dist, z, dist, s.clone()));
+                graph_temp.insert((uu, v), (w * dist, z, dist, s.clone()));
             }
         }
     }

@@ -11,19 +11,12 @@ pub struct Affine {
 
 impl Affine {
     /// Convert (row, col) to (x, y) at pixel centre by default.
-    pub fn xy(&self, row: f64, col: f64) -> (f64, f64) {
-        let col_f = col + 0.5;
-        let row_f = row + 0.5;
+    pub fn xy(&self, row: i32, col: i32) -> (f64, f64) {
+        let col_f = (col as f64) + 0.5;
+        let row_f = (row as f64) + 0.5;
 
         let x = self.x_scale * col_f + self.x_skew * row_f + self.x_origin;
         let y = self.y_skew * col_f + self.y_scale * row_f + self.y_origin;
-        (x, y)
-    }
-
-    /// Upper-left corner coordinates (no offset).
-    pub fn xy_corner(&self, row: f64, col: f64) -> (f64, f64) {
-        let x = self.x_scale * col + self.x_skew * row + self.x_origin;
-        let y = self.y_skew * col + self.y_scale * row + self.y_origin;
         (x, y)
     }
 }
