@@ -86,6 +86,7 @@ def connectedness(
     """
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
+        print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
     # Read raster overviews as a dictionary
@@ -203,6 +204,7 @@ def beri(
     """
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
+        print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
     # Read raster overview as a dictionary
