@@ -80,7 +80,7 @@ Overview Information:
 ```
 
 **2. Creating Overviews**     
-Use the `create_overviews()` function to generate and embed overviews into the TIFF file.
+Use the `create_overviews()` function to generate and embed overviews into the TIFF file. You might need to load the GDAL module in a HPC system (e.g. `module load gdal/3.7.2`) for this function.
 
 ```python
 create_overviews(
