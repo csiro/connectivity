@@ -10,8 +10,8 @@ def connectedness(
         polygon_mask=None,
         lambdas=[2, 20, 200],
         max_cost=2.0, 
-        nb_size=3, 
-        last_nb_size=9,
+        window_size=3, 
+        outer_window=9,
         levels=[1, 2, 4, 8, 16],
         sigma=None,
         option=3,
@@ -29,7 +29,7 @@ def connectedness(
     function for generting correct overview layers.
     
     The maximum distance the algorithm searches for cells (in the condition raster) to
-    calculate connectivity is computed as: max-distance = last_nb_size * max(levels) * resolution
+    calculate connectivity is computed as: max-distance = outer_window * max(levels) * resolution
 
     Parameters
     ----------
@@ -47,11 +47,12 @@ def connectedness(
         The cost of moving through a removed site (cell with condition zero). Used in weighting habitat condition
         for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
         Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
-    nb_size : int, optional
-        Neighborhood size (e.g., 3 for 3x3). Determines the local window for most scales.
+    window_size : int
+        Neighborhood size (e.g., 3 for a 3x3 window). Determines the local window for all scales. Must be an odd number.
         Default is 3.
-    last_nb_size : int, optional
-        Neighborhood size for the final (largest) scale. Used to capture broader context.
+    outer_window : int, optional
+        Neighborhood size for the coarsest resolution (the largest level) to capture broader connectivity context. 
+        Must be an odd number larger or equal to window_size.
         Default is 9.
     levels : list of int, optional
         List of overview levels used for multi-scale analysis. Must be powers of 2.
@@ -84,11 +85,11 @@ def connectedness(
 
     """
     # Before reading raster, fix neighbours window
-    if last_nb_size < nb_size:
-        last_nb_size = nb_size
+    if outer_window < window_size:
+        outer_window = window_size
 
     # Read raster overviews as a dictionary
-    data_dict, tran_dict, is_geo = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
+    data_dict, tran_dict, is_geo = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
 
     conn_array = connectivity(
         data_dict = data_dict,
@@ -97,8 +98,8 @@ def connectedness(
         lambdas = lambdas, 
         is_geo = is_geo,
         max_cost = max_cost,
-        nb_size = nb_size,
-        last_nb_size = last_nb_size,
+        window_size = window_size,
+        outer_window = outer_window,
         n_threads = n_threads,
     )
 
@@ -124,8 +125,8 @@ def beri(
         polygon_mask=None,
         lambdas=[2, 20, 200],
         max_cost=2.0, 
-        nb_size=3, 
-        last_nb_size=9,
+        window_size=3, 
+        outer_window=9,
         levels=[1, 2, 4, 8, 16],
         sigma=None,
         n_threads=None,
@@ -145,7 +146,7 @@ def beri(
     
     The maximum distance the algorithm searches for cells (in the condition 
     raster) to calculate connectivity in BERI is computed as:
-    max-distance = last_nb_size * max(levels) * resolution
+    max-distance = outer_window * max(levels) * resolution
 
     Parameters
     ----------
@@ -168,11 +169,12 @@ def beri(
         The cost of moving through a removed site (cell with condition zero). Used in weighting habitat condition
         for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
         Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
-    nb_size : int, optional
-        Neighborhood size (e.g., 3 for 3x3). Determines the local window for most scales.
+    window_size : int
+        Neighborhood size (e.g., 3 for a 3x3 window). Determines the local window for all scales. Must be an odd number.
         Default is 3.
-    last_nb_size : int, optional
-        Neighborhood size for the final (largest) scale to capture broader connectivity context.
+    outer_window : int, optional
+        Neighborhood size for the coarsest resolution (the largest level) to capture broader connectivity context. 
+        Must be an odd number larger or equal to window_size.
         Default is 9.
     levels : list of int, optional
         List of overview levels used for multi-scale analysis. Should be powers of 2.
@@ -200,17 +202,17 @@ def beri(
 
     """
     # Before reading raster, fix neighbours window
-    if last_nb_size < nb_size:
-        last_nb_size = nb_size
+    if outer_window < window_size:
+        outer_window = window_size
 
     # Read raster overview as a dictionary
-    data_dict, tran_dict, is_geo  = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)
+    data_dict, tran_dict, is_geo  = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
 
     # Insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)
     # Just get the data_dict for the transgrids; Ignore the tran_dict
     trans_grids = [
-        read_raster(file=i, gdf=polygon_mask, levels=levels, expand_px=last_nb_size)[0]
+        read_raster(file=i, gdf=polygon_mask, levels=levels, expand_px=outer_window)[0]
         for i in future_files
     ]
     
@@ -225,8 +227,8 @@ def beri(
         lambdas = lambdas, 
         is_geo = is_geo,
         max_cost = max_cost,
-        nb_size = nb_size,
-        last_nb_size = last_nb_size,
+        window_size = window_size,
+        outer_window = outer_window,
         n_threads = n_threads,
     )
 

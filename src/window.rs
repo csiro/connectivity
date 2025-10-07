@@ -12,9 +12,9 @@ use std::iter::zip;
 /// * `base_i`, `base_j` - Coordinates in the original resolution
 /// * `current_level` - Current level (1, 2, 4, 8, etc.)
 /// * `cond_dict` - HashMap mapping levels to arrays
-/// * `nb_size` - Size of the neighborhood for normal levels (3 for 3x3, 5 for 5x5, etc.).
+/// * `win_size` - Size of the neighborhood for normal levels (3 for 3x3, 5 for 5x5, etc.).
 ///               Must be odd-numbered.
-/// * `last_nb_size` - Size of the neighborhood for the highest level only.
+/// * `outer_win` - Size of the neighborhood for the highest level only.
 /// * `trans_vect`   - Transgrids values hashmap
 /// * `trans_ij`     - The current climate values of i, j
 ///
@@ -25,8 +25,8 @@ pub fn multi_level_window(
     base_j: i32,
     current_level: i32,
     cond_dict: &HashMap<i32, Array2<f32>>,
-    nb_size: i32,
-    last_nb_size: i32,
+    win_size: i32,
+    outer_win: i32,
     trans_vect: &Vec<HashMap<i32, Array3<f32>>>,
     trans_ij: &Array1<f32>,
 ) -> (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>) {
@@ -47,34 +47,34 @@ pub fn multi_level_window(
     let is_highest_level = current_level == max_level;
     
     // Ensure neighborhood sizes are odd
-    if nb_size % 2 == 0 {
+    if win_size % 2 == 0 {
         panic!("Neighborhood size must be odd-numbered");
     }
     
-    // If last_nb_size is lower than nb_size, use the regular nb_size
-    let last_nb_size = if last_nb_size < nb_size {
-        nb_size
-    } else if last_nb_size % 2 == 0 {
+    // If outer_win is lower than win_size, use the regular win_size
+    let outer_win = if outer_win < win_size {
+        win_size
+    } else if outer_win % 2 == 0 {
         panic!("Highest neighborhood size must be odd-numbered");
     } else {
-        last_nb_size
+        outer_win
     };
     
     // Choose the appropriate neighborhood size
-    let effective_nb_size = if is_highest_level {
-        last_nb_size
+    let effective_win_size = if is_highest_level {
+        outer_win
     } else {
-        nb_size
+        win_size
     };
     
     // Calculate radius based on effective neighborhood size
-    let radius = effective_nb_size / 2;
-    let exclusion_radius = nb_size / 2; // Always use the standard size for exclusion
+    let radius = effective_win_size / 2;
+    let exclusion_radius = win_size / 2; // Always use the standard size for exclusion
     
     // Pre-allocate vectors with estimated capacity
     // We can give a conservative estimate to avoid multiple reallocations
-    let max_nb_size = nb_size.max(last_nb_size);
-    let estimated_capacity = (max_nb_size * max_nb_size) as usize;
+    let max_win_size = win_size.max(outer_win);
+    let estimated_capacity = (max_win_size * max_win_size) as usize;
     
     let mut row_indices = Vec::with_capacity(estimated_capacity);
     let mut col_indices = Vec::with_capacity(estimated_capacity);

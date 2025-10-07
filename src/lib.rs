@@ -16,7 +16,7 @@ mod affine;
 use affine::Affine;
 
 
-#[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, max_cost, nb_size, last_nb_size, n_threads=None))]
+#[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
 fn connectivity(
     data_dict: &Bound<PyAny>,
     trans_list: &Bound<PyAny>,
@@ -24,8 +24,8 @@ fn connectivity(
     lambdas: Vec<f32>,
     is_geo: bool,
     max_cost: f32,
-    nb_size: i32,
-    last_nb_size: i32,
+    window_size: i32,
+    outer_window: i32,
     n_threads: Option<usize>,
 ) -> PyResult<Py<PyArray2<f32>>> {
 
@@ -86,8 +86,8 @@ fn connectivity(
                                 j as i32,
                                 level,
                                 &cond_map,
-                                nb_size,
-                                last_nb_size,
+                                window_size,
+                                outer_window,
                                 &trans_maps,
                                 &ij_values,
                             );
