@@ -2,7 +2,7 @@
 
 A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
 
-This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()` function for generting correct overview layers.
+This algorithm operates on the overview layers of Cloud Optimized GeoTIFF (COG) files. Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use `create_overviews()` function for generting correct overview layers.
 
 ### Installation
 
@@ -84,8 +84,8 @@ Use the `create_overviews()` function to generate and embed overviews into the T
 
 ```python
 create_overviews(
-    input_raster = "file.tif",
-    output_raster = None, # keep None to update layer inplace
+    input_raster = "raster_file.tif",
+    output_raster = None, # keep None to update the file inplace
     overview_levels = [1, 2, 4, 8, 16] # the overview levels
 )
 ```
