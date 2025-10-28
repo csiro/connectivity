@@ -28,8 +28,9 @@ def connectedness(
     using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()`
     function for generting correct overview layers.
     
-    The maximum distance the algorithm searches for cells (in the condition raster) to
-    calculate connectivity is computed as: max-distance = outer_window * max(levels) * resolution
+    The maximum distance/raduis the algorithm searches for cells (in the condition raster) to
+    calculate connectivity is computed as: 
+    max-distance = outer_window * max(levels) * resolution
 
     Parameters
     ----------
@@ -146,7 +147,7 @@ def beri(
     using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()`
     function for generting correct overview layers.
     
-    The maximum distance the algorithm searches for cells (in the condition 
+    The maximum distance/raduis the algorithm searches for cells (in the condition 
     raster) to calculate connectivity in BERI is computed as:
     max-distance = outer_window * max(levels) * resolution
 
