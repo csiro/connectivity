@@ -48,11 +48,12 @@ def connectedness(
         for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
         Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     window_size : int
-        Neighborhood size (e.g., 3 for a 3x3 window). Determines the local window for all scales. Must be an odd number.
+        Radius of the local neighborhood (in pixels). For instance, a radius of 3 produces an effective 6×6 window in 
+        the multi-resolution framework. Must be an odd number.
         Default is 3.
     outer_window : int, optional
-        Neighborhood size for the coarsest resolution (the largest level) to capture broader connectivity context. 
-        Must be an odd number larger or equal to window_size.
+        Radius of the neighborhood at the coarsest (largest) resolution level, used to capture broader connectivity context.
+        Must be an odd number greater than or equal to window_size.
         Default is 9.
     levels : list of int, optional
         List of overview levels used for multi-scale analysis. Must be powers of 2.
@@ -171,11 +172,12 @@ def beri(
         for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
         Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     window_size : int
-        Neighborhood size (e.g., 3 for a 3x3 window). Determines the local window for all scales. Must be an odd number.
+        Radius of the local neighborhood (in pixels). For instance, a radius of 3 produces an effective 6×6 window in 
+        the multi-resolution framework. Must be an odd number.
         Default is 3.
     outer_window : int, optional
-        Neighborhood size for the coarsest resolution (the largest level) to capture broader connectivity context. 
-        Must be an odd number larger or equal to window_size.
+        Radius of the neighborhood at the coarsest (largest) resolution level, used to capture broader connectivity context.
+        Must be an odd number greater than or equal to window_size.
         Default is 9.
     levels : list of int, optional
         List of overview levels used for multi-scale analysis. Should be powers of 2.

@@ -85,9 +85,9 @@ fn connectivity(
                                 i as i32,
                                 j as i32,
                                 level,
-                                &cond_map,
                                 window_size,
                                 outer_window,
+                                &cond_map,
                                 &trans_maps,
                                 &ij_values,
                             );

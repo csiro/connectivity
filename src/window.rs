@@ -11,10 +11,10 @@ use std::iter::zip;
 /// # Arguments
 /// * `base_i`, `base_j` - Coordinates in the original resolution
 /// * `current_level` - Current level (1, 2, 4, 8, etc.)
-/// * `cond_dict` - HashMap mapping levels to arrays
 /// * `win_size` - Size of the neighborhood for normal levels (3 for 3x3, 5 for 5x5, etc.).
 ///               Must be odd-numbered.
 /// * `outer_win` - Size of the neighborhood for the highest level only.
+/// * `cond_dict` - HashMap mapping levels to arrays
 /// * `trans_vect`   - Transgrids values hashmap
 /// * `trans_ij`     - The current climate values of i, j
 ///
@@ -24,9 +24,9 @@ pub fn multi_level_window(
     base_i: i32,
     base_j: i32,
     current_level: i32,
-    cond_dict: &HashMap<i32, Array2<f32>>,
     win_size: i32,
     outer_win: i32,
+    cond_dict: &HashMap<i32, Array2<f32>>,
     trans_vect: &Vec<HashMap<i32, Array3<f32>>>,
     trans_ij: &Array1<f32>,
 ) -> (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>) {
@@ -37,29 +37,28 @@ pub fn multi_level_window(
     let current_height = current_array.shape()[0] as i32;
     let current_width = current_array.shape()[1] as i32;
     
-    let higher_center_i = base_i / higher_level;
-    let higher_center_j = base_j / higher_level;
-    let i = base_i / current_level;
-    let j = base_j / current_level;
-    
-    // Find the maximum level
-    let max_level = *cond_dict.keys().max().unwrap_or(&current_level);
-    let is_highest_level = current_level == max_level;
+    let higher_center_i: i32 = base_i / higher_level;
+    let higher_center_j: i32 = base_j / higher_level;
+    let i: i32 = base_i / current_level;
+    let j: i32 = base_j / current_level;
     
     // Ensure neighborhood sizes are odd
     if win_size % 2 == 0 {
-        panic!("Neighborhood size must be odd-numbered");
+        panic!("Window size must be odd-numbered");
     }
     
     // If outer_win is lower than win_size, use the regular win_size
     let outer_win = if outer_win < win_size {
         win_size
     } else if outer_win % 2 == 0 {
-        panic!("Highest neighborhood size must be odd-numbered");
+        panic!("Outer window size must be odd-numbered");
     } else {
         outer_win
     };
     
+    // Find the maximum level
+    let max_level = *cond_dict.keys().max().unwrap_or(&current_level);
+    let is_highest_level = current_level == max_level;
     // Choose the appropriate neighborhood size
     let effective_win_size = if is_highest_level {
         outer_win
@@ -68,8 +67,8 @@ pub fn multi_level_window(
     };
     
     // Calculate radius based on effective neighborhood size
-    let radius = effective_win_size / 2;
-    let exclusion_radius = win_size / 2; // Always use the standard size for exclusion
+    let radius: i32 = effective_win_size / 2;
+    let exclusion_radius: i32 = win_size / 2; // Always use the standard size for exclusion
     
     // Pre-allocate vectors with estimated capacity
     // We can give a conservative estimate to avoid multiple reallocations
@@ -79,7 +78,6 @@ pub fn multi_level_window(
     let mut row_indices = Vec::with_capacity(estimated_capacity);
     let mut col_indices = Vec::with_capacity(estimated_capacity);
     let mut values = Vec::with_capacity(estimated_capacity);
-    // let mut gdmvals: Vec<Vec<f32>> = Vec::with_capacity(trans_vect.len());
     
     // Determine higher level dimensions
     let (higher_height, higher_width) = if cond_dict.contains_key(&higher_level) {
