@@ -93,7 +93,7 @@ create_overviews(
 **3. Calculating connectivity or BERI**   
 
 The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
-`max_distance = outer_window x 2 × max(levels) × resolution`
+`max_distance = outer_window * max(levels) * resolution`
     
 Use option argument to generate the connected condition from connectedness and input condition:    
 1. connectedness    
