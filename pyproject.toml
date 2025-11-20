@@ -4,7 +4,6 @@ build-backend = "maturin"
 
 [project]
 name = "connectivity"
-version = "0.2.1"
 description = "A multi-resolution landscape connectivity algorithm"
 authors = [{ name = "Roozbeh Valavi", email = "roozbeh.valavi@csiro.au" }]
 requires-python = ">=3.8"

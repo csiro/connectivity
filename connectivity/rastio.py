@@ -16,7 +16,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
     - file (str): Path to the COG file.
     - gdf (GeoPandas):
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
-    - expand_px (bool): The number of pixels to pad the polygon; this depends on the 
+    - expand_px (bool): The number of pixels to pad the polygon; this depends on the window size selected.
 
     Returns:
     - dict: A two dictionaries where keys are overview levels and values are 3D numpy arrays
@@ -46,19 +46,18 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
             pad_y = expand_px * res_y
             orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in gdf.geometry]
 
-    # If levels are not provided get them; make sure 1 is there and kepp unique records
+    # If levels are not provided get them; make sure 1 is there and keep unique records
     levels = sorted(set(overviews if levels is None else levels) | {1})
-
 
     # If gdf is not provided read the entire dataset
     if gdf is None:
         with rasterio.open(file) as dataset:
-
+            # get the base level transform
             original_transform = dataset.transform
 
             for level in levels:
-                if level not in overviews:
-                    raise(ValueError(f"Overview level {level} not found in the dataset."))
+                if level != 1 and level not in overviews:
+                    raise ValueError(f"Overview level {level} not found in the dataset.")
 
                 # Calculate the shape for output based on the overview level
                 scale = level
@@ -90,11 +89,11 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
         max_level = max(levels)
         max_level_idx = overviews.index(max_level)
 
-        # Use coarsest overview to calculate buffer size to avoid edge effect
+        # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
         with rasterio.open(file, overview_level=max_level_idx) as src:
             if gdf.crs != src.crs:
                 gdf = gdf.to_crs(src.crs)
-
+            # Add paddings to expand
             res_x, res_y = src.res
             pad_x = expand_px * res_x + (res_x / max(levels) / 4) # Just add 1/4 pixel more to make sure gets all borders
             pad_y = expand_px * res_y + (res_y / max(levels) / 4)
@@ -103,13 +102,14 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
 
         # Get all overview layers
         for level in levels:
-            if level not in overviews:
+            if level != 1 and level not in overviews:
                 raise ValueError(f"Overview decimation {level} not found in dataset.")
             
             # NOTE: check this works correctly for all overview levels
             ov_idx = overviews.index(level) + 1  # +1 because 0 is base resolution
             
-            # Choose masking geometry
+            # Choose masking geometry based on level; for base level get base_level geom so the output map
+            # be the same size and shape of the original layer; for the rest get the biggest buffe
             masking_geom = buffer_geoms if level > 1 else orig_buffer_geoms # gdf.geometry.tolist()
             
             # Read data using desired level
