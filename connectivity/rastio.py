@@ -46,8 +46,9 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
             pad_y = expand_px * res_y
             orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in gdf.geometry]
 
-    # If levels are not provided get them
-    levels = overviews if levels is None else levels
+    # If levels are not provided get them; make sure 1 is there and kepp unique records
+    levels = sorted(set(overviews if levels is None else levels) | {1})
+
 
     # If gdf is not provided read the entire dataset
     if gdf is None:
