@@ -86,7 +86,7 @@ Use the `create_overviews()` function to generate and embed overviews into the T
 create_overviews(
     input_raster = "raster_file.tif",
     output_raster = None, # keep None to update the file inplace
-    overview_levels = [1, 2, 4, 8, 16] # the overview levels
+    overview_levels = [2, 4, 8, 16] # the overview levels
 )
 ```
 
@@ -108,7 +108,7 @@ connd = connectedness(
     max_cost = 2.0, 
     window_size = 5, 
     outer_window = 9,
-    levels = [1, 2, 4, 8, 16], 
+    levels = [2, 4, 8, 16], 
     sigma = 3,
     option = 3,
     filename = "./results/ceonnectivity.tif"

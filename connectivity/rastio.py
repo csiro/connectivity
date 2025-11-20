@@ -3,8 +3,8 @@ import rasterio
 from rasterio.mask import mask
 from rasterio.enums import Resampling
 from rasterio.features import geometry_mask
+from rasterio.shutil import copy as rio_copy
 from shapely.geometry import box, mapping
-from osgeo import gdal
 from .utils import guess_geographic
 
 
@@ -188,50 +188,63 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
     print(f"Successfully wrote raster to {outfile}")
 
 
-def create_overviews(input_raster, output_raster=None, overview_levels=[1, 2, 4, 8, 16, 32]):
-    """Reads a raster file and saves it with overviews at specified levels.
+
+def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8, 16, 32]):
+    """Reads a raster file and saves it with overviews at specified levels,
+    using rasterio.
     
     Args:
         input_raster (str): Path to the input raster file
-        output_raster (str, optional): Path to the output raster file. If None, overviews are added to the input file.
-        overview_levels (list, optional): List of overview levels to generate. Default is [1, 2, 4, 8, 16, 32].
+        output_raster (str, optional): Path to the output raster file. If None,
+            overviews are added to the input file in-place.
+        overview_levels (list, optional): List of overview decimation factors to
+            generate (e.g., [2, 4, 8, 16, 32]). Default is [2, 4, 8, 16, 32],
+            but levels <= 1 are ignored for overview creation.
         
     Returns:
-        bool: True if operation was successful, False otherwise
+        No returns
     """
 
-    resampling_method = "AVERAGE"
+    # rasterio expects factors > 1
+    overview_levels = [lvl for lvl in overview_levels if lvl > 1]
+
+    if not overview_levels:
+        raise ValueError("overview_levels must contain values > 1.")
 
     try:
         # If output file is specified, make a copy of the input file first
-        if output_raster:
+        if output_raster and output_raster != input_raster:
             print(f"Creating a copy of the input raster at {output_raster}")
-            gdal.Translate(output_raster, input_raster, format='GTiff', 
-                           creationOptions=["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"])
-            ds = gdal.Open(output_raster, gdal.GA_Update)
+            rio_copy(
+                input_raster,
+                output_raster,
+                driver="GTiff",
+                compress="LZW",
+                tiled=True,
+                BIGTIFF="IF_SAFER",
+            )
+            target_raster = output_raster
         else:
             # Otherwise, add overviews to the original file
-            ds = gdal.Open(input_raster, gdal.GA_Update)
+            target_raster = input_raster
             output_raster = input_raster
-        
-        if ds is None:
-            print(f"Error: Could not open raster file {input_raster if output_raster is None else output_raster}")
-            return False
-        
-        print(f"Building overviews with levels: {overview_levels}")
-        print(f"Using resampling method: {resampling_method}")
-        
-        ds.BuildOverviews(resampling_method, overview_levels)
-        
-        # Close the dataset to flush changes to disk
-        ds = None
-        
+
+        # Open the target raster in read/write mode
+        with rasterio.open(target_raster, "r+") as dst:
+            print(f"Building overviews with levels: {overview_levels}")
+            print(f"Using resampling method: average")
+
+            # Build the overviews
+            dst.build_overviews(overview_levels, resampling=Resampling.average)
+
+            # Optional: store resampling method in tags (rasterio convention)
+            dst.update_tags(ns="rio_overview", resampling="average")
+
         print(f"Successfully created overviews for {output_raster}")
-        return True
-        
+
     except Exception as e:
         print(f"Error creating overviews: {e}")
-        return False
+
 
 
 def overview_info(file_path):
