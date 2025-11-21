@@ -14,6 +14,15 @@ def fn(connectivity, habitat, option=3):
             raise ValueError("option must be one of 1, 2, or 3.")
 
 
+def round_to_pow2(n: int) -> int:
+    # closest lower power of 2
+    lower = 1 << (n.bit_length() - 1)
+    # closest upper power of 2
+    upper = lower << 1
+    # choose whichever is nearer
+    return lower if n - lower <= upper - n else upper
+
+
 # Check grids are equal
 def check_grids(x, y):
     x_shape = x if isinstance(x, tuple) else x.shape
