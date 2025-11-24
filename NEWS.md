@@ -1,5 +1,5 @@
 # Version 0.2.2
-* Removed the dependency on GDAL, replacing it with `rsterio`.
+* Removed the dependency on GDAL, replacing it with `rasterio`.
 * Updated logic to ignore overview level 1 (both when reading and generating) since it corresponds to the original resolution and requires no additional computation.
 * Fixed the `read_raster()` and `create_overviews()` functions to ensure that the correct overview layers are created and read properly.
 

@@ -32,7 +32,7 @@ def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8,
 
     try:
         # If output file is specified, make a copy of the input file first
-        if output_raster and output_raster != input_raster:
+        if output_raster and (output_raster != input_raster):
             rio_copy(
                 input_raster,
                 output_raster,
@@ -45,7 +45,6 @@ def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8,
         else:
             # Otherwise, add overviews to the original file
             target_raster = input_raster
-            output_raster = input_raster
 
         # Open the target raster in read/write mode
         with rasterio.open(target_raster, "r+") as dst:
@@ -58,7 +57,7 @@ def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8,
             # Optional: store resampling method in tags (rasterio convention)
             dst.update_tags(ns="rio_overview", resampling="average")
 
-        print(f"Successfully created overviews for {output_raster}")
+        print(f"Successfully created overviews for {target_raster}")
 
     except Exception as e:
         print(f"Error creating overviews: {e}")
