@@ -8,6 +8,93 @@ from shapely.geometry import box, mapping
 from .utils import guess_geographic, round_to_pow2
 
 
+def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8, 16, 32]):
+    """Reads a raster file and saves it with overviews at specified levels,
+    using rasterio.
+    
+    Args:
+        input_raster (str): Path to the input raster file
+        output_raster (str, optional): Path to the output raster file. If None,
+            overviews are added to the input file in-place.
+        overview_levels (list, optional): List of overview decimation factors to
+            generate (e.g., [2, 4, 8, 16, 32]). Default is [2, 4, 8, 16, 32],
+            but levels <= 1 are ignored for overview creation.
+        
+    Returns:
+        No returns
+    """
+
+    # rasterio expects factors > 1
+    overview_levels = [round_to_pow2(lvl) for lvl in overview_levels if lvl > 1]
+
+    if not overview_levels:
+        raise ValueError("overview_levels must contain values > 1.")
+
+    try:
+        # If output file is specified, make a copy of the input file first
+        if output_raster and output_raster != input_raster:
+            rio_copy(
+                input_raster,
+                output_raster,
+                driver="GTiff",
+                compress="LZW",
+                tiled=True,
+                BIGTIFF="IF_SAFER",
+            )
+            target_raster = output_raster
+        else:
+            # Otherwise, add overviews to the original file
+            target_raster = input_raster
+            output_raster = input_raster
+
+        # Open the target raster in read/write mode
+        with rasterio.open(target_raster, "r+") as dst:
+            print(f"Building overviews with levels: {overview_levels}")
+            print(f"Using resampling method: average")
+
+            # Build the overviews
+            dst.build_overviews(overview_levels, resampling=Resampling.average)
+
+            # Optional: store resampling method in tags (rasterio convention)
+            dst.update_tags(ns="rio_overview", resampling="average")
+
+        print(f"Successfully created overviews for {output_raster}")
+
+    except Exception as e:
+        print(f"Error creating overviews: {e}")
+
+
+
+def overview_info(file_path):
+    """Display information about all available overviews and their actual dimensions.
+     
+    Parameters:
+    - file_path (str): Path to the COG file.
+    """
+    
+    print(f"\nFile: {file_path}")
+    
+    with rasterio.open(file_path) as ds:
+        print(f"Resolution: {ds.width} x {ds.height}")
+        print(f"Bands: {ds.count}")
+        print(f"CRS: {ds.crs}")
+
+        for band in range(1, ds.count + 1):
+            overviews = ds.overviews(band)
+            print(f"\nBand {band} overviews: {overviews}")
+
+            if not overviews:
+                continue
+
+            print("Overview resolutions:")
+            for i, level in enumerate(overviews):
+                # Open the actual overview level
+                with rasterio.open(file_path, overview_level=i) as src:
+                    h, w = src.shape  # (rows, cols)
+                print(f"  Level {level}: {w} x {h}")
+
+
+
 def read_raster(file, gdf=None, levels=None, expand_px=3):
     """Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
     and stores them in a dictionary.
@@ -54,7 +141,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
 
     # If gdf is not provided read the entire dataset
     if gdf is None:
-        # Read all overview levels
+        # Read all overview levels; here levels must conatin 1 as well!
         for i, level in enumerate(levels):
             # check user-supplied levels with corrected overviews
             if level != 1 and level not in overviews:
@@ -136,63 +223,6 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
 
 
 
-def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8, 16, 32]):
-    """Reads a raster file and saves it with overviews at specified levels,
-    using rasterio.
-    
-    Args:
-        input_raster (str): Path to the input raster file
-        output_raster (str, optional): Path to the output raster file. If None,
-            overviews are added to the input file in-place.
-        overview_levels (list, optional): List of overview decimation factors to
-            generate (e.g., [2, 4, 8, 16, 32]). Default is [2, 4, 8, 16, 32],
-            but levels <= 1 are ignored for overview creation.
-        
-    Returns:
-        No returns
-    """
-
-    # rasterio expects factors > 1
-    overview_levels = [round_to_pow2(lvl) for lvl in overview_levels if lvl > 1]
-
-    if not overview_levels:
-        raise ValueError("overview_levels must contain values > 1.")
-
-    try:
-        # If output file is specified, make a copy of the input file first
-        if output_raster and output_raster != input_raster:
-            rio_copy(
-                input_raster,
-                output_raster,
-                driver="GTiff",
-                compress="LZW",
-                tiled=True,
-                BIGTIFF="IF_SAFER",
-            )
-            target_raster = output_raster
-        else:
-            # Otherwise, add overviews to the original file
-            target_raster = input_raster
-            output_raster = input_raster
-
-        # Open the target raster in read/write mode
-        with rasterio.open(target_raster, "r+") as dst:
-            print(f"Building overviews with levels: {overview_levels}")
-            print(f"Using resampling method: average")
-
-            # Build the overviews
-            dst.build_overviews(overview_levels, resampling=Resampling.average)
-
-            # Optional: store resampling method in tags (rasterio convention)
-            dst.update_tags(ns="rio_overview", resampling="average")
-
-        print(f"Successfully created overviews for {output_raster}")
-
-    except Exception as e:
-        print(f"Error creating overviews: {e}")
-
-
-
 def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
     """Write a numpy array to a GeoTIFF file using the geographic transformation
     and projection information from a template raster file.
@@ -228,34 +258,4 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
                     dst.write(in_array[i], i+1)
                     
     print(f"Successfully wrote raster to {outfile}")
-
-
-
-def overview_info(file_path):
-    """Display information about all available overviews and their actual dimensions.
-     
-    Parameters:
-    - file_path (str): Path to the COG file.
-    """
-    
-    print(f"\nFile: {file_path}")
-    
-    with rasterio.open(file_path) as ds:
-        print(f"Resolution: {ds.width} x {ds.height}")
-        print(f"Bands: {ds.count}")
-        print(f"CRS: {ds.crs}")
-
-        for band in range(1, ds.count + 1):
-            overviews = ds.overviews(band)
-            print(f"\nBand {band} overviews: {overviews}")
-
-            if not overviews:
-                continue
-
-            print("Overview resolutions:")
-            for i, level in enumerate(overviews):
-                # Open the actual overview level
-                with rasterio.open(file_path, overview_level=i) as src:
-                    h, w = src.shape  # (rows, cols)
-                print(f"  Level {level}: {w} x {h}")
 
