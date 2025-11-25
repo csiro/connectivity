@@ -80,11 +80,12 @@ def overview_info(file_path):
 
         for band in range(1, ds.count + 1):
             overviews = ds.overviews(band)
-            print(f"\nBand {band} overviews: {overviews}")
 
             if not overviews:
+                print(f"No overview for band {band}.")
                 continue
 
+            print(f"\nBand {band} overviews: {overviews}")
             print("Overview resolutions:")
             for i, level in enumerate(overviews):
                 # Open the actual overview level
