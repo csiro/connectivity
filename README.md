@@ -107,9 +107,9 @@ connd = connectedness(
     lambdas = [2, 20, 200],
     max_cost = 2.0, 
     window_size = 5, 
-    outer_window = 9,
-    levels = [2, 4, 8, 16], 
-    sigma = 3,
+    outer_window = 11,
+    levels = [2, 4, 8, 16, 32], 
+    sigma = 2,
     option = 3,
     filename = "./results/ceonnectivity.tif"
 )
@@ -126,8 +126,8 @@ beris = beri(
     lambdas = [2, 20, 200], 
     max_cost = 2.0, 
     window_size = 5, 
-    outer_window = 9,
-    levels = [1, 2, 4, 8, 16],
+    outer_window = 11,
+    levels = [2, 4, 8, 16, 32],
     sigma = None,
     filename = "./results/berri.tif"
 )

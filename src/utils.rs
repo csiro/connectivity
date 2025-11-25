@@ -8,7 +8,7 @@ use pathfinding::prelude::dijkstra_all;
 use crate::affine::Affine;
 
 
-/// Convert a Python dict-of-arrays into a Rust HashMap.
+/// Convert a Python dict of rasterio transforms into a Rust HashMap.
 pub fn to_transform_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Affine> {
     let mut rust_map = HashMap::new();
 
@@ -32,7 +32,7 @@ pub fn to_transform_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Affine> {
 }
 
 
-/// Convert a Python dict-of-arrays into a Rust `HashMap<i32, Array2<f32>>`.
+/// Convert a Python dict-of-arrays into a Rust HashMap<i32, Array2<f32>>.
 pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
     let mut rust_map = HashMap::new();
 
@@ -53,7 +53,7 @@ pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
 }
 
 
-// Convert Python object to a rust_hashmap
+/// Convert a Python dict-of-arrays into a Rust HashMap<i32, Array3<f32>>.
 pub fn to_3d_map<'py>(data_dict: &Bound<PyAny>) -> HashMap<i32, Array3<f32>> {
     let mut rust_map = HashMap::new();
 
