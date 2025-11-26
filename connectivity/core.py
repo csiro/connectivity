@@ -21,12 +21,12 @@ def connectedness(
     """Computes a multi-scale habitat connectedness metrics 
     
     This based on condition using a hierarchical neighborhood-based over multiple resolution
-    levels (COG overviews), and optionally applies Gaussian smoothing. 
+    levels (raster overviews), and optionally applies Gaussian smoothing. 
 
-    This algorithm operates on the overview layers of Cloud Optimized 
-    GeoTIFF (COG) files. Please ensure that these overview layers are generated
-    using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()`
-    function for generting correct overview layers.
+    This algorithm operates on the overview layers of a GeoTIFF file (including 
+    Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated 
+    using the `average`, not `nearest` resampling method. Use the `create_overviews()` 
+    function to generate the required overview layers correctly.
     
     The maximum distance/raduis the algorithm searches for cells (in the condition raster) to
     calculate connectivity is computed as: 
@@ -35,8 +35,9 @@ def connectedness(
     Parameters
     ----------
     condition_file : str
-        Path to the input condition COG file (it must be a COG file containing the 
-        overview levels used in the function).
+        Path to the input habitat-condition raster file representing current habitat condition.
+        The file must be a GeoTIFF (including COGs) with overview levels generated using the 
+        average aggregation method for multi-scale analysis.
     polygon_mask : str, optional
         Path to a polygon shapefile or mask file used to limit the analysis area.
         If None, the entire image is processed.
@@ -142,10 +143,10 @@ def beri(
     of habitat condition with projected species turnover, comparing current 
     and future scenarios to assess resilience.
 
-    This algorithm operates on the overview layers of Cloud Optimized 
-    GeoTIFF (COG) files. Please ensure that these overview layers are generated
-    using `mean` aggregation, not `nearest neighbor` resampling. Use `create_overviews()`
-    function for generting correct overview layers.
+    This algorithm operates on the overview layers of a GeoTIFF file (including 
+    Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated 
+    using the `average`, not `nearest` resampling method. Use the `create_overviews()` 
+    function to generate the required overview layers correctly.
     
     The maximum distance/raduis the algorithm searches for cells (in the condition 
     raster) to calculate connectivity in BERI is computed as:
@@ -154,13 +155,14 @@ def beri(
     Parameters
     ----------
     condition_file : str
-        Path to the input condition COG file representing current habitat condition.
-        Must be a Cloud-Optimized GeoTIFF (COG) with overview levels used for multi-scale analysis.
+        Path to the input habitat-condition raster file representing current habitat condition.
+        The file must be a GeoTIFF (including COGs) with overview levels generated using the 
+        average aggregation method for multi-scale analysis.
     current_file : str
         Path to the current compositional turnover layer (e.g., dissimilarity surface under current climate).
     future_files : list of str, optional
         List of file paths representing future compositional turnover layers (scenarios).
-        Each should be aligned with the spatial resolution and extent of `current_file`.
+        Each should be aligned with the spatial resolution and extent of `current_file` and `condition_file`.
     polygon_mask : str, optional
         Path to a polygon shapefile or mask used to limit the analysis area.
         If None, the entire input extent is analyzed.
