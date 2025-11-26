@@ -41,11 +41,11 @@ pip install target/wheels/connectivity-*.whl
 ### Example
 
 ```python
-from connectivity import connectedness, beri, create_overviews, overview_info
+from connectivity import overview_info, create_overviews, connectedness, beri
 ```
 
 **1. Inspecting Overview Information**    
-You can inspect the overview metadata of a TIFF file using the overview_info() function:
+You can inspect the overview metadata of a TIFF file using the `overview_info()` function:
 
 ```python
 overview_info(grids)
@@ -57,14 +57,13 @@ Bands: 19
 CRS: EPSG:4326
 
 Overview Information:
-  Band 1 overviews: [1, 2, 4, 8, 16, 32]
+  Band 1 overviews: [2, 4, 8, 16, 32]
   Overview resolutions:
-    Level 1: 588 x 516
     Level 2: 294 x 258
     Level 4: 147 x 129
-    Level 8: 73 x 64
-    Level 16: 36 x 32
-    Level 32: 18 x 16
+    Level 8: 74 x 65
+    Level 16: 37 x 33
+    Level 32: 19 x 17
 ```
 
 **Missing Overviews:**    
@@ -80,21 +79,25 @@ Overview Information:
 ```
 
 **2. Creating Overviews**     
-Use the `create_overviews()` function to generate and embed overviews into the TIFF file. You might need to load the GDAL module in a HPC system (e.g. `module load gdal/3.7.2`) for this function.
+Use the `create_overviews()` function to generate and embed overviews into the TIFF file:
 
 ```python
 create_overviews(
     input_raster = "raster_file.tif",
     output_raster = None, # keep None to update the file inplace
-    overview_levels = [2, 4, 8, 16] # the overview levels
+    overview_levels = [2, 4, 8, 16, 32]
 )
 ```
 
-**3. Calculating connectivity or BERI**   
+**3. Calculating connectedness or BERI**   
 
 The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
-`max_distance = outer_window * max(levels) * resolution`
-    
+`max_distance = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search distance is:
+
+distance = outer_window × max_level × resolution
+         = 11 × 32 × 1 km
+         = 352 km  
+
 Use option argument to generate the connected condition from connectedness and input condition:    
 1. connectedness    
 2. connectedness * condition    

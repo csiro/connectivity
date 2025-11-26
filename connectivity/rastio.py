@@ -136,7 +136,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
     # Round to the nearest pow 2; fixes an issue with rasterio/gdal overview level naming
     # Also, overviews levels are always higher than one, e.g. 2, 4, 8...
     overviews = [round_to_pow2(x) for x in overviews if x > 1]
-    # If levels are not provided get them; make sure 1 is there and kepp unique records
+    # If levels are not provided get them; make sure 1 is there and keep unique records
     levels = sorted(set(overviews if levels is None else levels) | {1})
 
     # If gdf is not provided read the entire dataset
@@ -158,7 +158,8 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
 
             data_dict[level] = data.squeeze().astype(np.float32)
             tran_dict[level] = tuple(level_transform)[:6]
-
+    
+    # else read only padded polygon area 
     else:
         # Max level to get the correct buffered area that includes all required pixels for the neighbours
         max_level = len(overviews) - 1 # needs the index of the last one

@@ -12,7 +12,7 @@ def connectedness(
         max_cost=2.0, 
         window_size=3, 
         outer_window=9,
-        levels=[1, 2, 4, 8, 16],
+        levels=[2, 4, 8, 16],
         sigma=None,
         option=3,
         n_threads=None,
@@ -57,8 +57,8 @@ def connectedness(
         Must be an odd number greater than or equal to window_size.
         Default is 9.
     levels : list of int, optional
-        List of overview levels used for multi-scale analysis. Must be powers of 2.
-        Default is [1, 2, 4, 8, 16].
+        List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
+        Default is [2, 4, 8, 16].
     sigma : float, optional
         Standard deviation of the Gaussian kernel used for smoothing. 
         Default is None (smoothing disabled).
@@ -130,7 +130,7 @@ def beri(
         max_cost=2.0, 
         window_size=3, 
         outer_window=9,
-        levels=[1, 2, 4, 8, 16],
+        levels=[2, 4, 8, 16],
         sigma=None,
         n_threads=None,
         filename=""
@@ -181,8 +181,8 @@ def beri(
         Must be an odd number greater than or equal to window_size.
         Default is 9.
     levels : list of int, optional
-        List of overview levels used for multi-scale analysis. Should be powers of 2.
-        Default is [1, 2, 4, 8, 16].
+        List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
+        Default is [2, 4, 8, 16].
     sigma : float, optional
         Standard deviation for the Gaussian kernel if smoothing is applied to input layers.
         Default is None (no smoothing).
