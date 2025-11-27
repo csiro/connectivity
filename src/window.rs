@@ -87,7 +87,7 @@ pub fn multi_level_window(
         (current_height / agg_factor, current_width / agg_factor)
     };
     
-    // Iterate over the NxN neighborhood
+    // Iterate over the NxN neighborhood (this is in potential higher level)
     for di in -radius..=radius {
         for dj in -radius..=radius {
             let higher_i = higher_center_i + di;

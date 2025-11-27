@@ -13,7 +13,7 @@ def connectedness(
         window_size=3, 
         outer_window=9,
         levels=[2, 4, 8, 16],
-        sigma=None,
+        sigma=1,
         option=3,
         n_threads=None,
         filename=""
@@ -62,7 +62,7 @@ def connectedness(
         Default is [2, 4, 8, 16].
     sigma : float, optional
         Standard deviation of the Gaussian kernel used for smoothing. 
-        Default is None (smoothing disabled).
+        Default is 1. Zero or None for disabling smoothing.
     option : int, optional
         Option flag to generate the connected condition from connectedness and input condition.
         Default is 3:
@@ -92,7 +92,7 @@ def connectedness(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
-    # Read raster overviews as a dictionary
+    # Read raster overviews as a dictionary; this checks levels as well
     data_dict, tran_dict, is_geo = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
 
     conn_array = connectivity(
@@ -108,7 +108,7 @@ def connectedness(
     )
 
     # Smooth the output array with Gaussian filtering
-    if sigma is not None:
+    if sigma is not None and sigma != 0:
         sigma = max(sigma, 1)
         conn_array = smoothing_filter(conn_array, sigma=sigma)
 
@@ -132,7 +132,7 @@ def beri(
         window_size=3, 
         outer_window=9,
         levels=[2, 4, 8, 16],
-        sigma=None,
+        sigma=1,
         n_threads=None,
         filename=""
     ):
@@ -187,7 +187,7 @@ def beri(
         Default is [2, 4, 8, 16].
     sigma : float, optional
         Standard deviation for the Gaussian kernel if smoothing is applied to input layers.
-        Default is None (no smoothing).
+        Default is 1. Zero or None for disabling smoothing.
     n_threads : int, optional
         The number of CPU cores for parallel processing. 
         Default is None (all available cores).
@@ -212,7 +212,7 @@ def beri(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
-    # Read raster overview as a dictionary
+    # Read raster overview as a dictionary; this checks levels as well.
     data_dict, tran_dict, is_geo  = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
 
     # Insert current climate as the first element in the list (this is important) before reading
@@ -240,7 +240,7 @@ def beri(
     )
 
     # Smooth the output array with Gaussian filtering
-    if sigma is not None:
+    if sigma is not None and sigma != 0:
         out_array = smoothing_filter(out_array, sigma=sigma)
 
     if len(filename) > 3:

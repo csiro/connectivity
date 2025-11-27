@@ -71,14 +71,14 @@ pub fn multi_level_graph(
             }
         }
         
-        // Process points - this could be parallelized for large datasets
+        // Process points
         for point_idx in 0..num_points {
             let i = i_array[point_idx];
             let j = j_array[point_idx];
             let u = point_idx as u16 + level as u16 * 100;
             
             // Process neighbors at current level
-            process_current_level_neighbors(
+            current_level_neighbors(
                 i, j, u,
                 &COLS, &ROWS,
                 &node_mapping,
@@ -90,7 +90,7 @@ pub fn multi_level_graph(
             
             // Process connections to higher level if needed
             if level < max_level && edge_indices.contains(&(i, j)) {
-                process_higher_level_connections(
+                higher_level_connections(
                     i, j,
                     &node_mapping,
                     &node_mapping_higher,
@@ -108,7 +108,7 @@ pub fn multi_level_graph(
 }
 
 
-/// Create node mapping efficiently
+/// Create node mapping (the unique ID of each node)
 fn create_node_mapping(
     i_array: &[i32],
     j_array: &[i32],
@@ -136,11 +136,10 @@ fn create_node_mapping(
 /// output graph: (u, v) (adj_cond, cond, dist, similarities)
 /// u: source, v: destination
 #[inline]
-fn process_current_level_neighbors(
+fn current_level_neighbors(
     i: i32, 
     j: i32, 
-    u: u16, 
-    // level: i32,
+    u: u16, // source node
     i_ngb: &[i32], 
     j_ngb: &[i32],
     node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
@@ -170,11 +169,11 @@ fn process_current_level_neighbors(
 }
 
 
-/// Process connections to higher level
+/// Process connections to higher level (e.g. level 2 to level 4)
 /// output graph: (u, v) (adj_cond, cond, dist, similarities)
 /// u: source, v: destination
 #[inline]
-fn process_higher_level_connections(
+fn higher_level_connections(
     i: i32, j: i32,
     node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
     node_mapping_higher: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
@@ -188,7 +187,7 @@ fn process_higher_level_connections(
         let higher_level: i32 = level * 2;
         
         // Get all higher neighbors at once
-        let higher_neighbors = get_higher_neighbors(i, j);
+        let higher_neighbors = get_edge_neighbors(i, j);
 
         // Get the Affines for distance calc
         let transform: &Affine = transforms.get(&level).unwrap();
@@ -214,9 +213,9 @@ fn process_higher_level_connections(
 }
 
 
-/// Get the 3 possible neighbours in the higher level 
+/// Get the 3 possible neighbours of edge cells in the higher level 
 /// i.e. the link between a level edge to its higher level cells
-fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32); 3] {
+fn get_edge_neighbors(i: i32, j: i32) -> [(i32, i32); 3] {
     // Higher level cell containing the target cell
     let target_higher = (i >> 1, j >> 1);    
     // 8 neighbor offsets: N, S, W, E, NW, NE, SW, SE
@@ -259,7 +258,7 @@ fn get_higher_neighbors(i: i32, j: i32) -> [(i32, i32); 3] {
 }
 
 
-/// Get edge cells efficiently using HashSet
+/// Efficiently get edge cells in a level neighbourhood using HashSet
 fn get_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
     let i_min = *i_arr.iter().min().unwrap_or(&0);
     let i_max = *i_arr.iter().max().unwrap_or(&0);

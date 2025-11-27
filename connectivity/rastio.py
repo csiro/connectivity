@@ -63,7 +63,6 @@ def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8,
         print(f"Error creating overviews: {e}")
 
 
-
 def overview_info(file_path):
     """Display information about all available overviews and their actual dimensions.
      
@@ -92,7 +91,6 @@ def overview_info(file_path):
                 with rasterio.open(file_path, overview_level=i) as src:
                     h, w = src.shape  # (rows, cols)
                 print(f"  Level {level}: {w} x {h}")
-
 
 
 def read_raster(file, gdf=None, levels=None, expand_px=3):
@@ -221,7 +219,6 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 tran_dict[level] = tuple(out_transform)[:6]
 
     return data_dict, tran_dict, is_geo
-
 
 
 def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
