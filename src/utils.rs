@@ -32,7 +32,7 @@ pub fn to_transform_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Affine> {
 }
 
 
-/// Convert a Python dict-of-arrays into a Rust HashMap<i32, Array2<f32>>.
+/// Convert a Python dict of 2D-arrays into a Rust HashMap<i32, Array2<f32>>.
 pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
     let mut rust_map = HashMap::new();
 
@@ -53,7 +53,7 @@ pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
 }
 
 
-/// Convert a Python dict-of-arrays into a Rust HashMap<i32, Array3<f32>>.
+/// Convert a Python dict of 3D-arrays into a Rust HashMap<i32, Array3<f32>>.
 pub fn to_3d_map<'py>(data_dict: &Bound<PyAny>) -> HashMap<i32, Array3<f32>> {
     let mut rust_map = HashMap::new();
 
@@ -90,18 +90,20 @@ pub fn get_current(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usi
 
 /// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
 /// Converts f32 weights to u32 by multiplying with 100 and rounding to be used in Dijkstra
+/// HashMap<u, Vec<(v, adj_cond/cond)>>
+/// u: source, v: destination
 fn to_adjacency(
-    graph_temp: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
+    graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
     weighted: bool,
-) -> HashMap<u16, Vec<(u16, u32)>> {
+) -> HashMap<u32, Vec<(u32, u32)>> {
     // First pass: count edges per source node
-    let mut edge_counts: HashMap<u16, usize> = HashMap::new();
+    let mut edge_counts: HashMap<u32, usize> = HashMap::new();
     for &(u, _) in graph_temp.keys() {
         *edge_counts.entry(u).or_insert(0) += 1;
     }
 
     // Initialize the adjacency list with pre-allocated space
-    let mut adjacency: HashMap<u16, Vec<(u16, u32)>> = HashMap::with_capacity(edge_counts.len());
+    let mut adjacency: HashMap<u32, Vec<(u32, u32)>> = HashMap::with_capacity(edge_counts.len());
     for (&node, &count) in &edge_counts {
         adjacency.insert(node, Vec::with_capacity(count));
     }
@@ -126,13 +128,13 @@ fn to_adjacency(
 
 /// Create the reachable path with dijkstra; weighted by condition or not
 pub fn dijkstra(
-    graph: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>, 
-    source: u16,
+    graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>, 
+    source: u32,
     weighted: bool
-) -> HashMap<u16, (u16, u32)> {
+) -> HashMap<u32, (u32, u32)> {
     // Convert the graph to suitable format for dijkstra
     let graph_int = to_adjacency(&graph, weighted);
-    let successors = |node: &u16| -> Vec<(u16, u32)> {
+    let successors = |node: &u32| -> Vec<(u32, u32)> {
         graph_int.get(node).cloned().unwrap_or_default()
     };
 
@@ -143,8 +145,8 @@ pub fn dijkstra(
 
 /// Return distance values and the condition/similarity of the last segment
 pub fn path_distance(
-    graph: &HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
-    path: &[u16],
+    graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
+    path: &[u32],
     dist_intact: f32
 ) -> (f32, f32, f32, Vec<f32>) {
     let mut dist_adjusted = 0.0;

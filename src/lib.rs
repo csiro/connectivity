@@ -68,7 +68,6 @@ fn connectivity(
                 .into_par_iter()
                 .map(|i| {
                     let mut row_result = vec![f32::NAN; ncols];
-                    // let mut progress = Progress::new();
                 
                     for j in 0..ncols {
                         // Skip an NaN in the orginal resolution of the condition data
@@ -98,15 +97,15 @@ fn connectivity(
                         let (edge_graph, source) = graph::multi_level_graph(
                             i as i32, 
                             j as i32, 
-                            &level_dict, 
                             max_cost,
+                            &level_dict, 
                             &transform_map,
                             is_geo
                         );
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
-                        let nodes_altered: HashMap<u16, (u16, u32)> = utils::dijkstra(&edge_graph, source, true);
+                        let nodes_altered  = utils::dijkstra(&edge_graph, source, true);
                         // Using unweighted distance, i.e. intact condition case for the denominator
-                        let nodes_intact: HashMap<u16, (u16, u32)> = utils::dijkstra(&edge_graph, source, false); 
+                        let nodes_intact = utils::dijkstra(&edge_graph, source, false); 
                         
                         let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(nodes_altered.len());
 
