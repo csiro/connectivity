@@ -8,12 +8,12 @@ use crate::distances;
 pub fn multi_level_graph(
     i_base: i32, 
     j_base: i32, 
-    level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)>, 
     factor: f32,
+    level_dict: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)>, 
     transforms: &HashMap<i32, Affine>,
     geographic: bool,
-) -> (HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>, u16) {
-    // Pre-compute constants
+) -> (HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>, u32) {
+    // Pre-compute queen-case neighbour indices
     const COLS: [i32; 8] = [0, 1, 0, -1, 1, 1, -1, -1];
     const ROWS: [i32; 8] = [1, 0, -1, 0, 1, -1, 1, -1];
     
@@ -24,14 +24,13 @@ pub fn multi_level_graph(
     let max_level = *levels.last().unwrap_or(&0);
     
     // Pre-allocate with capacity for better performance
-    let mut graph_temp: HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)> = HashMap::with_capacity(
+    let mut graph_temp: HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)> = HashMap::with_capacity(
         level_dict.values().map(|(i, _, _, _)| i.len() * 8).sum()
     );
     
-    let mut source: u16 = 0;
+    let mut source: u32 = 0;
     
     // Node mappings - pre-compute sizes for better allocation
-    let mut node_mapping = HashMap::new();
     let mut node_mapping_higher = HashMap::new();
     
     // Edge indices as HashSet for faster lookups
@@ -41,27 +40,29 @@ pub fn multi_level_graph(
         let edge_indices = get_edge_indices(i_array, j_array);
         all_edge_indices.insert(level, edge_indices);
     }
-
+    
     // Process each level
-    for (iter_level, &level) in levels.iter().enumerate() {
+    'outer: for (iter_level, &level) in levels.iter().enumerate() {
         let (i_array, j_array, values, sims) = &level_dict[&level];
-        let num_points = i_array.len();
+        let num_cell = i_array.len();
         let edge_indices = &all_edge_indices[&level];
-
+        
         let level_affine: &Affine = transforms.get(&level).unwrap();
         
-        // Update node mappings
-        if iter_level < 1 {
-            // This branch runs only once; for the first level
-            node_mapping = create_node_mapping(i_array, j_array, values, sims, level);
+        // Generate or update node mappings
+        let node_mapping = if iter_level == 0 {
+            // First level node mapping
+            let nm = create_node_mapping(i_array, j_array, values, sims, level);
             // Find the base node index only once
-            if let Some((_, (u, _, _))) = node_mapping.get_key_value(&(i_base, j_base)) {
+            if let Some((_, (u, _, _))) = nm.get_key_value(&(i_base, j_base)) {
                 source = *u;
             }
+
+            nm
         } else {
-            // Recycle the node mapping already calculated for the hihger level from previous round
-            node_mapping = std::mem::take(&mut node_mapping_higher);
-        }
+            // Reuse mapping already calculated for the higher level in previous round
+            std::mem::take(&mut node_mapping_higher)
+        };
         
         // Pre-compute higher level node mapping if needed
         if level < max_level {
@@ -71,22 +72,32 @@ pub fn multi_level_graph(
             }
         }
         
-        // Process points
-        for point_idx in 0..num_points {
-            let i = i_array[point_idx];
-            let j = j_array[point_idx];
-            let u = point_idx as u16 + level as u16 * 100;
+        // Process all cells in a level and the higher neighbours of the edge
+        for cell_idx in 0..num_cell {
+            let i = i_array[cell_idx];
+            let j = j_array[cell_idx];
+            let u = cell_idx as u32 + level as u32 * 1000; // unique identifier of the node
+
+            let is_source: bool = u == source;
             
-            // Process neighbors at current level
-            current_level_neighbors(
+            // Process neighbors at current level 
+            // Modify the graph's reference, and return true if cell is isolated
+            let was_isolated = current_level_neighbors(
                 i, j, u,
                 &COLS, &ROWS,
-                &node_mapping,
                 factor,
+                &node_mapping,
                 &mut graph_temp,
                 &level_affine,
                 geographic,
+                is_source,
             );
+
+            // For source nodes with no neighbours (isolated pixel, e.g tiny islands), add duplicated values
+            // and break the outer loop to avoid processing the rest of levels for the current graph
+            if was_isolated {
+                break 'outer;
+            }
             
             // Process connections to higher level if needed
             if level < max_level && edge_indices.contains(&(i, j)) {
@@ -94,8 +105,8 @@ pub fn multi_level_graph(
                     i, j,
                     &node_mapping,
                     &node_mapping_higher,
-                    factor,
                     &mut graph_temp,
+                    factor,
                     level,
                     &transforms,
                     geographic,
@@ -108,64 +119,92 @@ pub fn multi_level_graph(
 }
 
 
-/// Create node mapping (the unique ID of each node)
+/// Create node mapping (the unique ID of each node/pixel)
 fn create_node_mapping(
     i_array: &[i32],
     j_array: &[i32],
     values: &[f32],
     similarities: &[Vec<f32>],
     level: i32
-) -> HashMap<(i32, i32), (u16, f32, Vec<f32>)> {
-    let level_id = level * 100;
+) -> HashMap<(i32, i32), (u32, f32, Vec<f32>)> {
+    let level_id = level as u32 * 1000;
+    let num_sims = similarities.len();
     let mut mapping = HashMap::with_capacity(i_array.len());
     
-    for i in 0..i_array.len() {
-        // collect the i-th value from each similarity vector
-        let sim_vals: Vec<f32> = similarities.iter().map(|v| v[i]).collect();
-        mapping.insert(
-            (i_array[i], j_array[i]),
-            (i as u16 + level_id as u16, values[i], sim_vals)
-        );
+    for (i, (&i_val, &j_val)) in i_array.iter().zip(j_array).enumerate() {
+        let mut sim_vals = Vec::with_capacity(num_sims);
+        for sim_vec in similarities {
+            sim_vals.push(sim_vec[i]);
+        }
+        mapping.insert((i_val, j_val), (i as u32 + level_id, values[i], sim_vals));
     }
     
     mapping
 }
 
 
-/// Process neighbors at current level
+/// Add edges to neighboring cells; if a source is isolated, adds a synthetic edge.
 /// output graph: (u, v) (adj_cond, cond, dist, similarities)
 /// u: source, v: destination
 #[inline]
 fn current_level_neighbors(
-    i: i32, 
-    j: i32, 
-    u: u16, // source node
-    i_ngb: &[i32], 
+    i: i32,
+    j: i32,
+    u: u32, // target node id
+    i_ngb: &[i32],
     j_ngb: &[i32],
-    node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
+    node_mapping: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
+    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
     transform: &Affine,
     is_wgs: bool,
-) {
-    for k in 0..8 {
-        let ni = i + i_ngb[k];
-        let nj = j + j_ngb[k];
+    source: bool,
+) -> bool {
+    // Start with true if it's the source node
+    let mut is_isolated = source;
 
-        // Get XY coords from IJ and transfrom object
-        let (x1, y1) = transform.xy(j, i);
-        let (x2, y2) = transform.xy(nj, ni);
+    // Coordinates of the current node only need to be computed once
+    let (x1, y1) = transform.xy(j, i);
 
-        // Use 'ref' to borrow Vec<f32> rather than moving it
+    // Iterate over queen-case neighbor offsets (8 adjacent neighbours)
+    for (&di, &dj) in i_ngb.iter().zip(j_ngb.iter()) {
+        let ni = i + di;
+        let nj = j + dj;
+
+        // Check if neighbor exists in node_mapping
         if let Some(&(v, z, ref s)) = node_mapping.get(&(ni, nj)) {
-            // Distance in kilometer
+            // Distance to adjacent node/cell in kilometers
+            let (x2, y2) = transform.xy(nj, ni);
             let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
+            // Calcualte the weight using max_cost
             let w: f32 = (1.0 - factor) * z + factor;
-            
-            // Store only the weighted distance in the temp graph
+
+            // Store weighted distance + similarities
             graph_temp.insert((u, v), (w * dist, z, dist, s.clone()));
+
+            // Not isolated; at least one neighbor found
+            is_isolated = false;
         }
     }
+    
+    // If the source node is isolated, create a "synthetic" edge so it is connected somewhere
+    if is_isolated {
+        if let Some(&(_, z, ref s)) = node_mapping.get(&(i, j)) {
+            // Distance to an adjacent cell in kilometers
+            let (x2, y2) = transform.xy(j, i+1);
+            let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
+            // Calcualte the weight using max_cost
+            let w: f32 = (1.0 - factor) * z + factor;
+            // Make a fake node
+            let fake_v = u + 1;
+
+            // Clear the graph to ensure no isolated edge remains
+            graph_temp.clear();
+            graph_temp.insert((u, fake_v), (w * dist, z, dist, s.clone()));
+        }
+    }
+
+    is_isolated
 }
 
 
@@ -175,10 +214,10 @@ fn current_level_neighbors(
 #[inline]
 fn higher_level_connections(
     i: i32, j: i32,
-    node_mapping: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
-    node_mapping_higher: &HashMap<(i32, i32), (u16, f32, Vec<f32>)>,
+    node_mapping: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
+    node_mapping_higher: &HashMap<(i32, i32), (u32, f32, Vec<f32>)>,
+    graph_temp: &mut HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
     factor: f32,
-    graph_temp: &mut HashMap<(u16, u16), (f32, f32, f32, Vec<f32>)>,
     level: i32, 
     transforms: &HashMap<i32, Affine>,
     is_wgs: bool,

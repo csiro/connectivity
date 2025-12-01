@@ -1,7 +1,7 @@
 # Version 0.2.3
-* Fixed the isolated pixel calculations by duplicating its values to a fake neighbour.
+* Fixed the isolated pixel calculations by using its values for a synthetic neighbour.
 * Increased the capacity of graph to take more neighbours for high resoltion rasters.
-* Changed the default of `sigma` paramter to 1.
+* Changed the default value of `sigma` paramter to 1.0.
 
 # Version 0.2.2
 * Removed the dependency on GDAL, replacing it with `rasterio`.
