@@ -1,5 +1,5 @@
 # Version 0.2.3
-* Fixed isolated pixels calculation using its own values for a synthetic neighbour.
+* Fixed isolated pixel calculation using their own values for a synthetic neighbour.
 * Increased the capacity of graph to take more neighbours for high resoltion rasters.
 * Changed the default value of `sigma` paramter to 1.0.
 
