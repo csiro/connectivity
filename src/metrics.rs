@@ -1,7 +1,8 @@
 use std::f32::consts::E;
+use std::sync::Arc;
 
 // Compute the connectedness from a segment and a lambda
-pub fn connectedness(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
+pub fn connectedness(segment: &[(f32, f32, f32, Arc<Vec<f32>>)], lambda: f32) -> f32 {
     let (sum_numerator, sum_denominator): (f32, f32) = segment
         .iter()
         .map(|(dist_adj, dist, condition, _)| {
@@ -37,7 +38,7 @@ fn minimax(x: &[f32]) -> f32 {
 }
 
 /// Compute a BERI score from a segment and a lambda
-pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
+pub fn beri_score(segment: &[(f32, f32, f32, Arc<Vec<f32>>)], lambda: f32) -> f32 {
     const DENOM_VAL: f32 = 283.465; // 5.785 * (50 - 1)
     
     if segment.is_empty() {
@@ -45,7 +46,10 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
     }
 
     // Get number of scenarios (including current)
-    let n_scenario = segment[0].3.len();
+    let n_scenario = match segment.first() {
+        Some((_, _, _, sims)) => sims.len(),
+        None => return 0.0,
+    };
     if n_scenario == 0 {
         return 0.0;
     }
@@ -56,7 +60,7 @@ pub fn beri_score(segment: &[(f32, f32, f32, Vec<f32>)], lambda: f32) -> f32 {
     let inv_lambda: f32 = 1.0 / lambda;
 
     // Process each segment
-    for (dist_adj, dist, cond, similarities) in segment {
+    for &(dist_adj, dist, cond, ref similarities) in segment {
         // Skip invalid data points
         if similarities.len() < n_scenario {
             continue;

@@ -3,6 +3,7 @@ use pyo3::Bound;
 use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
+use std::sync::Arc;
 use pathfinding::prelude::dijkstra_all;
 // local module
 use crate::affine::Affine;
@@ -146,21 +147,18 @@ pub fn path_distance(
     graph: &Graph,
     path: &[u32],
     dist_intact: f32
-) -> (f32, f32, f32, Vec<f32>) {
+) -> (f32, f32, f32, Arc<Vec<f32>>) {
     let mut dist_adjusted = 0.0;
     let mut last_condition = 0.0;
-    let mut last_sims_ref: Option<&Vec<f32>> = None;
+    let mut last_sims = Arc::new(Vec::new());
 
     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
         if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
             dist_adjusted += dist / (0.5 * cond + 0.5);
             last_condition = cond;
-            last_sims_ref = Some(sims);
+            last_sims = Arc::clone(sims); // Cloning Arc is cheap
         }
     }
-
-    // Clone only once at the end
-    let last_sims = last_sims_ref.cloned().unwrap_or_default(); 
 
     (dist_adjusted, dist_intact, last_condition, last_sims)
 }

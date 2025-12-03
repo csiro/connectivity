@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 use pyo3::Bound;
+use std::sync::Arc;
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
@@ -97,7 +98,7 @@ fn connectivity(
                         }
 
                         // Build a Graph for the cell ij
-                        let edge_graph = Graph::from_data(
+                        let the_graph = Graph::from_data(
                             i as i32, 
                             j as i32, 
                             max_cost,
@@ -106,11 +107,11 @@ fn connectivity(
                             is_geo
                         );
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
-                        let nodes_altered  = utils::dijkstra(&edge_graph, true);
+                        let nodes_altered  = utils::dijkstra(&the_graph, true);
                         // Using unweighted distance, i.e. intact condition case for the denominator
-                        let nodes_intact = utils::dijkstra(&edge_graph, false); 
+                        let nodes_intact = utils::dijkstra(&the_graph, false); 
                         
-                        let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(nodes_altered.len());
+                        let mut cell_paths: Vec<(f32, f32, f32, Arc<Vec<f32>>)> = Vec::with_capacity(nodes_altered.len());
 
                         for &k in nodes_altered.keys() {
                             // Calcaulate optimal path for each reachable path
@@ -118,7 +119,7 @@ fn connectivity(
                             // Get the intact distance from source; divided by 100 to cancel out from path adjacency
                             let dist_intact: f32 = nodes_intact[&k].1 as f32 / 100.0;
                             // Get the path info for each target segment/node
-                            cell_paths.push(utils::path_distance(&edge_graph, &optim_path, dist_intact));
+                            cell_paths.push(utils::path_distance(&the_graph, &optim_path, dist_intact));
                         }
 
                         // Calculate BERI or Connectedness

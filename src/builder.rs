@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use crate::affine::Affine;
 use crate::graph::Graph;
 
@@ -121,7 +122,7 @@ fn create_node_mapping(
     values: &[f32],
     similarities: &[Vec<f32>],
     level: i32
-) -> HashMap<(i32, i32), (u32, f32, Vec<f32>)> {
+) -> HashMap<(i32, i32), (u32, f32, Arc<Vec<f32>>)> {
     let level_id = level as u32 * 1000;
     let num_sims = similarities.len();
     let mut mapping = HashMap::with_capacity(i_array.len());
@@ -130,7 +131,10 @@ fn create_node_mapping(
         let mut sim_vals = Vec::with_capacity(num_sims);
         for sim_vec in similarities {
             sim_vals.push(sim_vec[i]);
-        }        
+        }      
+        // Wrap it in Arc so later clones are cheap
+        let sim_vals = Arc::new(sim_vals);
+
         mapping.insert((i_val, j_val), (i as u32 + level_id, values[i], sim_vals));
     }
     
