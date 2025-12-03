@@ -8,12 +8,14 @@ use pathfinding::prelude::build_path;
 use rayon::prelude::*;
 // local modules
 mod window;
-mod graph;
+mod builder;
 mod utils;
 mod metrics;
 mod distances;
 mod affine;
+mod graph;
 use affine::Affine;
+use graph::Graph;
 
 
 #[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
@@ -31,6 +33,7 @@ fn connectivity(
 
     // Create a Rust HashMap from Py data
     let cond_map: HashMap<i32, Array2<f32>> = utils::to_2d_map(data_dict);
+    let num_levels = cond_map.len();
 
     // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
     let list = trans_list.downcast::<PyList>()?; // Convert PyAny to PyList
@@ -75,12 +78,12 @@ fn connectivity(
                             continue;
                         }
 
-                        let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
+                        let mut windows: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::with_capacity(num_levels);
                         // Get the transgrid values for ij cell for the current climate
                         let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
 
                         for &level in cond_map.keys() {
-                            let window = window::multi_level_window(
+                            let win = window::build_window(
                                 i as i32,
                                 j as i32,
                                 level,
@@ -90,22 +93,22 @@ fn connectivity(
                                 &trans_maps,
                                 &ij_values,
                             );
-                            level_dict.insert(level, window);
+                            windows.insert(level, win);
                         }
 
-                        // Get the graph and source node for cell ij
-                        let (edge_graph, source) = graph::multi_level_graph(
+                        // Build a Graph for the cell ij
+                        let edge_graph = Graph::from_data(
                             i as i32, 
                             j as i32, 
                             max_cost,
-                            &level_dict, 
+                            &windows, 
                             &transform_map,
                             is_geo
                         );
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
-                        let nodes_altered  = utils::dijkstra(&edge_graph, source, true);
+                        let nodes_altered  = utils::dijkstra(&edge_graph, true);
                         // Using unweighted distance, i.e. intact condition case for the denominator
-                        let nodes_intact = utils::dijkstra(&edge_graph, source, false); 
+                        let nodes_intact = utils::dijkstra(&edge_graph, false); 
                         
                         let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(nodes_altered.len());
 

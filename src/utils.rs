@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use pathfinding::prelude::dijkstra_all;
 // local module
 use crate::affine::Affine;
+use crate::graph::Graph;
 
 
 /// Convert a Python dict of rasterio transforms into a Rust HashMap.
@@ -92,15 +93,13 @@ pub fn get_current(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usi
 /// Converts f32 weights to u32 by multiplying with 100 and rounding to be used in Dijkstra
 /// HashMap<u, Vec<(v, adj_cond/cond)>>
 /// u: source, v: destination
+#[inline]
 fn to_adjacency(
-    graph_temp: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
+    graph: &Graph,
     weighted: bool,
 ) -> HashMap<u32, Vec<(u32, u32)>> {
     // First pass: count edges per source node
-    let mut edge_counts: HashMap<u32, usize> = HashMap::new();
-    for &(u, _) in graph_temp.keys() {
-        *edge_counts.entry(u).or_insert(0) += 1;
-    }
+    let edge_counts = graph.count_edges();
 
     // Initialize the adjacency list with pre-allocated space
     let mut adjacency: HashMap<u32, Vec<(u32, u32)>> = HashMap::with_capacity(edge_counts.len());
@@ -109,7 +108,7 @@ fn to_adjacency(
     }
 
     // Second pass: fill adjacency list; u32 to avoid integer overflow
-    for (&(u, v), &(weighted_dist, _, unweighted_dist, _)) in graph_temp {
+    for (&(u, v), &(weighted_dist, _, unweighted_dist, _)) in &graph.data {
         // This is needed in integers, so multiplied by 100 to get upto 2 digits precision
         let weight = if weighted {
             (weighted_dist * 100.0).round() as u32
@@ -128,8 +127,7 @@ fn to_adjacency(
 
 /// Create the reachable path with dijkstra; weighted by condition or not
 pub fn dijkstra(
-    graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>, 
-    source: u32,
+    graph: &Graph,
     weighted: bool
 ) -> HashMap<u32, (u32, u32)> {
     // Convert the graph to suitable format for dijkstra
@@ -139,13 +137,13 @@ pub fn dijkstra(
     };
 
     // Calculate all reachable paths; the end nodes/segments
-    dijkstra_all(&source, successors)
+    dijkstra_all(&graph.source, successors)
 }
 
 
 /// Return distance values and the condition/similarity of the last segment
 pub fn path_distance(
-    graph: &HashMap<(u32, u32), (f32, f32, f32, Vec<f32>)>,
+    graph: &Graph,
     path: &[u32],
     dist_intact: f32
 ) -> (f32, f32, f32, Vec<f32>) {

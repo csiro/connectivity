@@ -1,7 +1,10 @@
+# Version 0.2.4
+* Itroducing the `Graph` struct/class for more organised code and development.
+
 # Version 0.2.3
 * Fixed isolated pixel calculation using their own values for a synthetic neighbour.
 * Increased the capacity of the graph to take more neighbours for high-resolution rasters.
-* Changed the default value ofthe  `sigma` parameter to 1.0.
+* Changed the default value of the `sigma` parameter to 1.0.
 
 # Version 0.2.2
 * Removed the dependency on GDAL, replacing it with `rasterio`.

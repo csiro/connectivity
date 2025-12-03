@@ -20,7 +20,7 @@ use std::iter::zip;
 ///
 /// # Returns
 /// * Tuple of row-indices, column-indices, conditon, and similarity values for the neighborhood as vectors
-pub fn multi_level_window(
+pub fn build_window(
     base_i: i32,
     base_j: i32,
     current_level: i32,
