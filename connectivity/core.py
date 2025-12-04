@@ -266,6 +266,7 @@ def beri(
 
     # Smooth the output array with Gaussian filtering
     if sigma is not None and sigma != 0:
+        sigma = max(sigma, 1)
         out_array = smoothing_filter(out_array, sigma=sigma)
 
     # Crop array back to the polygon mask
