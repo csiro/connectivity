@@ -1,4 +1,5 @@
 import numpy as np
+import geopandas as gpd
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
 from .utils import check_grids, smoothing_filter, fn, crop_array
@@ -6,18 +7,18 @@ from .utils import check_grids, smoothing_filter, fn, crop_array
 
 # Connectedness main funciton
 def connectedness(
-        condition_file,
-        polygon_mask=None,
-        lambdas=[2, 20, 200],
-        max_cost=2.0, 
-        window_size=3, 
-        outer_window=9,
-        levels=[2, 4, 8, 16],
-        sigma=1,
-        option=3,
-        scale=None,
-        n_threads=None,
-        filename=""
+        condition_file: str,
+        polygon_mask: gpd.GeoDataFrame | None = None,
+        lambdas: list[float] = [2, 20, 200],
+        max_cost: float = 2.0, 
+        window_size: int = 3, 
+        outer_window: int = 9,
+        levels: list[int] | None = None,
+        sigma: float | None = 1,
+        scale: float | None = None,
+        option: int = 3,
+        n_threads: int | None = None,
+        filename: str = ""
     ):
     """Computes a multi-scale habitat connectedness metrics 
     
@@ -60,19 +61,19 @@ def connectedness(
         Default is 9.
     levels : list of int, optional
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
-        Default is [2, 4, 8, 16].
+        Default is None (uses all overview levels).
     sigma : float, optional
         Standard deviation of the Gaussian kernel used for smoothing. 
         Default is 1. Zero or None for disabling smoothing.
+    scale : float, optional
+        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
+        otherwise it is divided by scale.
     option : int, optional
         Option flag to generate the connected condition from connectedness and input condition.
         Default is 3:
             - 1: connectedness
             - 2: connectedness * condition
             - 3: sqrt(connectedness * condition)
-    scale : float, optional
-        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
-        otherwise it is divided by scale.
     n_threads : int, optional
         The number of CPU cores for parallel processing. 
         Default is None (all available cores).
@@ -137,19 +138,19 @@ def connectedness(
 
 # BERI main funciton
 def beri(
-        condition_file,
-        current_file,
-        future_files=[],
-        polygon_mask=None,
-        lambdas=[2, 20, 200],
-        max_cost=2.0, 
-        window_size=3, 
-        outer_window=9,
-        levels=[2, 4, 8, 16],
-        sigma=1,
-        scale=None,
-        n_threads=None,
-        filename=""
+        condition_file: str,
+        current_file: str,
+        future_files: list[str] = [],
+        polygon_mask: gpd.GeoDataFrame | None = None,
+        lambdas: list[float] = [2, 20, 200],
+        max_cost: float = 2.0, 
+        window_size: int = 3, 
+        outer_window: int = 9,
+        levels: list[int] | None = None,
+        sigma: float | None = 1,
+        scale: float | None = None,
+        n_threads: int | None = None,
+        filename: str = ""
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -199,7 +200,7 @@ def beri(
         Default is 9.
     levels : list of int, optional
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
-        Default is [2, 4, 8, 16].
+        Default is None (uses all overview levels).
     sigma : float, optional
         Standard deviation for the Gaussian kernel if smoothing is applied to input layers.
         Default is 1. Zero or None for disabling smoothing.
