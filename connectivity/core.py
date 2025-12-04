@@ -125,6 +125,7 @@ def connectedness(
     # Calculate connected habitat
     out_array = fn(conn_array, data_dict[1], option=option)
 
+    # Crop array back to the polygon mask
     if polygon_mask is not None:
         out_array, tr = crop_array(out_array, tran_dict[1], polygon_mask)
 
@@ -267,8 +268,12 @@ def beri(
     if sigma is not None and sigma != 0:
         out_array = smoothing_filter(out_array, sigma=sigma)
 
+    # Crop array back to the polygon mask
+    if polygon_mask is not None:
+        out_array, tr = crop_array(out_array, tran_dict[1], polygon_mask)
+
     if len(filename) > 3:
-        write_raster(out_array, outfile=filename, template=condition_file)
+        write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
 
     return out_array
 
