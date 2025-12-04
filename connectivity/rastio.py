@@ -2,6 +2,7 @@ import numpy as np
 import rasterio
 from rasterio.mask import mask
 from rasterio.enums import Resampling
+from rasterio.transform import Affine
 from rasterio.features import geometry_mask
 from rasterio.shutil import copy as rio_copy
 from shapely.geometry import box, mapping
@@ -224,18 +225,9 @@ def read_raster(file, gdf=None, levels=None, scale=None, expand_px=3):
     return data_dict, tran_dict, is_geo
 
 
-def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
+def write_raster(in_array, outfile="output.tif", template="somefile.tif", transform=None):
     """Write a numpy array to a GeoTIFF file using the geographic transformation
-    and projection information from a template raster file.
-    
-    Parameters:
-    -----------
-    in_array (numpy.ndarray): Array containing the data to be written to the raster file
-    outfile (str): Path to the output GeoTIFF file. default="output.tif".
-    template (str): Path to the template GeoTIFF file containing the desired transform and projection information.
-    default="somefile.tif"
-    
-    Returns: None
+    from the transform argument and projection/other metadata from a template raster file.
     """
     # Open the template raster to get metadata
     with rasterio.open(template) as src:
@@ -250,6 +242,13 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
             height=in_array.shape[-2]
         )
         
+        # Update transform if provided
+        if transform is not None:
+            if isinstance(transform, (tuple, list)):
+                meta['transform'] = Affine(*transform[:6])
+            else:
+                meta['transform'] = transform
+        
         # Write the new raster
         with rasterio.open(outfile, 'w', **meta) as dst:
             if in_array.ndim == 2:
@@ -257,6 +256,4 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
             else:
                 for i in range(in_array.shape[0]):
                     dst.write(in_array[i], i+1)
-                    
-    print(f"Successfully wrote raster to {outfile}")
 

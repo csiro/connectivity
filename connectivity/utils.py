@@ -1,5 +1,9 @@
 from scipy.ndimage import gaussian_filter
 import numpy as np
+import geopandas as gpd
+from rasterio.windows import from_bounds
+from rasterio.transform import Affine
+
 
 # Calculate connected condition
 def fn(connectivity, habitat, option=3):
@@ -51,7 +55,48 @@ def guess_geographic(src):
         return True
 
     return False  # default to projected if unsure
+
+
+def crop_array(array, transform, polygon_gdf):
+    """
+    Crop a numpy array to the bounding box of a geopandas polygon
+    """
+    # Convert transform to Affine object if it's a tuple/list
+    if isinstance(transform, (tuple, list)):
+        transform = Affine(*transform[:6])
+
+    # Get the total bounds of the polygon(s)
+    minx, miny, maxx, maxy = polygon_gdf.total_bounds
     
+    # Create a window from the bounds
+    window = from_bounds(minx, miny, maxx, maxy, transform)
+    
+    # Round window to integer pixel coordinates
+    window = window.round_offsets().round_lengths()
+    
+    # Convert window to slices
+    row_start = int(window.row_off)
+    row_stop = int(window.row_off + window.height)
+    col_start = int(window.col_off)
+    col_stop = int(window.col_off + window.width)
+    
+    # Clip to array bounds
+    row_start = max(0, row_start)
+    col_start = max(0, col_start)
+    row_stop = min(array.shape[-2], row_stop)
+    col_stop = min(array.shape[-1], col_stop)
+    
+    # Crop the array
+    if array.ndim == 3:
+        cropped_array = array[:, row_start:row_stop, col_start:col_stop]
+    else:
+        cropped_array = array[row_start:row_stop, col_start:col_stop]
+    
+    # Update the transform for the cropped region
+    cropped_transform = transform * Affine.translation(col_start, row_start)
+    
+    return cropped_array, cropped_transform
+
 
 # Gaussian smoothing with no edge effect
 def smoothing_filter(data, sigma=3, **kwargs):

@@ -1,5 +1,8 @@
 # Version 0.2.4
-* Itroducing the `Graph` struct/class for more organised code and development.
+* Fixed the code to accept raster integer data type.
+* Added a scaling factor (`scale` arg) to convert condition data to the 0–1 range.
+* The output array/map is now cropped to the supplied polygon mask.
+* Made several improvements on the Rust side, such as using `Arc<T>` for cheap cloning and introducing the `Graph` struct for more organised code.
 
 # Version 0.2.3
 * Fixed isolated pixel calculation using their own values for a synthetic neighbour.

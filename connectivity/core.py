@@ -1,7 +1,7 @@
 import numpy as np
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
-from .utils import check_grids, smoothing_filter, fn
+from .utils import check_grids, smoothing_filter, fn, crop_array
 
 
 # Connectedness main funciton
@@ -125,8 +125,11 @@ def connectedness(
     # Calculate connected habitat
     out_array = fn(conn_array, data_dict[1], option=option)
 
+    if polygon_mask is not None:
+        out_array, tr = crop_array(out_array, tran_dict[1], polygon_mask)
+
     if len(filename) > 3:
-        write_raster(out_array, outfile=filename, template=condition_file)
+        write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
 
     return out_array
 
