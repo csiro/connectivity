@@ -36,9 +36,9 @@ def connectedness(
     Parameters
     ----------
     condition_file : str
-        Path to the input habitat-condition raster file representing current habitat condition.
-        The file must be a GeoTIFF (including COGs) with overview levels generated using the 
-        average aggregation method for multi-scale analysis.
+        Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
+        adjusted using the `scale` parameter. The file must be a GeoTIFF (including COGs) with overview
+        levels generated using the average aggregation method for multi-scale analysis.
     polygon_mask : str, optional
         Path to a polygon shapefile or mask file used to limit the analysis area.
         If None, the entire image is processed.
@@ -170,9 +170,9 @@ def beri(
     Parameters
     ----------
     condition_file : str
-        Path to the input habitat-condition raster file representing current habitat condition.
-        The file must be a GeoTIFF (including COGs) with overview levels generated using the 
-        average aggregation method for multi-scale analysis.
+        Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
+        adjusted using the `scale` parameter. The file must be a GeoTIFF (including COGs) with overview
+        levels generated using the average aggregation method for multi-scale analysis.
     current_file : str
         Path to the current compositional turnover layer (e.g., dissimilarity surface under current climate).
     future_files : list of str, optional

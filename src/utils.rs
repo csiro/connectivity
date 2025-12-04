@@ -156,7 +156,7 @@ pub fn path_distance(
         if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
             dist_adjusted += dist / (0.5 * cond + 0.5);
             last_condition = cond;
-            last_sims = Arc::clone(sims); // Cloning Arc is cheap
+            last_sims = Arc::clone(sims); // Cloning Arc is cheap; just a counter to heap
         }
     }
 
