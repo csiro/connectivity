@@ -15,6 +15,7 @@ def connectedness(
         levels=[2, 4, 8, 16],
         sigma=1,
         option=3,
+        scale=None,
         n_threads=None,
         filename=""
     ):
@@ -69,6 +70,9 @@ def connectedness(
             - 1: connectedness
             - 2: connectedness * condition
             - 3: sqrt(connectedness * condition)
+    scale : float, optional
+        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
+        otherwise it is divided by scale.
     n_threads : int, optional
         The number of CPU cores for parallel processing. 
         Default is None (all available cores).
@@ -93,7 +97,13 @@ def connectedness(
         outer_window = window_size
 
     # Read raster overviews as a dictionary; this checks levels as well
-    data_dict, tran_dict, is_geo = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
+    data_dict, tran_dict, is_geo = read_raster(
+        file=condition_file, 
+        gdf=polygon_mask, 
+        levels=levels, 
+        scale=scale,
+        expand_px=outer_window
+    )
 
     conn_array = connectivity(
         data_dict = data_dict,
@@ -133,6 +143,7 @@ def beri(
         outer_window=9,
         levels=[2, 4, 8, 16],
         sigma=1,
+        scale=None,
         n_threads=None,
         filename=""
     ):
@@ -188,6 +199,9 @@ def beri(
     sigma : float, optional
         Standard deviation for the Gaussian kernel if smoothing is applied to input layers.
         Default is 1. Zero or None for disabling smoothing.
+    scale : float, optional
+        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
+        otherwise it is divided by scale.
     n_threads : int, optional
         The number of CPU cores for parallel processing. 
         Default is None (all available cores).
@@ -213,11 +227,18 @@ def beri(
         outer_window = window_size
 
     # Read raster overview as a dictionary; this checks levels as well.
-    data_dict, tran_dict, is_geo  = read_raster(file=condition_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
+    data_dict, tran_dict, is_geo  = read_raster(
+        file=condition_file,
+        gdf=polygon_mask, 
+        levels=levels, 
+        scale=scale,
+        expand_px=outer_window
+    )
 
     # Insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)
     # Just get the data_dict for the transgrids; Ignore the tran_dict
+    # the scale parameter is not used here
     trans_grids = [
         read_raster(file=i, gdf=polygon_mask, levels=levels, expand_px=outer_window)[0]
         for i in future_files

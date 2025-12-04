@@ -79,10 +79,11 @@ fn connectivity(
                             continue;
                         }
 
-                        let mut windows: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::with_capacity(num_levels);
                         // Get the transgrid values for ij cell for the current climate
                         let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
-
+                        // Pre-allocate window hashmap
+                        let mut windows: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::with_capacity(num_levels);
+                        // Build window for each level for the cell ij
                         for &level in cond_map.keys() {
                             let win = window::build_window(
                                 i as i32,
@@ -97,7 +98,7 @@ fn connectivity(
                             windows.insert(level, win);
                         }
 
-                        // Build a Graph for the cell ij
+                        // Build a Graph for the cell ij using multi-res windows
                         let the_graph = Graph::from_data(
                             i as i32, 
                             j as i32, 

@@ -117,6 +117,7 @@ impl Graph {
 
 
 /// Create node mapping (the unique ID of each node/pixel)
+/// This is done per level/resolution in a window;
 fn create_node_mapping(
     i_array: &[i32],
     j_array: &[i32],
