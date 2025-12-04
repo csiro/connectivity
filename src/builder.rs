@@ -4,7 +4,7 @@ use crate::affine::Affine;
 use crate::graph::Graph;
 
 
-/// Build a graph strcut of the multi-level window data
+/// Build a graph strcut from a multi-level window data
 /// struct { HashMap<(source, destination) (adj-dist, condtion, dist, sims)>, source-node }
 impl Graph {
     #[inline]
@@ -30,8 +30,9 @@ impl Graph {
         let guess_size = windows.values().map(|(i, _, _, _)| i.len() * 8).sum::<usize>();
         let mut graph_temp = Graph::new(Some(guess_size));
         
-        // Node mappings - pre-compute sizes for better allocation
-        let mut node_mapping_higher = HashMap::new();
+        // Node mappings of the next level;
+        let size_i = windows.get(&1).map(|(iv, _, _, _)| iv.len()).unwrap_or(36);
+        let mut node_mapping_higher = HashMap::with_capacity(size_i);
         
         // Edge indices as HashSet for faster lookups
         let mut all_edge_indices: HashMap<i32, HashSet<(i32, i32)>> = HashMap::new();

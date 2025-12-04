@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::affine::Affine;
 use crate::distances;
 
-/// The mult-resolution graph type
+/// The multi-resolution graph type
 #[derive(Debug, Clone)]
 pub struct Graph {
     pub data: HashMap<(u32, u32), (f32, f32, f32, Arc<Vec<f32>>)>,
@@ -17,7 +17,7 @@ impl Graph {
             Some(c) => HashMap::with_capacity(c),
             None => HashMap::new(),
         };
-        // A initial source
+        // An initial source
         let source = 0;
 
         Self { data, source }
@@ -42,8 +42,8 @@ impl Graph {
 
     /// Count how many outgoing edges each `u` node has.
     pub fn count_edges(&self) -> HashMap<u32, usize> {
+        // Count the source in hashmap to keep the keys unique
         let mut edge_counts: HashMap<u32, usize> = HashMap::new();
-
         for &(u, _) in self.data.keys() {
             *edge_counts.entry(u).or_insert(0) += 1;
         }        
