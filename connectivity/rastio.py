@@ -6,10 +6,15 @@ from rasterio.transform import Affine
 from rasterio.features import geometry_mask
 from rasterio.shutil import copy as rio_copy
 from shapely.geometry import box, mapping
+import geopandas as gpd
 from .utils import guess_geographic, round_to_pow2
 
 
-def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8, 16, 32]):
+def create_overviews(
+        input_raster: str, 
+        output_raster: str | None = None, 
+        overview_levels: list[int] = [2, 4, 8, 16, 32]
+    ):
     """Reads a raster file and saves it with overviews at specified levels,
     using rasterio.
     
@@ -64,7 +69,7 @@ def create_overviews(input_raster, output_raster=None, overview_levels=[2, 4, 8,
         print(f"Error creating overviews: {e}")
 
 
-def overview_info(file_path):
+def overview_info(file_path: str):
     """Display information about all available overviews and their actual dimensions.
      
     Parameters:
@@ -94,7 +99,13 @@ def overview_info(file_path):
                 print(f"  Level {level}: {w} x {h}")
 
 
-def read_raster(file, gdf=None, levels=None, scale=None, expand_px=3):
+def read_raster(
+        file: str,
+        gdf: gpd.GeoDataFrame | None = None,
+        levels: list[int] | None = None, 
+        scale: float | None = None, 
+        expand_px: int = 3
+    ):
     """Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
     and stores them in a dictionary.
 
@@ -225,7 +236,12 @@ def read_raster(file, gdf=None, levels=None, scale=None, expand_px=3):
     return data_dict, tran_dict, is_geo
 
 
-def write_raster(in_array, outfile="output.tif", template="somefile.tif", transform=None):
+def write_raster(
+        in_array: str, 
+        outfile: str = "output.tif", 
+        template: str = "somefile.tif", 
+        transform: tuple | Affine = None
+    ):
     """Write a numpy array to a GeoTIFF file using the geographic transformation
     from the transform argument and projection/other metadata from a template raster file.
     """

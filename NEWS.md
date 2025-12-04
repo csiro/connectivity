@@ -2,6 +2,7 @@
 * Fixed the code to accept raster integer data type.
 * Added a scaling factor (`scale` arg) to convert condition data to the 0–1 range.
 * The output array/map is now cropped to the supplied polygon mask.
+* Added type hints to the main functions.
 * Made several improvements on the Rust side, such as using `Arc<T>` for cheap cloning and introducing the `Graph` struct for more organised code.
 
 # Version 0.2.3
