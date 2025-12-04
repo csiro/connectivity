@@ -1,4 +1,4 @@
-# Version 0.2.4
+# Version 0.3.0
 * Fixed the code to accept raster integer data type.
 * Added a scaling factor (`scale` arg) to convert condition data to the 0–1 range.
 * The output array/map is now cropped to the supplied polygon mask.
