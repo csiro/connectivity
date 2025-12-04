@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 use pyo3::Bound;
+use std::sync::Arc;
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
@@ -8,12 +9,14 @@ use pathfinding::prelude::build_path;
 use rayon::prelude::*;
 // local modules
 mod window;
-mod graph;
+mod builder;
 mod utils;
 mod metrics;
 mod distances;
 mod affine;
+mod graph;
 use affine::Affine;
+use graph::Graph;
 
 
 #[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
@@ -31,6 +34,7 @@ fn connectivity(
 
     // Create a Rust HashMap from Py data
     let cond_map: HashMap<i32, Array2<f32>> = utils::to_2d_map(data_dict);
+    let num_levels = cond_map.len();
 
     // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
     let list = trans_list.downcast::<PyList>()?; // Convert PyAny to PyList
@@ -75,12 +79,13 @@ fn connectivity(
                             continue;
                         }
 
-                        let mut level_dict: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::new();
                         // Get the transgrid values for ij cell for the current climate
                         let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
-
+                        // Pre-allocate window hashmap
+                        let mut windows: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::with_capacity(num_levels);
+                        // Build window for each level for the cell ij
                         for &level in cond_map.keys() {
-                            let window = window::multi_level_window(
+                            let win = window::build_window(
                                 i as i32,
                                 j as i32,
                                 level,
@@ -90,24 +95,24 @@ fn connectivity(
                                 &trans_maps,
                                 &ij_values,
                             );
-                            level_dict.insert(level, window);
+                            windows.insert(level, win);
                         }
 
-                        // Get the graph and source node for cell ij
-                        let (edge_graph, source) = graph::multi_level_graph(
+                        // Build a Graph for the cell ij using multi-res windows
+                        let the_graph = Graph::from_data(
                             i as i32, 
                             j as i32, 
                             max_cost,
-                            &level_dict, 
+                            &windows, 
                             &transform_map,
                             is_geo
                         );
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
-                        let nodes_altered  = utils::dijkstra(&edge_graph, source, true);
+                        let nodes_altered  = utils::dijkstra(&the_graph, true);
                         // Using unweighted distance, i.e. intact condition case for the denominator
-                        let nodes_intact = utils::dijkstra(&edge_graph, source, false); 
+                        let nodes_intact = utils::dijkstra(&the_graph, false); 
                         
-                        let mut cell_paths: Vec<(f32, f32, f32, Vec<f32>)> = Vec::with_capacity(nodes_altered.len());
+                        let mut cell_paths: Vec<(f32, f32, f32, Arc<Vec<f32>>)> = Vec::with_capacity(nodes_altered.len());
 
                         for &k in nodes_altered.keys() {
                             // Calcaulate optimal path for each reachable path
@@ -115,7 +120,7 @@ fn connectivity(
                             // Get the intact distance from source; divided by 100 to cancel out from path adjacency
                             let dist_intact: f32 = nodes_intact[&k].1 as f32 / 100.0;
                             // Get the path info for each target segment/node
-                            cell_paths.push(utils::path_distance(&edge_graph, &optim_path, dist_intact));
+                            cell_paths.push(utils::path_distance(&the_graph, &optim_path, dist_intact));
                         }
 
                         // Calculate BERI or Connectedness

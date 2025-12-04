@@ -2,6 +2,7 @@ import numpy as np
 import rasterio
 from rasterio.mask import mask
 from rasterio.enums import Resampling
+from rasterio.transform import Affine
 from rasterio.features import geometry_mask
 from rasterio.shutil import copy as rio_copy
 from shapely.geometry import box, mapping
@@ -93,7 +94,7 @@ def overview_info(file_path):
                 print(f"  Level {level}: {w} x {h}")
 
 
-def read_raster(file, gdf=None, levels=None, expand_px=3):
+def read_raster(file, gdf=None, levels=None, scale=None, expand_px=3):
     """Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
     and stores them in a dictionary.
 
@@ -101,6 +102,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
     - file (str): Path to the COG file.
     - gdf (GeoPandas):
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
+    - scale (float or None): Scaling factor. If None, 0, or 1, the data is returned unchanged; otherwise it is divided by scale.
     - expand_px (bool): The number of pixels to pad the polygon; this depends on the window size selected
 
     Returns:
@@ -110,6 +112,9 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
     data_dict = {}
     tran_dict = {}
 
+    if expand_px < 1:
+        raise ValueError("expand_px must be larger than 1.")
+    
     # Get overview levels, and the bbox geometry
     with rasterio.open(file) as src:
         # Is the crs geographic or projected?
@@ -164,6 +169,7 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
         # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
         with rasterio.open(file, overview_level=max_level) as src:
             if gdf.crs != src.crs:
+                print("Transforming polyong CRS to match the raster file.")
                 gdf = gdf.to_crs(src.crs)
             # Get the buffered geom bbox
             res_x, res_y = src.res
@@ -209,30 +215,19 @@ def read_raster(file, gdf=None, levels=None, expand_px=3):
                 # Mask everything not in original geometry or nodata
                 final_mask = nodata_mask | ~geom_mask[np.newaxis, :, :]  # add band dim
                 masked = np.ma.masked_array(out_image, mask=final_mask)
-
-                if level > 1:
-                    data_dict[level] = masked[0].squeeze().data.astype(np.float32)
-                else:
-                    nan_array = masked[0].squeeze().filled(np.nan)
-                    data_dict[level] = nan_array.astype(np.float32)
+                # Get only the masked areas and convert to f32
+                nan_array = masked[0].squeeze().astype(np.float32).filled(np.nan)
+                # Dvivid by the scale to make it in the 0-1 range
+                data_dict[level] = nan_array / scale if scale not in (None, 0, 1) else nan_array
                 
                 tran_dict[level] = tuple(out_transform)[:6]
 
     return data_dict, tran_dict, is_geo
 
 
-def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
+def write_raster(in_array, outfile="output.tif", template="somefile.tif", transform=None):
     """Write a numpy array to a GeoTIFF file using the geographic transformation
-    and projection information from a template raster file.
-    
-    Parameters:
-    -----------
-    in_array (numpy.ndarray): Array containing the data to be written to the raster file
-    outfile (str): Path to the output GeoTIFF file. default="output.tif".
-    template (str): Path to the template GeoTIFF file containing the desired transform and projection information.
-    default="somefile.tif"
-    
-    Returns: None
+    from the transform argument and projection/other metadata from a template raster file.
     """
     # Open the template raster to get metadata
     with rasterio.open(template) as src:
@@ -247,6 +242,13 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
             height=in_array.shape[-2]
         )
         
+        # Update transform if provided
+        if transform is not None:
+            if isinstance(transform, (tuple, list)):
+                meta['transform'] = Affine(*transform[:6])
+            else:
+                meta['transform'] = transform
+        
         # Write the new raster
         with rasterio.open(outfile, 'w', **meta) as dst:
             if in_array.ndim == 2:
@@ -254,6 +256,4 @@ def write_raster(in_array, outfile="output.tif", template="somefile.tif"):
             else:
                 for i in range(in_array.shape[0]):
                     dst.write(in_array[i], i+1)
-                    
-    print(f"Successfully wrote raster to {outfile}")
 
