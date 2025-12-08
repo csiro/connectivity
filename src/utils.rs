@@ -1,5 +1,6 @@
 use pyo3::types::{PyAny, PyAnyMethods};
 use pyo3::Bound;
+use pyo3::PyResult;
 use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
@@ -26,11 +27,22 @@ pub fn to_transform_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Affine> {
         let transform_tuple = value_obj.extract::<(f64, f64, f64, f64, f64, f64)>().unwrap();
         // Convert to Affile class
         let affine_obj: Affine = transform_tuple.into();
-
         rust_map.insert(key, affine_obj);
     }
 
     rust_map
+}
+
+
+/// Convert a Python 2D numpy array into an OPtion that can be a Rust `Array2<f32>`.
+pub fn to_array<'py>(data: &Bound<'py, PyAny>) -> PyResult<Option<Array2<f32>>> {
+    if data.is_none() {
+        Ok(None) // Python passed `None`
+    } else {
+        let py_array = data.extract::<&PyArray2<f32>>()?;
+        let array_owned = unsafe { py_array.as_array().to_owned() };
+        Ok(Some(array_owned))
+    }
 }
 
 

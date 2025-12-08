@@ -8,6 +8,7 @@ from .utils import check_grids, smoothing_filter, fn, crop_array
 # Connectedness main funciton
 def connectedness(
         condition_file: str,
+        pa_file: str | None = None, 
         polygon_mask: gpd.GeoDataFrame | None = None,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
@@ -16,13 +17,13 @@ def connectedness(
         levels: list[int] | None = None,
         sigma: float | None = 1,
         scale: float | None = None,
-        option: int = 3,
+        option: int = 3,              # add a comment in help; it's only for habitat-conncetedness 
         n_threads: int | None = None,
         filename: str = ""
     ):
-    """Computes a multi-scale habitat connectedness metrics 
+    """Computes a multi-scale habitat and PARC connectedness metrics 
     
-    This based on condition using a hierarchical neighborhood-based over multiple resolution
+    This based on habiat condition using a hierarchical neighborhood-based over multiple resolution
     levels (raster overviews), and optionally applies Gaussian smoothing. 
 
     This algorithm operates on the overview layers of a GeoTIFF file (including 
@@ -40,6 +41,10 @@ def connectedness(
         Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
         adjusted using the `scale` parameter. The file must be a GeoTIFF (including COGs) with overview
         levels generated using the average aggregation method for multi-scale analysis.
+    pa_file : str, optional
+        Path to the raster file containing protected-area (PA) proportions. This file is required to 
+        calculate PARC-connectedness. If provided, the function will compute PARC-connectedness instead 
+        of standard habitat connectedness. If `None`, only habitat connectedness is calculated.
     polygon_mask : str, optional
         Path to a polygon shapefile or mask file used to limit the analysis area.
         If None, the entire image is processed.
@@ -97,18 +102,39 @@ def connectedness(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
-    # Read raster overviews as a dictionary; this checks levels as well
-    data_dict, tran_dict, is_geo = read_raster(
+    # Read condition raster overviews; this checks levels as well
+    cond_dict, tran_dict, is_geo = read_raster(
         file=condition_file, 
         gdf=polygon_mask, 
         levels=levels, 
-        scale=scale,
+        scale=scale, # only for condition raster
         expand_px=outer_window
     )
 
+    if pa_file is None:
+        pa_mask = None
+    else:
+        # Read PA raster overviews; this checks levels as well
+        pa_dict, _, _ = read_raster(file=pa_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
+        # Ensure both dictionaries have the same keys
+        if cond_dict.keys() != pa_dict.keys():
+            raise ValueError("Dictionaries do not have identical keys.")
+        # Ensure dimension of the girds the same
+        if not check_grids(cond_dict[1], pa_dict[1]):
+            raise(ValueError("The shape of the condition and transgrids doesn't match."))
+        
+        # Update the condition dict with the max(c, p) for each cell in each level
+        for k in cond_dict:
+            cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
+
+        # Filter for protected areas, i > 0 or NaN
+        pa_mask = np.where(pa_dict[1] > 0, 1.0, np.nan)
+
+    # The base Rust connectivity funciton
     conn_array = connectivity(
-        data_dict = data_dict,
-        trans_list = [{}], # empty dict in a list to calacualate connectedness in Rust
+        condition = cond_dict,
+        pa_array = pa_mask, 
+        transgrid_list = [{}], # empty dict in a list to calacualate connectedness in Rust
         transforms = tran_dict,
         lambdas = lambdas, 
         is_geo = is_geo,
@@ -123,8 +149,11 @@ def connectedness(
         sigma = max(sigma, 1)
         conn_array = smoothing_filter(conn_array, sigma=sigma)
 
-    # Calculate connected habitat
-    out_array = fn(conn_array, data_dict[1], option=option)
+    # Calculate the connected-habitat or just return the PARC-connectedness
+    if pa_file is None:
+        out_array = fn(conn_array, cond_dict[1], option=option)
+    else:
+        out_array = conn_array
 
     # Crop array back to the polygon mask
     if polygon_mask is not None:
@@ -134,6 +163,7 @@ def connectedness(
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
 
     return out_array
+
 
 
 # BERI main funciton
@@ -232,30 +262,32 @@ def beri(
         outer_window = window_size
 
     # Read raster overview as a dictionary; this checks levels as well.
-    data_dict, tran_dict, is_geo  = read_raster(
+    cond_dict, tran_dict, is_geo  = read_raster(
         file=condition_file,
         gdf=polygon_mask, 
         levels=levels, 
-        scale=scale,
+        scale=scale, # only for condition raster
         expand_px=outer_window
     )
 
     # Insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)
-    # Just get the data_dict for the transgrids; Ignore the tran_dict
+    # Just get the cond_dict for the transgrids; Ignore the tran_dict
     # the scale parameter is not used here
     trans_grids = [
         read_raster(file=i, gdf=polygon_mask, levels=levels, expand_px=outer_window)[0]
         for i in future_files
     ]
     
-    # fix this.....
-    if not check_grids(data_dict[1], trans_grids[0][1]):
+    # Ensure dimension of the girds the same
+    if not check_grids(cond_dict[1], trans_grids[0][1]):
         raise(ValueError("The shape of the condition and transgrids doesn't match."))
 
+    # The base Rust connectivity funciton
     out_array = connectivity(
-        data_dict = data_dict,
-        trans_list = trans_grids,
+        condition = cond_dict,
+        pa_array = None,             # only use for PARC-connectedness; keep None otherwise
+        transgrid_list = trans_grids,
         transforms = tran_dict,
         lambdas = lambdas, 
         is_geo = is_geo,

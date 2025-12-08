@@ -1,6 +1,6 @@
 ## connectivity: a multi-resolution landscape connectivity algorithm
 
-A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
+A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness (Connected-Habitat)*, *PARC Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
 
 This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
 
@@ -98,15 +98,18 @@ distance = outer_window × max_level × resolution
          = 11 × 32 × 1 km
          = 352 km  
 
+
+*Connected Habitat (Connectedness)*
+To compute connected-habitat (plain connectedness), you only need a habitat condition raster.
+
 Use option argument to generate the connected condition from connectedness and input condition:    
 1. connectedness    
 2. connectedness * condition    
 3. sqrt(connectedness * condition) (default)    
 
-
 ```python
 connd = connectedness(
-    condition_file = "./data/condition_cog.tif",
+    condition_file = "./data/condition.tif",
     lambdas = [2, 20, 200],
     max_cost = 2.0, 
     window_size = 5, 
@@ -114,16 +117,40 @@ connd = connectedness(
     levels = [2, 4, 8, 16, 32], 
     sigma = 1,
     option = 3,
-    filename = "./results/ceonnectivity.tif"
+    filename = "./results/connected_habitat.tif"
 )
-
 ```
 
-For BERI, you need the transgrid of current and future scenarios.
+*PARC-Connectedness*    
+To compute PARC-connectedness, provide both:
+* a habitat condition raster, and
+* a protected-areas proportion raster.    
+     
+When `pa_file` (proportion of protected-areas in each cell) is supplied, the function automatically returns PARC-connectedness instead of standard connectedness.
+
+```python
+parcc = connectedness(
+    condition_file = "./data/condition.tif",
+    pa_file = "./data/pa_proportion.tif",
+    lambdas = [2, 20, 200],
+    max_cost = 2.0, 
+    window_size = 5, 
+    outer_window = 11,
+    levels = [2, 4, 8, 16, 32], 
+    sigma = 1,
+    filename = "./results/parc_connectedness.tif"
+)
+```
+
+*BERI*    
+To compute BERI, you must provide:
+* a condition raster
+* a current GDM transgrid
+* one or more future transgrid scenarios
 
 ```python
 beris = beri(
-    condition_file = "./data/condition_cog.tif",
+    condition_file = "./data/condition.tif",
     current_file = "./data/transgrids/1990.tif",
     future_files = ["./data/transgrids/IPS50_45.tif", "./data/transgrids/GFD50_85.tif"],
     lambdas = [2, 20, 200], 
@@ -134,5 +161,4 @@ beris = beri(
     sigma = 1,
     filename = "./results/berri.tif"
 )
-
 ```

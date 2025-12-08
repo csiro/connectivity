@@ -19,10 +19,35 @@ use affine::Affine;
 use graph::Graph;
 
 
-#[pyfunction(signature = (data_dict, trans_list, transforms, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
+/// Compute habitat (or PARC) connectivity from condition and optional PA arrays.
+///
+/// # Arguments
+/// * `condition` - 2D array of habitat-condition values in [0, 1]. Values may be
+///   pre-scaled; higher values represent better condition.
+/// * `pa_array` - Optional 2D array of protected-area (PA) proportions. If not `None`,
+///   PARC-connectedness is computed; if `None`, only habitat connectedness is returned.
+/// * `transgrid_list` - List of transition / cost grids (one per resolution level) used
+///   for multi-scale connectivity calculations.
+/// * `transforms` - List of spatial transforms corresponding to `transgrid_list`.
+/// * `lambdas` - Bandwidth values for the connectivity kernels, controlling the
+///   effective dispersal distance (e.g. [2.0, 20.0, 200.0]).
+/// * `is_geo` - Whether coordinates are geographic (lat/lon) rather than projected.
+/// * `max_cost` - Relative cost of moving through completely degraded cells
+///   (condition = 0). Applied as `w = (1.0 - max_cost) * condition + max_cost`.
+/// * `window_size` - Radius of the local neighborhood (in pixels) at the finest
+///   resolution. Must be an odd number (e.g. 3 for a 3×3 window).
+/// * `outer_window` - Radius of the neighborhood at the coarsest resolution level,
+///   capturing broader connectivity context. Must be odd and ≥ `window_size`.
+/// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
+///   cores are used.
+///
+/// # Returns
+/// A 2D array of connectivity values for each cell at the native resolution.
+#[pyfunction(signature = (condition, pa_array, transgrid_list, transforms, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
 fn connectivity(
-    data_dict: &Bound<PyAny>,
-    trans_list: &Bound<PyAny>,
+    condition: &Bound<PyAny>,
+    pa_array: &Bound<PyAny>,
+    transgrid_list: &Bound<PyAny>,
     transforms: &Bound<PyAny>,
     lambdas: Vec<f32>,
     is_geo: bool,
@@ -33,11 +58,11 @@ fn connectivity(
 ) -> PyResult<Py<PyArray2<f32>>> {
 
     // Create a Rust HashMap from Py data
-    let cond_map: HashMap<i32, Array2<f32>> = utils::to_2d_map(data_dict);
+    let cond_map: HashMap<i32, Array2<f32>> = utils::to_2d_map(condition);
     let num_levels = cond_map.len();
 
     // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
-    let list = trans_list.downcast::<PyList>()?; // Convert PyAny to PyList
+    let list = transgrid_list.downcast::<PyList>()?; // Convert PyAny to PyList
     let trans_maps: Vec<HashMap<i32, Array3<f32>>> = list.iter().map(|item| {
         let dict = item.downcast::<PyDict>().unwrap(); // handling errors properly
         utils::to_3d_map(dict)
@@ -50,8 +75,13 @@ fn connectivity(
     let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
   
     // Check condition dictionay was not empty and run the code for level 1 (original resolution)
-    if let Some(array) = cond_map.get(&1) {
-        let (nrows, ncols) = (array.shape()[0], array.shape()[1]);
+    if let Some(cond_array) = cond_map.get(&1) {
+        let (nrows, ncols) = (cond_array.shape()[0], cond_array.shape()[1]);
+
+        // Check for the existance of 
+        let override_array = utils::to_array(pa_array)?;
+        let array: &Array2<f32> = override_array.as_ref().unwrap_or(cond_array);
+
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
 

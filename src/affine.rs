@@ -1,3 +1,5 @@
+use std::convert::From;
+
 // Define the Affine struct for transforming ij to xy
 #[derive(Debug, Clone, Copy)]
 pub struct Affine {
