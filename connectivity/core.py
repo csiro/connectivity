@@ -128,7 +128,7 @@ def connectedness(
             cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
 
         # Filter for protected areas, i > 0 or NaN
-        pa_mask = np.where(pa_dict[1] > 0.0, 1.0, np.nan).astype(np.float32)
+        pa_mask = np.where(pa_dict[1] > 0, 1.0, np.nan).astype(np.float32)
 
     # The base Rust connectivity funciton
     conn_array = connectivity(
@@ -155,6 +155,7 @@ def connectedness(
     else:
         out_array = conn_array
 
+    tr = None
     # Crop array back to the polygon mask
     if polygon_mask is not None:
         out_array, tr = crop_array(out_array, tran_dict[1], polygon_mask)
@@ -302,6 +303,7 @@ def beri(
         sigma = max(sigma, 1)
         out_array = smoothing_filter(out_array, sigma=sigma)
 
+    tr = None
     # Crop array back to the polygon mask
     if polygon_mask is not None:
         out_array, tr = crop_array(out_array, tran_dict[1], polygon_mask)
