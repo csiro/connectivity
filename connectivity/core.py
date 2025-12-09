@@ -128,7 +128,7 @@ def connectedness(
             cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
 
         # Filter for protected areas, i > 0 or NaN
-        pa_mask = np.where(pa_dict[1] > 0, 1.0, np.nan)
+        pa_mask = np.where(pa_dict[1] > 0.0, 1.0, np.nan).astype(np.float32)
 
     # The base Rust connectivity funciton
     conn_array = connectivity(
