@@ -104,7 +104,7 @@ fn connectivity(
                     let mut row_result = vec![f32::NAN; ncols];
                 
                     for j in 0..ncols {
-                        // Skip an NaN in the orginal resolution of the condition data
+                        // Skip an NaN in the orginal resolution of the condition/PARC data
                         if array[[i, j]].is_nan() {
                             continue;
                         }

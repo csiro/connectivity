@@ -16,8 +16,8 @@ def connectedness(
         outer_window: int = 9,
         levels: list[int] | None = None,
         sigma: float | None = 1,
-        scale: float | None = None,
-        option: int = 3,              # add a comment in help; it's only for habitat-conncetedness 
+        scale: float | tuple | None = None,
+        option: int = 3,
         n_threads: int | None = None,
         filename: str = ""
     ):
@@ -70,11 +70,15 @@ def connectedness(
     sigma : float, optional
         Standard deviation of the Gaussian kernel used for smoothing. 
         Default is 1. Zero or None for disabling smoothing.
-    scale : float, optional
-        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
-        otherwise it is divided by scale.
+    scale : float or tuple, optional
+        Scaling factor(s) applied to the condition and PA rasters.
+        - If a single float is provided, it is applied only to the condition raster.
+        - If a tuple of two values is provided, the first value scales the condition raster
+        and the second value scales the PA raster.
+        - Each element may be ``None``, ``0``, or ``1`` to indicate no scaling for that raster.
     option : int, optional
-        Option flag to generate the connected condition from connectedness and input condition.
+        Option flag to generate the connected condition from connectedness and input habitat-condition 
+        (this is ignored for PARC-connectedness).
         Default is 3:
             - 1: connectedness
             - 2: connectedness * condition
@@ -102,12 +106,18 @@ def connectedness(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
+    # Take of care of two scales in case PA has a different scale
+    if isinstance(scale, tuple):
+        s1, s2 = (scale + (None,))[:2]   # pad with None and take first 2
+    else:
+        s1, s2 = scale, None
+
     # Read condition raster overviews; this checks levels as well
     cond_dict, tran_dict, is_geo = read_raster(
         file=condition_file, 
         gdf=polygon_mask, 
         levels=levels, 
-        scale=scale, # only for condition raster
+        scale=s1, # only for condition raster
         expand_px=outer_window
     )
 
@@ -115,26 +125,26 @@ def connectedness(
         pa_mask = None
     else:
         # Read PA raster overviews; this checks levels as well
-        pa_dict, _, _ = read_raster(file=pa_file, gdf=polygon_mask, levels=levels, expand_px=outer_window)
+        pa_dict, _, _ = read_raster(file=pa_file, gdf=polygon_mask, levels=levels, scale=s2, expand_px=outer_window)
         # Ensure both dictionaries have the same keys
         if cond_dict.keys() != pa_dict.keys():
-            raise ValueError("Dictionaries do not have identical keys.")
+            raise ValueError("Input condition and PA date do not have identical overviews.")
         # Ensure dimension of the girds the same
         if not check_grids(cond_dict[1], pa_dict[1]):
-            raise(ValueError("The shape of the condition and transgrids doesn't match."))
+            raise(ValueError("The shape of the condition and PA data doesn't match."))
         
         # Update the condition dict with the max(c, p) for each cell in each level
         for k in cond_dict:
             cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
 
-        # Filter for protected areas, i > 0 or NaN
-        pa_mask = np.where(pa_dict[1] > 0, 1.0, np.nan).astype(np.float32)
+        # Filter for protected areas, i > 0 or NaN; and any NaN in condition stay NaN
+        pa_mask = np.where((pa_dict[1] > 0) & ~np.isnan(cond_dict[1]), 1.0, np.nan).astype(np.float32)
 
     # The base Rust connectivity funciton
     conn_array = connectivity(
         condition = cond_dict,
         pa_array = pa_mask, 
-        transgrid_list = [{}], # empty dict in a list to calacualate connectedness in Rust
+        transgrid_list = [{}], # empty dict-list to compute connectedness in Rust, insead of BERI
         transforms = tran_dict,
         lambdas = lambdas, 
         is_geo = is_geo,
@@ -261,6 +271,10 @@ def beri(
     if outer_window < window_size:
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
+
+    # get only one scale if confused with connectedness function
+    if isinstance(scale, tuple):
+        scale = scale[0]
 
     # Read raster overview as a dictionary; this checks levels as well.
     cond_dict, tran_dict, is_geo  = read_raster(

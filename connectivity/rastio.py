@@ -168,9 +168,9 @@ def read_raster(
                 data = dataset.read(masked=True)
                 
             # Convert any no-data to nan to be skiped in Rust model
-            data = np.where(data.mask, np.nan, data)
+            data_array = np.where(data.mask, np.nan, data).squeeze().astype(np.float32)
 
-            data_dict[level] = data.squeeze().astype(np.float32)
+            data_dict[level] = data_array / scale if scale not in (None, 0, 1) else data_array
             tran_dict[level] = tuple(level_transform)[:6]
     
     # else read only padded polygon area 
@@ -230,7 +230,6 @@ def read_raster(
                 nan_array = masked[0].squeeze().astype(np.float32).filled(np.nan)
                 # Dvivid by the scale to make it in the 0-1 range
                 data_dict[level] = nan_array / scale if scale not in (None, 0, 1) else nan_array
-                
                 tran_dict[level] = tuple(out_transform)[:6]
 
     return data_dict, tran_dict, is_geo
