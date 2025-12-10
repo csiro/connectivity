@@ -113,19 +113,20 @@ def connectedness(
         s1, s2 = scale, None
 
     # Read condition raster overviews; this checks levels as well
-    cond_dict, tran_dict, is_geo = read_raster(
+    cond_dict, affine_dict, is_geo = read_raster(
         file=condition_file, 
-        gdf=polygon_mask, 
+        polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
         expand_px=outer_window
     )
 
+    # Process PA-array for PARC-connectedness
     if pa_file is None:
         pa_mask = None
     else:
         # Read PA raster overviews; this checks levels as well
-        pa_dict, _, _ = read_raster(file=pa_file, gdf=polygon_mask, levels=levels, scale=s2, expand_px=outer_window)
+        pa_dict, _, _ = read_raster(file=pa_file, polygon=polygon_mask, levels=levels, scale=s2, expand_px=outer_window)
         # Ensure both dictionaries have the same keys
         if cond_dict.keys() != pa_dict.keys():
             raise ValueError("Input condition and PA date do not have identical overviews.")
@@ -137,7 +138,7 @@ def connectedness(
         for k in cond_dict:
             cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
 
-        # Filter for protected areas, i > 0 or NaN; and any NaN in condition stay NaN
+        # Filter for protected areas, prop > 0 or NaN; and any NaN in condition stays NaN;
         pa_mask = np.where((pa_dict[1] > 0) & ~np.isnan(cond_dict[1]), 1.0, np.nan).astype(np.float32)
 
     # The base Rust connectivity funciton
@@ -145,7 +146,7 @@ def connectedness(
         condition = cond_dict,
         pa_array = pa_mask, 
         transgrid_list = [{}], # empty dict-list to compute connectedness in Rust, insead of BERI
-        transforms = tran_dict,
+        transforms = affine_dict,
         lambdas = lambdas, 
         is_geo = is_geo,
         max_cost = max_cost,
@@ -168,7 +169,7 @@ def connectedness(
     tr = None
     # Crop array back to the polygon mask
     if polygon_mask is not None:
-        out_array, tr = crop_array(out_array, tran_dict[1], polygon_mask)
+        out_array, tr = crop_array(out_array, affine_dict[1], polygon_mask)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
@@ -277,9 +278,9 @@ def beri(
         scale = scale[0]
 
     # Read raster overview as a dictionary; this checks levels as well.
-    cond_dict, tran_dict, is_geo  = read_raster(
+    cond_dict, affine_dict, is_geo  = read_raster(
         file=condition_file,
-        gdf=polygon_mask, 
+        polygon=polygon_mask, 
         levels=levels, 
         scale=scale, # only for condition raster
         expand_px=outer_window
@@ -287,10 +288,10 @@ def beri(
 
     # Insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)
-    # Just get the cond_dict for the transgrids; Ignore the tran_dict
+    # Just get the cond_dict for the transgrids; Ignore the affine_dict
     # the scale parameter is not used here
     trans_grids = [
-        read_raster(file=i, gdf=polygon_mask, levels=levels, expand_px=outer_window)[0]
+        read_raster(file=i, polygon=polygon_mask, levels=levels, expand_px=outer_window)[0]
         for i in future_files
     ]
     
@@ -303,7 +304,7 @@ def beri(
         condition = cond_dict,
         pa_array = None,             # only use for PARC-connectedness; keep None otherwise
         transgrid_list = trans_grids,
-        transforms = tran_dict,
+        transforms = affine_dict,
         lambdas = lambdas, 
         is_geo = is_geo,
         max_cost = max_cost,
@@ -320,7 +321,7 @@ def beri(
     tr = None
     # Crop array back to the polygon mask
     if polygon_mask is not None:
-        out_array, tr = crop_array(out_array, tran_dict[1], polygon_mask)
+        out_array, tr = crop_array(out_array, affine_dict[1], polygon_mask)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)

@@ -34,7 +34,7 @@ pub fn to_transform_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Affine> {
 }
 
 
-/// Convert a Python 2D numpy array into an OPtion that can be a Rust `Array2<f32>`.
+/// Convert a Python 2D numpy array into an Option<Arr> that can be a Rust `Array2<f32>`.
 pub fn to_array<'py>(data: &Bound<'py, PyAny>) -> PyResult<Option<Array2<f32>>> {
     if data.is_none() {
         Ok(None) // Python passed `None`

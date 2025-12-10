@@ -101,7 +101,7 @@ def overview_info(file_path: str):
 
 def read_raster(
         file: str,
-        gdf: gpd.GeoDataFrame | None = None,
+        polygon: gpd.GeoDataFrame | None = None,
         levels: list[int] | None = None, 
         scale: float | None = None, 
         expand_px: int = 3
@@ -111,7 +111,7 @@ def read_raster(
 
     Parameters:
     - file (str): Path to the COG file.
-    - gdf (GeoPandas):
+    - polygon (GeoPandas):
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
     - scale (float or None): Scaling factor. If None, 0, or 1, the data is returned unchanged; otherwise it is divided by scale.
     - expand_px (bool): The number of pixels to pad the polygon; this depends on the window size selected
@@ -141,11 +141,11 @@ def read_raster(
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
         # Get the original overviews
-        if gdf is not None:
+        if polygon is not None:
             res_x, res_y = src.res
             pad_x = expand_px * res_x
             pad_y = expand_px * res_y
-            orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in gdf.geometry]
+            orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in polygon.geometry]
 
     # Round to the nearest pow 2; fixes an issue with rasterio/gdal overview level naming
     # Also, overviews levels are always higher than one, e.g. 2, 4, 8...
@@ -153,8 +153,8 @@ def read_raster(
     # If levels are not provided get them; make sure 1 is there and keep unique records
     levels = sorted(set(overviews if levels is None else levels) | {1})
 
-    # If gdf is not provided read the entire dataset
-    if gdf is None:
+    # If polygon is not provided read the entire dataset
+    if polygon is None:
         # Read all overview levels; here levels must conatin 1 as well!
         for i, level in enumerate(levels):
             # check user-supplied levels with corrected overviews
@@ -179,15 +179,15 @@ def read_raster(
         max_level = len(overviews) - 1 # needs the index of the last one
         # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
         with rasterio.open(file, overview_level=max_level) as src:
-            if gdf.crs != src.crs:
+            if polygon.crs != src.crs:
                 print("Transforming polyong CRS to match the raster file.")
-                gdf = gdf.to_crs(src.crs)
+                polygon = polygon.to_crs(src.crs)
             # Get the buffered geom bbox
             res_x, res_y = src.res
             pad_x = expand_px * res_x + (res_x / max(levels) / 4) # Just add 1/4 pixel more to make sure gets all borders
             pad_y = expand_px * res_y + (res_y / max(levels) / 4)
             # Get the bbox of the buffered version to read all overviews based on it
-            buffer_geoms = [box(*geom.buffer(max(pad_x, pad_y)).bounds) for geom in gdf.geometry]
+            buffer_geoms = [box(*geom.buffer(max(pad_x, pad_y)).bounds) for geom in polygon.geometry]
 
         # Read all overview layers
         for i, level in enumerate(levels):
@@ -196,7 +196,7 @@ def read_raster(
             
             # Choose masking geometry based on level; for base level get base_level geom so the output map
             # be the same size and shape of the original layer; for the rest get the biggest buffe
-            masking_geom = buffer_geoms if level > 1 else orig_buffer_geoms # gdf.geometry.tolist()
+            masking_geom = buffer_geoms if level > 1 else orig_buffer_geoms # polygon.geometry.tolist()
             
             index = i - 1            
             # Read data using desired level
@@ -227,7 +227,7 @@ def read_raster(
                 final_mask = nodata_mask | ~geom_mask[np.newaxis, :, :]  # add band dim
                 masked = np.ma.masked_array(out_image, mask=final_mask)
                 # Get only the masked areas and convert to f32
-                nan_array = masked[0].squeeze().astype(np.float32).filled(np.nan)
+                nan_array = masked.squeeze().astype(np.float32).filled(np.nan)
                 # Dvivid by the scale to make it in the 0-1 range
                 data_dict[level] = nan_array / scale if scale not in (None, 0, 1) else nan_array
                 tran_dict[level] = tuple(out_transform)[:6]

@@ -1,5 +1,6 @@
 # Version 0.4.0
 * Added PARC-connectedness calculation to the `connectedness()` function.
+* Fixed a bug in reading transgrids with a polygon mask.
 
 # Version 0.3.0
 * Fixed the code to accept raster integer data type.
