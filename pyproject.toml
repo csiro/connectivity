@@ -6,6 +6,7 @@ build-backend = "maturin"
 name = "connectivity"
 description = "A multi-resolution landscape connectivity algorithm written in Rust"
 authors = [{ name = "Roozbeh Valavi", email = "roozbeh.valavi@csiro.au" }]
+readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.23",
@@ -24,3 +25,8 @@ dynamic = ["version"]
 features = ["pyo3/extension-module"]
 # Include all .py files in the package directory
 include = ["connectivity/*.py"]
+
+[project.urls]
+Homepage = "https://github.com/csiro-internal/connectivity"
+Repository = "https://github.com/csiro-internal/connectivity"
+Issues = "https://github.com/csiro-internal/connectivity/issues" 

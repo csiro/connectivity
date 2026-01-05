@@ -243,6 +243,11 @@ def write_raster(
     ):
     """Write a numpy array to a GeoTIFF file using the geographic transformation
     from the transform argument and projection/other metadata from a template raster file.
+    Args:
+        - np.array: input array to write to disk
+        - str: output path to the file
+        - str: a file to be used as tempalte for getting the meta data for writing
+        - tuple: a tuple of transform information for croping the file when writing
     """
     # Open the template raster to get metadata
     with rasterio.open(template) as src:

@@ -118,7 +118,7 @@ def connectedness(
         polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
-        expand_px=outer_window
+        expand_px=outer_window # * max_level?
     )
 
     # Process PA-array for PARC-connectedness

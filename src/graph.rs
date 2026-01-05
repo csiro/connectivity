@@ -121,7 +121,6 @@ impl Graph {
     
         is_isolated
     }
-
 }
 
 
