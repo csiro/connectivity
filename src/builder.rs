@@ -44,13 +44,12 @@ impl Graph {
         
         // Process each level
         'outer: for (iter_level, &level) in levels.iter().enumerate() {
-            // let (i_array, j_array, values, sims) = &windows[&level];
+            // Only proceed if level is there..
             if let Some((i_array, j_array, values, sims)) = windows.get(&level) {
                 let num_cell = i_array.len();
-                // let edge_indices = &all_edge_indices[&level];
                 let edge_indices = all_edge_indices.get(&level).expect("Level not found in edge indices.");
                 
-                let level_affine: &Affine = transforms.get(&level).unwrap();
+                let level_affine: &Affine = transforms.get(&level).expect("Missing level in Affine set.");
                 
                 // Generate or update node mappings
                 let node_mapping = if iter_level == 0 {
@@ -81,7 +80,7 @@ impl Graph {
                     let j = j_array[cell_idx];
                     let u = cell_idx as u32 + level as u32 * 1000; // unique identifier of the node
                     
-                    // Process neighbors at the current level 
+                    // Process neighbors at the current level
                     // Modify the graph, and return true if cell is isolated
                     let was_isolated = graph_temp.neighbours(
                         i, j, u,
@@ -133,6 +132,7 @@ fn create_node_mapping(
     let mut mapping = HashMap::with_capacity(i_array.len());
     
     for (i, (&i_val, &j_val)) in i_array.iter().zip(j_array).enumerate() {
+        // Make a vector for each ij cell containing cell's simiality of all scenarios
         let mut sim_vals = Vec::with_capacity(num_sims);
         // Get sim values of each index/cell and put in a vec (already double checked it)
         for sim_vec in similarities {

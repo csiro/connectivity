@@ -7,7 +7,7 @@ use crate::distances;
 #[derive(Debug, Clone)]
 pub struct Graph {
     pub data: HashMap<(u32, u32), (f32, f32, f32, Arc<Vec<f32>>)>,
-    pub source: u32, // should be separate as data-oriented desing princiapal, but cleaner now;
+    pub source: u32, // should be separate as data-oriented design principal, but cleaner now;
 }
 
 impl Graph {
