@@ -24,7 +24,7 @@ impl Graph {
         let mut levels: Vec<i32> = windows.keys().cloned().collect();
         levels.sort_unstable(); // faster than sort()
         
-        let max_level = *levels.last().unwrap_or(&0);
+        let max_level = *levels.last().unwrap_or(&1);
               
         // Pre-allocate with capacity for better performance
         let guess_size = windows.values().map(|(i, _, _, _)| i.len() * 8).sum::<usize>();
@@ -44,69 +44,72 @@ impl Graph {
         
         // Process each level
         'outer: for (iter_level, &level) in levels.iter().enumerate() {
-            let (i_array, j_array, values, sims) = &windows[&level];
-            let num_cell = i_array.len();
-            let edge_indices = &all_edge_indices[&level];
-            
-            let level_affine: &Affine = transforms.get(&level).unwrap();
-            
-            // Generate or update node mappings
-            let node_mapping = if iter_level == 0 {
-                // First level node mapping
-                let nm = create_node_mapping(i_array, j_array, values, sims, level);
-                // Find the base node index only once
-                if let Some((_, (u, _, _))) = nm.get_key_value(&(i_base, j_base)) {
-                    graph_temp.source = *u;
-                }
-    
-                nm
-            } else {
-                // Reuse mapping already calculated for the higher level in previous round
-                std::mem::take(&mut node_mapping_higher)
-            };
-            
-            // Pre-compute higher level node mapping if needed
-            if level < max_level {
-                let higher_level = level * 2;
-                if let Some((i_array2, j_array2, values2, sims2)) = windows.get(&higher_level) {
-                    node_mapping_higher = create_node_mapping(i_array2, j_array2, values2, sims2, higher_level);
-                }
-            }
-            
-            // Process all cells in a level and the higher neighbours of the edge
-            for cell_idx in 0..num_cell {
-                let i = i_array[cell_idx];
-                let j = j_array[cell_idx];
-                let u = cell_idx as u32 + level as u32 * 1000; // unique identifier of the node
+            // let (i_array, j_array, values, sims) = &windows[&level];
+            if let Some((i_array, j_array, values, sims)) = windows.get(&level) {
+                let num_cell = i_array.len();
+                // let edge_indices = &all_edge_indices[&level];
+                let edge_indices = all_edge_indices.get(&level).expect("Level not found in edge indices.");
                 
-                // Process neighbors at the current level 
-                // Modify the graph, and return true if cell is isolated
-                let was_isolated = graph_temp.neighbours(
-                    i, j, u,
-                    &COLS, &ROWS,
-                    factor,
-                    &node_mapping,
-                    &level_affine,
-                    geographic,
-                );
-    
-                // For source nodes with no neighbours (isolated pixel, e.g tiny islands), add duplicated values
-                // and break the outer loop to avoid processing the rest of levels for the current graph
-                if was_isolated {
-                    break 'outer;
+                let level_affine: &Affine = transforms.get(&level).unwrap();
+                
+                // Generate or update node mappings
+                let node_mapping = if iter_level == 0 {
+                    // First level node mapping
+                    let nm = create_node_mapping(i_array, j_array, values, sims, level);
+                    // Find the base node index only once
+                    if let Some((_, (u, _, _))) = nm.get_key_value(&(i_base, j_base)) {
+                        graph_temp.source = *u;
+                    }
+        
+                    nm
+                } else {
+                    // Reuse mapping already calculated for the higher level in previous round
+                    std::mem::take(&mut node_mapping_higher)
+                };
+                
+                // Pre-compute higher level node mapping if needed
+                if level < max_level {
+                    let higher_level = level * 2;
+                    if let Some((i_array2, j_array2, values2, sims2)) = windows.get(&higher_level) {
+                        node_mapping_higher = create_node_mapping(i_array2, j_array2, values2, sims2, higher_level);
+                    }
                 }
                 
-                // Process connections to the next level (e.g. from level 2 to level 4)
-                if level < max_level && edge_indices.contains(&(i, j)) {
-                    graph_temp.fringe(
-                        i, j,
+                // Process all cells in a level and the higher neighbours of the edge
+                for cell_idx in 0..num_cell {
+                    let i = i_array[cell_idx];
+                    let j = j_array[cell_idx];
+                    let u = cell_idx as u32 + level as u32 * 1000; // unique identifier of the node
+                    
+                    // Process neighbors at the current level 
+                    // Modify the graph, and return true if cell is isolated
+                    let was_isolated = graph_temp.neighbours(
+                        i, j, u,
+                        &COLS, &ROWS,
                         factor,
-                        level,
                         &node_mapping,
-                        &node_mapping_higher,
-                        &transforms,
+                        &level_affine,
                         geographic,
                     );
+        
+                    // For source nodes with no neighbours (isolated pixel, e.g tiny islands), add duplicated values
+                    // and break the outer loop to avoid processing the rest of levels for the current graph
+                    if was_isolated {
+                        break 'outer;
+                    }
+                    
+                    // Process connections to the next level (e.g. from level 2 to level 4)
+                    if level < max_level && edge_indices.contains(&(i, j)) {
+                        graph_temp.fringe(
+                            i, j,
+                            factor,
+                            level,
+                            &node_mapping,
+                            &node_mapping_higher,
+                            &transforms,
+                            geographic,
+                        );
+                    }
                 }
             }
         }
@@ -131,6 +134,7 @@ fn create_node_mapping(
     
     for (i, (&i_val, &j_val)) in i_array.iter().zip(j_array).enumerate() {
         let mut sim_vals = Vec::with_capacity(num_sims);
+        // Get sim values of each index/cell and put in a vec (already double checked it)
         for sim_vec in similarities {
             sim_vals.push(sim_vec[i]);
         }      

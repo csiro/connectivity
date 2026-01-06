@@ -128,6 +128,7 @@ pub fn build_window(
     }
 
     // Now, separately process the transgrids for all scenarios; easier this way
+    // Output: Vec_scenario<Vec_indices<sim>>
     let gdmvals: Vec<Vec<f32>> = trans_vect
         .iter()
         .map(|scenario_map| {
