@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyList};
 use pyo3::Bound;
-use std::sync::Arc;
+use std::boxed::Box;
 use std::collections::HashMap;
 use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2, Array1};
@@ -142,7 +142,7 @@ fn connectivity(
                         // Using unweighted distance, i.e. intact condition case for the denominator
                         let nodes_intact = utils::dijkstra(&the_graph, false); 
                         
-                        let mut cell_paths: Vec<(f32, f32, f32, Arc<Vec<f32>>)> = Vec::with_capacity(nodes_altered.len());
+                        let mut cell_paths: Vec<(f32, f32, f32, Box<Vec<f32>>)> = Vec::with_capacity(nodes_altered.len());
 
                         for &k in nodes_altered.keys() {
                             // Calcaulate optimal path for each reachable path

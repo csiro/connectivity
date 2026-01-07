@@ -1,12 +1,12 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::boxed::Box;
 use crate::affine::Affine;
 use crate::distances;
 
 /// The multi-resolution graph type
 #[derive(Debug, Clone)]
 pub struct Graph {
-    pub data: HashMap<(u32, u32), (f32, f32, f32, Arc<Vec<f32>>)>,
+    pub data: HashMap<(u32, u32), (f32, f32, f32, Box<Vec<f32>>)>,
     pub source: u32, // should be separate as data-oriented design principal, but cleaner now;
 }
 
@@ -27,7 +27,7 @@ impl Graph {
     pub fn add_node(
         &mut self,
         key: (u32, u32),
-        value: (f32, f32, f32, Arc<Vec<f32>>)
+        value: (f32, f32, f32, Box<Vec<f32>>)
     ) {
         self.data.insert(key, value);
     }
@@ -36,7 +36,7 @@ impl Graph {
     pub fn get(
         &self,
         key: &(u32, u32),
-    ) -> Option<&(f32, f32, f32, Arc<Vec<f32>>)> {
+    ) -> Option<&(f32, f32, f32, Box<Vec<f32>>)> {
         self.data.get(&key)
     }
 
@@ -71,7 +71,7 @@ impl Graph {
         i_ngb: &[i32],
         j_ngb: &[i32],
         factor: f32,
-        node_mapping: &HashMap<(i32, i32), (u32, f32, Arc<Vec<f32>>)>,
+        node_mapping: &HashMap<(i32, i32), (u32, f32, Box<Vec<f32>>)>,
         transform: &Affine,
         is_wgs: bool,
     ) -> bool {
@@ -134,8 +134,8 @@ impl Graph {
         i: i32, j: i32,
         factor: f32,
         level: i32, 
-        node_mapping: &HashMap<(i32, i32), (u32, f32, Arc<Vec<f32>>)>,
-        node_mapping_higher: &HashMap<(i32, i32), (u32, f32, Arc<Vec<f32>>)>,
+        node_mapping: &HashMap<(i32, i32), (u32, f32, Box<Vec<f32>>)>,
+        node_mapping_higher: &HashMap<(i32, i32), (u32, f32, Box<Vec<f32>>)>,
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
     ) {

@@ -4,7 +4,7 @@ use pyo3::PyResult;
 use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::boxed::Box;
 use pathfinding::prelude::dijkstra_all;
 // local module
 use crate::affine::Affine;
@@ -159,16 +159,16 @@ pub fn path_distance(
     graph: &Graph,
     path: &[u32],
     dist_intact: f32
-) -> (f32, f32, f32, Arc<Vec<f32>>) {
+) -> (f32, f32, f32, Box<Vec<f32>>) {
     let mut dist_adjusted = 0.0;
     let mut last_condition = 0.0;
-    let mut last_sims = Arc::new(Vec::new());
+    let mut last_sims = Box::new(Vec::new());
 
     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
         if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
             dist_adjusted += dist / (0.5 * cond + 0.5);
             last_condition = cond;
-            last_sims = Arc::clone(sims); // Cloning Arc is cheap; just a counter to heap
+            last_sims = Box::clone(sims); // Cloning Box is cheap; just a counter to heap
         }
     }
 
