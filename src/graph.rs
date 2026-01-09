@@ -33,19 +33,12 @@ impl Graph {
     }
 
     /// Insert a new node entry
-    pub fn add_node(
-        &mut self,
-        key: (u32, u32),
-        value: EdgeData
-    ) {
+    pub fn add_node(&mut self, key: (u32, u32), value: EdgeData) {
         self.data.insert(key, value);
     }
 
     /// Get an entry by reference
-    pub fn get(
-        &self,
-        key: &(u32, u32),
-    ) -> Option<&EdgeData> {
+    pub fn get(&self, key: &(u32, u32)) -> Option<&EdgeData> {
         self.data.get(&key)
     }
 
