@@ -12,7 +12,7 @@ impl Graph {
         i_base: i32, 
         j_base: i32, 
         factor: f32,
-        windows: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)>, 
+        windows: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<Option<f32>>>)>, 
         transforms: &HashMap<i32, Affine>,
         geographic: bool,
     ) -> Self {
@@ -124,9 +124,9 @@ fn create_node_mapping(
     i_array: &[i32],
     j_array: &[i32],
     values: &[f32],
-    similarities: &[Vec<f32>],
+    similarities: &[Vec<Option<f32>>],
     level: i32
-) -> HashMap<(i32, i32), (u32, f32, Box<Vec<f32>>)> {
+) -> HashMap<(i32, i32), (u32, f32, Box<Vec<Option<f32>>>)> {
     let level_id = level as u32 * 1000;
     let num_sims = similarities.len();
     let mut mapping = HashMap::with_capacity(i_array.len());

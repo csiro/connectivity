@@ -159,7 +159,7 @@ pub fn path_distance(
     graph: &Graph,
     path: &[u32],
     dist_intact: f32
-) -> (f32, f32, f32, Box<Vec<f32>>) {
+) -> (f32, f32, f32, Box<Vec<Option<f32>>>) {
     let mut dist_adjusted = 0.0;
     let mut last_condition = 0.0;
     let mut last_sims = Box::new(Vec::new());

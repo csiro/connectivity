@@ -112,7 +112,7 @@ fn connectivity(
                         // Get the transgrid values for ij cell for the current climate
                         let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
                         // Pre-allocate window hashmap
-                        let mut windows: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>)> = HashMap::with_capacity(num_levels);
+                        let mut windows: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<Option<f32>>>)> = HashMap::with_capacity(num_levels);
                         // Build window for each level for the cell ij
                         for &level in cond_map.keys() {
                             let win = window::build_window(
@@ -142,7 +142,7 @@ fn connectivity(
                         // Using unweighted distance, i.e. intact condition case for the denominator
                         let nodes_intact = utils::dijkstra(&the_graph, false); 
                         
-                        let mut cell_paths: Vec<(f32, f32, f32, Box<Vec<f32>>)> = Vec::with_capacity(nodes_altered.len());
+                        let mut cell_paths: Vec<(f32, f32, f32, Box<Vec<Option<f32>>>)> = Vec::with_capacity(nodes_altered.len());
 
                         for &k in nodes_altered.keys() {
                             // Calcaulate optimal path for each reachable path

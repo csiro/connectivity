@@ -1,3 +1,7 @@
+# Version 0.4.1
+* Fixed a bug regarding mismatch between condition and transgrids for BERI.
+* 
+
 # Version 0.4.0
 * Added PARC-connectedness calculation to the `connectedness()` function.
 * Fixed a bug in reading transgrids with a polygon mask.

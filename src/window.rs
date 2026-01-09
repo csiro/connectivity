@@ -1,6 +1,5 @@
 use ndarray::{Array3, Array2, Array1, ArrayView1, s};
 use std::collections::HashMap;
-use std::f32::consts::E;
 use std::iter::zip;
 
 
@@ -29,7 +28,7 @@ pub fn build_window(
     cond_dict: &HashMap<i32, Array2<f32>>,
     trans_vect: &Vec<HashMap<i32, Array3<f32>>>,
     trans_ij: &Array1<f32>,
-) -> (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<f32>>) {
+) -> (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<Option<f32>>>) {
     let agg_factor = 2;
     let higher_level = current_level * agg_factor;
     
@@ -129,7 +128,7 @@ pub fn build_window(
 
     // Now, separately process the transgrids for all scenarios; easier this way
     // Output: Vec_scenario<Vec_indices<sim>>
-    let gdmvals: Vec<Vec<f32>> = trans_vect
+    let gdmvals: Vec<Vec<Option<f32>>> = trans_vect
         .iter()
         .map(|scenario_map| {
             if let Some(array) = scenario_map.get(&current_level) {
@@ -138,10 +137,10 @@ pub fn build_window(
                         let seg_val: ArrayView1<f32> = array.slice(s![.., curr_i as usize, curr_j as usize]);
                         similarity(&trans_ij, &seg_val)
                     })
-                    .collect::<Vec<f32>>()
+                    .collect::<Vec<Option<f32>>>()
             } else {
                 // Return a vector of 0.0s the same length as the number of segments
-                vec![0.0; row_indices.len()]
+                vec![Some(0.0); row_indices.len()]
             }
         })
         .collect();
@@ -150,10 +149,22 @@ pub fn build_window(
 }
 
 
-// Calcualte similarity of the transgrid layers
+// Calcualte similarity of the transgrid layers and dealing with NaNs
+// Any cell with nan coniditon is ignored in the step before this; now any nan transgrid 
+// will be processed as None and dealt with later in the metrics.rs
 #[inline]
-fn similarity(a: &Array1<f32>, b: &ArrayView1<f32>) -> f32 {
-    let l1_dist: f32 = (a - b).mapv(f32::abs).sum();
-    E.powf(-l1_dist)
+fn similarity(a: &Array1<f32>, b: &ArrayView1<f32>) -> Option<f32> {
+    let mut l1: f32 = 0.0;
+
+    // loop over each transform gird; return None even for one nan transgrid
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        if x.is_finite() && y.is_finite() {
+            l1 += (x - y).abs();
+        } else {
+            return None;
+        }
+    }
+
+    Some((-l1).exp())
 }
 

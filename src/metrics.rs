@@ -1,8 +1,9 @@
+use core::f32;
 use std::f32::consts::E;
 use std::boxed::Box;
 
 // Compute the connectedness from a segment and a lambda
-pub fn connectedness(segment: &[(f32, f32, f32, Box<Vec<f32>>)], lambda: f32) -> f32 {
+pub fn connectedness(segment: &[(f32, f32, f32, Box<Vec<Option<f32>>>)], lambda: f32) -> f32 {
     let (sum_numerator, sum_denominator): (f32, f32) = segment
         .iter()
         .map(|(dist_adj, dist, condition, _)| {
@@ -38,7 +39,7 @@ fn minimax(x: &[f32]) -> f32 {
 }
 
 /// Compute a BERI score from a segment and a lambda
-pub fn beri_score(segment: &[(f32, f32, f32, Box<Vec<f32>>)], lambda: f32) -> f32 {
+pub fn beri_score(segment: &[(f32, f32, f32, Box<Vec<Option<f32>>>)], lambda: f32) -> f32 {
     const DENOM_VAL: f32 = 283.465; // 5.785 * (50 - 1)
     
     if segment.is_empty() {
@@ -78,14 +79,19 @@ pub fn beri_score(segment: &[(f32, f32, f32, Box<Vec<f32>>)], lambda: f32) -> f3
             let exp_term = (t * t) / DENOM_VAL;
             (-exp_term).exp()
         };
-        
+
         // Update numerator values with similarity of scenarios
-        for (i, &sim) in similarities.iter().take(n_scenario).enumerate() {
+        // In case the similarity was None, return NAN value for BERI
+        for (i, sim_opt) in similarities.iter().take(n_scenario).enumerate() {
+            let sim = match sim_opt {
+                Some(s) => *s,
+                None => 0.0,
+            };
             numerator[i] += weight_num * sim;
         }
 
         // Update denominator using the first similarity value (i.e. current climate)
-        denominator += weight_denom * similarities[0];
+        denominator += weight_denom * similarities[0].unwrap_or(0.0);
     }
     
     if denominator > 0.0 {
