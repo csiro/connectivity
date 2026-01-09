@@ -1,6 +1,7 @@
 # Version 0.4.1
 * Fixed a bug involving a mismatch between conditions and transgrids for BERI by handling NANs.
 * Replaced `Arc<T>` with `Rc<T>` reference counting, since atomic operations and thread sharing are not needed.
+* Improved code readability by adding more structs.
 
 # Version 0.4.0
 * Added PARC-connectedness calculation to the `connectedness()` function.

@@ -8,7 +8,7 @@ use std::rc::Rc;
 use pathfinding::prelude::dijkstra_all;
 // local module
 use crate::affine::Affine;
-use crate::graph::Graph;
+use crate::graph::{Graph, EdgeData};
 
 
 /// Convert a Python dict of rasterio transforms into a Rust HashMap.
@@ -121,12 +121,12 @@ fn to_adjacency(
     }
 
     // Second pass: fill adjacency list; u32 to avoid integer overflow
-    for (&(u, v), &(weighted_dist, _, unweighted_dist, _)) in &graph.data {
+    for (&(u, v), edge) in &graph.data {
         // This is needed in integers, so multiplied by 100 to get upto 2 digits precision
         let weight = if weighted {
-            (weighted_dist * 100.0).round() as u32
+            (edge.adj_dist * 100.0).round() as u32
         } else {
-            (unweighted_dist * 100.0).round() as u32
+            (edge.geo_dist * 100.0).round() as u32
         };
 
         if let Some(neighbors) = adjacency.get_mut(&u) {
@@ -159,19 +159,24 @@ pub fn path_distance(
     graph: &Graph,
     path: &[u32],
     dist_intact: f32
-) -> (f32, f32, f32, Rc<Vec<Option<f32>>>) {
+) -> EdgeData {
     let mut dist_adjusted = 0.0;
     let mut last_condition = 0.0;
     let mut last_sims = Rc::new(Vec::new());
 
     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
-        if let Some(&(_, cond, dist, ref sims)) = graph.get(&(from, to)) {
-            dist_adjusted += dist / (0.5 * cond + 0.5);
-            last_condition = cond;
-            last_sims = Rc::clone(sims); // Cloning Rc is cheap; just a counter to heap
+        if let Some(edge) = graph.get(&(from, to)) {
+            dist_adjusted += edge.geo_dist / (0.5 * edge.condition + 0.5);
+            last_condition = edge.condition;
+            last_sims = Rc::clone(&edge.similarities);
         }
     }
 
-    (dist_adjusted, dist_intact, last_condition, last_sims)
+    EdgeData {
+        adj_dist: dist_adjusted,
+        geo_dist: dist_intact,
+        condition: last_condition,
+        similarities: last_sims,
+    }
 }
 

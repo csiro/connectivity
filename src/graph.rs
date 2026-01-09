@@ -3,11 +3,19 @@ use std::rc::Rc;
 use crate::affine::Affine;
 use crate::distances;
 
+// The data of Graph edge
+#[derive(Debug, Clone)]
+pub struct EdgeData {
+    pub adj_dist: f32, // Distance-weighted condtion
+    pub geo_dist: f32,  // Geo-distance
+    pub condition: f32,  // Raw condition
+    pub similarities: Rc<Vec<Option<f32>>>, // Similarity of the cell; all scenarios
+}
 
 /// The multi-resolution graph type
 #[derive(Debug, Clone)]
 pub struct Graph {
-    pub data: HashMap<(u32, u32), (f32, f32, f32, Rc<Vec<Option<f32>>>)>,
+    pub data: HashMap<(u32, u32), EdgeData>,
     pub source: u32, // should be separate as data-oriented design principal, but cleaner now;
 }
 
@@ -28,7 +36,7 @@ impl Graph {
     pub fn add_node(
         &mut self,
         key: (u32, u32),
-        value: (f32, f32, f32, Rc<Vec<Option<f32>>>)
+        value: EdgeData
     ) {
         self.data.insert(key, value);
     }
@@ -37,7 +45,7 @@ impl Graph {
     pub fn get(
         &self,
         key: &(u32, u32),
-    ) -> Option<&(f32, f32, f32, Rc<Vec<Option<f32>>>)> {
+    ) -> Option<&EdgeData> {
         self.data.get(&key)
     }
 
@@ -96,7 +104,16 @@ impl Graph {
                 let w: f32 = (1.0 - factor) * z + factor;
     
                 // Store weighted distance + similarities
-                self.add_node((u, v), (w * dist, z, dist, s.clone()));
+                // self.add_node((u, v), (w * dist, z, dist, s.clone()));
+                self.add_node(
+                    (u, v), 
+                    EdgeData {
+                        adj_dist: w * dist,
+                        geo_dist: dist,
+                        condition: z,
+                        similarities: s.clone(),
+                    }
+                );
     
                 // Not isolated; at least one neighbor found
                 is_isolated = false;
@@ -116,7 +133,15 @@ impl Graph {
     
                 // Clear the graph to ensure no isolated edge remains
                 self.clear();
-                self.add_node((u, fake_v), (w * dist, z, dist, s.clone()));
+                self.add_node(
+                    (u, fake_v), 
+                    EdgeData {
+                        adj_dist: w * dist,
+                        geo_dist: dist,
+                        condition: z,
+                        similarities: s.clone(),
+                    }
+                );
             }
         }
     
@@ -163,7 +188,15 @@ impl Graph {
                     // Distance in kilometer
                     let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                             
-                    self.add_node((uu, v), (w * dist, z, dist, s.clone()));
+                    self.add_node(
+                        (uu, v), 
+                        EdgeData {
+                            adj_dist: w * dist,
+                            geo_dist: dist,
+                            condition: z,
+                            similarities: s.clone(),
+                        }
+                    );
                 }
             }
         }
