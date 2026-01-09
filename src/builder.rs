@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use crate::affine::Affine;
 use crate::graph::Graph;
+use crate::window::FocalWindow;
 
 
 /// Build a graph strcut from a multi-level window data
@@ -12,7 +13,7 @@ impl Graph {
         i_base: i32, 
         j_base: i32, 
         factor: f32,
-        windows: &HashMap<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<Option<f32>>>)>, 
+        windows: &HashMap<i32, FocalWindow>,
         transforms: &HashMap<i32, Affine>,
         geographic: bool,
     ) -> Self {
@@ -27,26 +28,26 @@ impl Graph {
         let max_level = *levels.last().unwrap_or(&1);
               
         // Pre-allocate with capacity for better performance
-        let guess_size = windows.values().map(|(i, _, _, _)| i.len() * 8).sum::<usize>();
+        let guess_size = windows.values().map(|win| win.i_array.len() * 8).sum::<usize>();
         let mut graph_temp = Graph::new(Some(guess_size));
         
-        // Node mappings of the next level;
-        let size_i = windows.get(&1).map(|(iv, _, _, _)| iv.len()).unwrap_or(36);
+        // Node mappings of the next level; get level 2 as it's the first higher level
+        let size_i = windows.get(&2).map(|win| win.i_array.len()).unwrap_or(36);
         let mut node_mapping_higher = HashMap::with_capacity(size_i);
         
         // Edge indices as HashSet for faster lookups
         let mut all_edge_indices: HashMap<i32, HashSet<(i32, i32)>> = HashMap::new();
         // Pre-compute edge indices for all levels
-        for (&level, (i_array, j_array, _, _)) in windows {
-            let edge_indices = get_edge_indices(i_array, j_array);
+        for (&level, win) in windows {
+            let edge_indices = get_edge_indices(&win.i_array, &win.j_array);
             all_edge_indices.insert(level, edge_indices);
         }
         
         // Process each level
         'outer: for (iter_level, &level) in levels.iter().enumerate() {
             // Only proceed if level is there..
-            if let Some((i_array, j_array, values, sims)) = windows.get(&level) {
-                let num_cell = i_array.len();
+            if let Some(levelwin) = windows.get(&level) {
+                let num_cell = levelwin.i_array.len();
                 let edge_indices = all_edge_indices.get(&level).expect("Level not found in edge indices.");
                 
                 let level_affine: &Affine = transforms.get(&level).expect("Missing level in Affine set.");
@@ -54,7 +55,7 @@ impl Graph {
                 // Generate or update node mappings
                 let node_mapping = if iter_level == 0 {
                     // First level node mapping
-                    let nm = create_node_mapping(i_array, j_array, values, sims, level);
+                    let nm = create_node_mapping(levelwin, level);
                     // Find the base node index only once
                     if let Some((_, (u, _, _))) = nm.get_key_value(&(i_base, j_base)) {
                         graph_temp.source = *u;
@@ -69,15 +70,15 @@ impl Graph {
                 // Pre-compute higher level node mapping if needed
                 if level < max_level {
                     let higher_level = level * 2;
-                    if let Some((i_array2, j_array2, values2, sims2)) = windows.get(&higher_level) {
-                        node_mapping_higher = create_node_mapping(i_array2, j_array2, values2, sims2, higher_level);
+                    if let Some(higherwin) = windows.get(&higher_level) {
+                        node_mapping_higher = create_node_mapping(higherwin, higher_level);
                     }
                 }
                 
                 // Process all cells in a level and the higher neighbours of the edge
                 for cell_idx in 0..num_cell {
-                    let i = i_array[cell_idx];
-                    let j = j_array[cell_idx];
+                    let i = levelwin.i_array[cell_idx];
+                    let j = levelwin.j_array[cell_idx];
                     let u = cell_idx as u32 + level as u32 * 1000; // unique identifier of the node
                     
                     // Process neighbors at the current level
@@ -121,29 +122,25 @@ impl Graph {
 /// Create node mapping (the unique ID of each node/pixel)
 /// This is done per level/resolution in a window;
 fn create_node_mapping(
-    i_array: &[i32],
-    j_array: &[i32],
-    values: &[f32],
-    similarities: &[Vec<Option<f32>>],
-    level: i32
+    win: &FocalWindow,
+    level: i32,
 ) -> HashMap<(i32, i32), (u32, f32, Rc<Vec<Option<f32>>>)> {
     let level_id = level as u32 * 1000;
-    let num_sims = similarities.len();
-    let mut mapping = HashMap::with_capacity(i_array.len());
-    
-    for (i, (&i_val, &j_val)) in i_array.iter().zip(j_array).enumerate() {
-        // Make a vector for each ij cell containing cell's simiality of all scenarios
+    let num_sims = win.sims.len();
+
+    let mut mapping = HashMap::with_capacity(win.i_array.len());
+
+    for (idx, (&i_val, &j_val)) in win.i_array.iter().zip(win.j_array.iter()).enumerate() {
+        // Collect this cell's similarity across all scenarios
         let mut sim_vals = Vec::with_capacity(num_sims);
-        // Get sim values of each index/cell and put in a vec (already double checked it)
-        for sim_vec in similarities {
-            sim_vals.push(sim_vec[i]);
-        }      
-        // Wrap it in Rc so later clones are cheap
+        for sim_vec in &win.sims {
+            sim_vals.push(sim_vec[idx]);
+        }
         let sim_vals = Rc::new(sim_vals);
 
-        mapping.insert((i_val, j_val), (i as u32 + level_id, values[i], sim_vals));
+        mapping.insert((i_val, j_val), (idx as u32 + level_id, win.values[idx], sim_vals));
     }
-    
+
     mapping
 }
 

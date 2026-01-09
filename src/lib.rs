@@ -17,6 +17,7 @@ mod affine;
 mod graph;
 use affine::Affine;
 use graph::Graph;
+use window::FocalWindow;
 
 
 /// Compute habitat (or PARC) connectivity from condition and optional PA arrays.
@@ -112,10 +113,10 @@ fn connectivity(
                         // Get the transgrid values for ij cell for the current climate
                         let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
                         // Pre-allocate window hashmap
-                        let mut windows: HashMap::<i32, (Vec<i32>, Vec<i32>, Vec<f32>, Vec<Vec<Option<f32>>>)> = HashMap::with_capacity(num_levels);
+                        let mut windows: HashMap::<i32, FocalWindow> = HashMap::with_capacity(num_levels);
                         // Build window for each level for the cell ij
                         for &level in cond_map.keys() {
-                            let win = window::build_window(
+                            let win = FocalWindow::from_data(
                                 i as i32,
                                 j as i32,
                                 level,

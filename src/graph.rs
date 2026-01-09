@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::affine::Affine;
 use crate::distances;
 
+
 /// The multi-resolution graph type
 #[derive(Debug, Clone)]
 pub struct Graph {
