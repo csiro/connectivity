@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::boxed::Box;
+use std::rc::Rc;
 use crate::affine::Affine;
 use crate::graph::Graph;
 
@@ -126,7 +126,7 @@ fn create_node_mapping(
     values: &[f32],
     similarities: &[Vec<Option<f32>>],
     level: i32
-) -> HashMap<(i32, i32), (u32, f32, Box<Vec<Option<f32>>>)> {
+) -> HashMap<(i32, i32), (u32, f32, Rc<Vec<Option<f32>>>)> {
     let level_id = level as u32 * 1000;
     let num_sims = similarities.len();
     let mut mapping = HashMap::with_capacity(i_array.len());
@@ -138,8 +138,8 @@ fn create_node_mapping(
         for sim_vec in similarities {
             sim_vals.push(sim_vec[i]);
         }      
-        // Wrap it in Box so later clones are cheap
-        let sim_vals = Box::new(sim_vals);
+        // Wrap it in Rc so later clones are cheap
+        let sim_vals = Rc::new(sim_vals);
 
         mapping.insert((i_val, j_val), (i as u32 + level_id, values[i], sim_vals));
     }

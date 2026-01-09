@@ -1,9 +1,9 @@
 use core::f32;
 use std::f32::consts::E;
-use std::boxed::Box;
+use std::rc::Rc;
 
 // Compute the connectedness from a segment and a lambda
-pub fn connectedness(segment: &[(f32, f32, f32, Box<Vec<Option<f32>>>)], lambda: f32) -> f32 {
+pub fn connectedness(segment: &[(f32, f32, f32, Rc<Vec<Option<f32>>>)], lambda: f32) -> f32 {
     let (sum_numerator, sum_denominator): (f32, f32) = segment
         .iter()
         .map(|(dist_adj, dist, condition, _)| {
@@ -39,7 +39,7 @@ fn minimax(x: &[f32]) -> f32 {
 }
 
 /// Compute a BERI score from a segment and a lambda
-pub fn beri_score(segment: &[(f32, f32, f32, Box<Vec<Option<f32>>>)], lambda: f32) -> f32 {
+pub fn beri_score(segment: &[(f32, f32, f32, Rc<Vec<Option<f32>>>)], lambda: f32) -> f32 {
     const DENOM_VAL: f32 = 283.465; // 5.785 * (50 - 1)
     
     if segment.is_empty() {
