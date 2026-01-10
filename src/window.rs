@@ -6,10 +6,10 @@ use std::iter::zip;
 // Window kernel for one resolution
 #[derive(Debug, Clone)]
 pub struct FocalWindow {
-    pub i_array: Vec<i32>, 
-    pub j_array: Vec<i32>, 
-    pub values: Vec<f32>, 
-    pub sims: Vec<Vec<Option<f32>>>,
+    pub i_array: Vec<i32>, // i/col array of neighbour cells
+    pub j_array: Vec<i32>, // j/row array
+    pub values: Vec<f32>,  // condition values of the cell
+    pub sims: Vec<Vec<Option<f32>>>, // similiarity with the ij cell in the current climate; scen<cell<val>>
 }
 
 /// Get the indices of cells at current_level that fall within the neighborhood
