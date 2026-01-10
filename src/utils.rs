@@ -4,11 +4,8 @@ use pyo3::PyResult;
 use numpy::{PyArray2, PyArray3};
 use ndarray::{Array3, Array2, Array1, s};
 use std::collections::HashMap;
-use std::rc::Rc;
-use pathfinding::prelude::dijkstra_all;
 // local module
 use crate::affine::Affine;
-use crate::graph::{Graph, EdgeData};
 
 
 /// Convert a Python dict of rasterio transforms into a Rust HashMap.
@@ -99,84 +96,5 @@ pub fn get_current(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usi
     }
     // Return empty array if anything fails
     Array1::zeros(0)
-}
-
-
-/// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
-/// Converts f32 weights to u32 by multiplying with 100 and rounding to be used in Dijkstra
-/// HashMap<u, Vec<(v, adj_cond/cond)>>
-/// u: source, v: destination
-#[inline]
-fn to_adjacency(
-    graph: &Graph,
-    weighted: bool,
-) -> HashMap<u32, Vec<(u32, u32)>> {
-    // First pass: count edges per source node
-    let edge_counts = graph.count_edges();
-
-    // Initialize the adjacency list with pre-allocated space
-    let mut adjacency: HashMap<u32, Vec<(u32, u32)>> = HashMap::with_capacity(edge_counts.len());
-    for (&node, &count) in &edge_counts {
-        adjacency.insert(node, Vec::with_capacity(count));
-    }
-
-    // Second pass: fill adjacency list; u32 to avoid integer overflow
-    for (&(u, v), edge) in &graph.data {
-        // This is needed in integers, so multiplied by 100 to get upto 2 digits precision
-        let weight = if weighted {
-            (edge.adj_dist * 100.0).round() as u32
-        } else {
-            (edge.geo_dist * 100.0).round() as u32
-        };
-
-        if let Some(neighbors) = adjacency.get_mut(&u) {
-            neighbors.push((v, weight));
-        }
-    }
-
-    adjacency
-}
-
-
-/// Create the reachable path with dijkstra; weighted by condition or not
-pub fn dijkstra(
-    graph: &Graph,
-    weighted: bool
-) -> HashMap<u32, (u32, u32)> {
-    // Convert the graph to suitable format for dijkstra
-    let graph_int = to_adjacency(&graph, weighted);
-    let successors = |node: &u32| -> Vec<(u32, u32)> {
-        graph_int.get(node).cloned().unwrap_or_default()
-    };
-
-    // Calculate all reachable paths; the end nodes/segments
-    dijkstra_all(&graph.source, successors)
-}
-
-
-/// Return distance values and the condition/similarity of the last segment
-pub fn path_distance(
-    graph: &Graph,
-    path: &[u32],
-    dist_intact: f32
-) -> EdgeData {
-    let mut dist_adjusted = 0.0;
-    let mut last_condition = 0.0;
-    let mut last_sims = Rc::new(Vec::new());
-
-    for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
-        if let Some(edge) = graph.get(&(from, to)) {
-            dist_adjusted += edge.geo_dist / (0.5 * edge.condition + 0.5);
-            last_condition = edge.condition;
-            last_sims = Rc::clone(&edge.similarities);
-        }
-    }
-
-    EdgeData {
-        adj_dist: dist_adjusted,
-        geo_dist: dist_intact,
-        condition: last_condition,
-        similarities: last_sims,
-    }
 }
 

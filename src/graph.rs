@@ -3,11 +3,12 @@ use std::rc::Rc;
 use crate::affine::Affine;
 use crate::distances;
 
+
 // The data of Graph edge
 #[derive(Debug, Clone)]
 pub struct EdgeData {
-    pub adj_dist: f32, // Distance-weighted condtion
-    pub geo_dist: f32,  // Geo-distance
+    pub adj_dist: f32,   // Condistion-adjusted distance
+    pub geo_dist: f32,   // Geo-distance
     pub condition: f32,  // Raw condition
     pub similarities: Rc<Vec<Option<f32>>>, // Similarity of the cell; all scenarios
 }

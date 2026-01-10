@@ -14,10 +14,11 @@ mod metrics;
 mod distances;
 mod affine;
 mod graph;
+mod routing;
 use affine::Affine;
-use graph::{Graph, EdgeData};
 use window::FocalWindow;
-
+use graph::{Graph, EdgeData};
+use routing::{Path, GraphDijkstraExt};
 
 /// Compute habitat (or PARC) connectivity from condition and optional PA arrays.
 ///
@@ -138,9 +139,9 @@ fn connectivity(
                             is_geo
                         );
                         // Calculate all reachable paths using weighted distance by conditon; altered condition
-                        let nodes_altered  = utils::dijkstra(&the_graph, true);
+                        let nodes_altered  = the_graph.dijkstra(Path::Adjusted);
                         // Using unweighted distance, i.e. intact condition case for the denominator
-                        let nodes_intact = utils::dijkstra(&the_graph, false); 
+                        let nodes_intact = the_graph.dijkstra(Path::Intact); 
                         
                         let mut cell_paths: Vec<EdgeData> = Vec::with_capacity(nodes_altered.len());
 
@@ -150,7 +151,7 @@ fn connectivity(
                             // Get the intact distance from source; divided by 100 to cancel out from path adjacency
                             let dist_intact: f32 = nodes_intact[&k].1 as f32 / 100.0;
                             // Get the path info for each target segment/node
-                            cell_paths.push(utils::path_distance(&the_graph, &optim_path, dist_intact));
+                            cell_paths.push(routing::path_distance(&the_graph, &optim_path, dist_intact));
                         }
 
                         // Calculate BERI or Connectedness
