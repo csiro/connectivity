@@ -73,7 +73,7 @@ def overview_info(file_path: str):
     """Display information about all available overviews and their actual dimensions.
      
     Parameters:
-    - file_path (str): Path to the COG file.
+    - file_path (str): Path to the TIF/raster file.
     """
     
     print(f"\nFile: {file_path}")
@@ -106,11 +106,11 @@ def read_raster(
         scale: float | None = None, 
         expand_px: int = 3
     ):
-    """Reads specified overview levels from a multi-band Cloud-Optimized GeoTIFF (COG) file
+    """Reads specified overview levels from a multi-band GeoTIFF file
     and stores them in a dictionary.
 
     Parameters:
-    - file (str): Path to the COG file.
+    - file (str): Path to the GoeTIFF or raster file with overviews.
     - polygon (GeoPandas):
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
     - scale (float or None): Scaling factor. If None, 0, or 1, the data is returned unchanged; otherwise it is divided by scale.
