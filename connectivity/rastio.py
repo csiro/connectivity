@@ -169,7 +169,9 @@ def read_raster(
                 
             # Convert any no-data to nan to be skiped in Rust model
             data_array = np.where(data.mask, np.nan, data).squeeze().astype(np.float32)
-
+            # Change the array memory arrangement for faster access in Rust
+            if data_array.ndim > 2:
+                data_array = np.stack(data_array, axis=-1)
             data_dict[level] = data_array / scale if scale not in (None, 0, 1) else data_array
             tran_dict[level] = tuple(level_transform)[:6]
     
@@ -229,6 +231,9 @@ def read_raster(
                 # Get only the masked areas and convert to f32
                 nan_array = masked.squeeze().astype(np.float32).filled(np.nan)
                 # Dvivid by the scale to make it in the 0-1 range
+                # Change the array memory arrangement for faster access in Rust
+                if nan_array.ndim > 2:
+                    nan_array = np.stack(nan_array, axis=-1)
                 data_dict[level] = nan_array / scale if scale not in (None, 0, 1) else nan_array
                 tran_dict[level] = tuple(out_transform)[:6]
 

@@ -43,7 +43,7 @@ impl FocalWindow {
         let agg_factor = 2;
         let higher_level = current_level * agg_factor;
         
-        let current_array = &cond_dict[&current_level];
+        let current_array = cond_dict.get(&current_level).expect("Condition level not found!");
         let current_height = current_array.shape()[0] as i32;
         let current_width = current_array.shape()[1] as i32;
         
@@ -91,7 +91,7 @@ impl FocalWindow {
         
         // Determine higher level dimensions
         let (higher_height, higher_width) = if cond_dict.contains_key(&higher_level) {
-            let higher_array = &cond_dict[&higher_level];
+            let higher_array = cond_dict.get(&higher_level).expect("Condition level not found!");
             (higher_array.shape()[0] as i32, higher_array.shape()[1] as i32)
         } else {
             (current_height / agg_factor, current_width / agg_factor)
@@ -144,8 +144,8 @@ impl FocalWindow {
             .map(|scenario_map| {
                 if let Some(array) = scenario_map.get(&current_level) {
                     zip(i_array.iter(), j_array.iter())
-                        .map(|(&curr_i, &curr_j)| {
-                            let seg_val: ArrayView1<f32> = array.slice(s![.., curr_i as usize, curr_j as usize]);
+                        .map(|(&ui, &uj)| {
+                            let seg_val: ArrayView1<f32> = array.slice(s![ui as usize, uj as usize, ..]);
                             similarity(&trans_ij, &seg_val)
                         })
                         .collect::<Vec<Option<f32>>>()

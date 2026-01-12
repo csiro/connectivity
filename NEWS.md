@@ -1,3 +1,6 @@
+# Version 0.4.2
+* A few internal structural changes; e.g., changes to the NumPy array memory layout and added structure in the Rust code for performance improvement.
+
 # Version 0.4.1
 * Fixed a bug involving a mismatch between conditions and transgrids for BERI by handling NANs.
 * Replaced `Arc<T>` with `Rc<T>` reference counting, since atomic operations and thread sharing are not needed.
