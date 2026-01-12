@@ -79,7 +79,7 @@ fn connectivity(
     if let Some(cond_array) = cond_map.get(&1) {
         let (nrows, ncols) = (cond_array.shape()[0], cond_array.shape()[1]);
 
-        // Check for the existance of 
+        // Check for the existance of PA array to run PARC-conn
         let override_array = utils::to_array(pa_array)?;
         let array: &Array2<f32> = override_array.as_ref().unwrap_or(cond_array);
 

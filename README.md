@@ -2,7 +2,7 @@
 
 A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness (Connected-Habitat)*, *PARC Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
 
-This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
+This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs, or any raster format with overviews structure). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
 
 ### Installation
 
@@ -89,6 +89,14 @@ create_overviews(
 )
 ```
 
+Please note that if a raster file contains inappropriate overviews (e.g., generated using the *nearest* method), this function may not regenerate overview levels that already exist. I recommend either saving the output as a new file with correctly generated overviews using the `output_raster` argument, or deleting the existing overviews beforehand.
+
+Since TIFF files store overviews internally, you can remove them using GDAL, for example:
+
+```bash
+gdal raster overview delete file.tif
+```
+     
 **3. Calculating connectedness or BERI**   
 
 The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
