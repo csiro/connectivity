@@ -90,8 +90,8 @@ pub fn get_current(trans_maps: &Vec<HashMap<i32, Array3<f32>>>, i: usize, j: usi
     let trans_array = &trans_maps[0];
 
     if let Some(array3) = trans_array.get(&1) {
-        if i < array3.shape()[1] && j < array3.shape()[2] {
-            return array3.slice(s![.., i, j]).to_owned(); // returns Array1<f32>
+        if i < array3.shape()[0] && j < array3.shape()[1] {
+            return array3.slice(s![i, j, ..]).to_owned(); // returns Array1<f32>
         }
     }
     // Return empty array if anything fails

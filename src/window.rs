@@ -145,7 +145,7 @@ impl FocalWindow {
                 if let Some(array) = scenario_map.get(&current_level) {
                     zip(i_array.iter(), j_array.iter())
                         .map(|(&curr_i, &curr_j)| {
-                            let seg_val: ArrayView1<f32> = array.slice(s![.., curr_i as usize, curr_j as usize]);
+                            let seg_val: ArrayView1<f32> = array.slice(s![curr_i as usize, curr_j as usize, ..]);
                             similarity(&trans_ij, &seg_val)
                         })
                         .collect::<Vec<Option<f32>>>()

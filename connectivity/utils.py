@@ -31,7 +31,7 @@ def round_to_pow2(n: int) -> int:
 def check_grids(x, y):
     x_shape = x if isinstance(x, tuple) else x.shape
     y_shape = y if isinstance(y, tuple) else y.shape
-    return x_shape[-2:] == y_shape[-2:]
+    return x_shape[:2] == y_shape[:2]
 
 
 def guess_geographic(src):
