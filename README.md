@@ -93,17 +93,19 @@ create_overviews(
 
 The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
 `max_distance = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search distance is:
-     
+      
+```text
 distance = outer_window × max_level × resolution
          = 11 × 32 × 1 km
          = 352 km  
-    
+```    
 
 **Connected Habitat (Connectedness):**   
-To compute connected-habitat (plain connectedness), you only need a habitat condition raster. Use `option` argument to generate the connected condition from connectedness and input condition:    
-1. connectedness    
-2. connectedness * condition    
-3. sqrt(connectedness * condition) (default)    
+To compute connected-habitat (or plain connectedness), you only need a habitat condition raster. Use `option` argument to generate the connected-habitat from connectedness and input condition with:    
+1. `connectedness`
+2. `connectedness * condition`
+3. `sqrt(connectedness * condition)` — geometric mean (default)
+
 
 ```python
 connd = connectedness(
