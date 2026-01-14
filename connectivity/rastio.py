@@ -99,6 +99,33 @@ def overview_info(file_path: str):
                 print(f"  Level {level}: {w} x {h}")
 
 
+def has_overview(file_path: str, levels: list = None) -> bool:
+    """Check if specified overview levels exist for all bands.
+     
+    Parameters:
+    - file_path (str): Path to the TIF/raster file.
+    - levels (list): Overview levels to check for (e.g., [2, 4, 8, 16])
+    
+    Returns:
+    - bool: True if all specified levels exist for all bands
+    """
+    if levels is None:
+        raise ValueError("levels parameter is required")
+    
+    with rasterio.open(file_path) as ds:
+        for band in range(1, ds.count + 1):
+            overviews = ds.overviews(band)
+            if not overviews:
+                print(f"No overview for band {band}.")
+                return False
+            if not set(levels).issubset(set(overviews)):
+                print(f"Band {band} does not contain the required overviews.")
+                print(f"Band {band} has overviews: {overviews}, needs: {levels}")
+                return False
+            
+        return True
+
+
 def read_raster(
         file: str,
         polygon: gpd.GeoDataFrame | None = None,

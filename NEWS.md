@@ -1,3 +1,6 @@
+# Version 0.5.0
+* Added `has_overview()` function for checking overviews.
+* 
 # Version 0.4.2
 * A few internal structural changes; e.g., changes to the NumPy array memory layout and added structure in the Rust code for performance improvement.
 
