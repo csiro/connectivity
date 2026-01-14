@@ -98,7 +98,6 @@ impl Graph {
                 let w: f32 = (1.0 - factor) * z + factor;
     
                 // Store weighted distance + similarities
-                // self.add_node((u, v), (w * dist, z, dist, s.clone()));
                 self.add_node(
                     (u, v), 
                     EdgeData {

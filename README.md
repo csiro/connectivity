@@ -88,15 +88,31 @@ create_overviews(
     overview_levels = [2, 4, 8, 16, 32]
 )
 ```
+     
+Optionally, you can use **GDAL** directly to create raster overviews using the `average` resampling method:
 
-Please note that if a raster file contains inappropriate overviews (e.g., generated using the *nearest* method), this function may not regenerate overview levels that already exist. I recommend either saving the output as a new file with correctly generated overviews using the `output_raster` argument, or deleting the existing overviews beforehand.
+```bash
+gdal raster overview add --resampling average --levels=2,4,8,16,32 file.tif
+```
+     
+⚠️ Important: If a raster file already contains overviews generated with an inappropriate resampling method (e.g., `nearest`), the `create_overviews()` function may not regenerate overview levels that already exist.
 
-Since TIFF files store overviews internally, you can remove them using GDAL, for example:
+To ensure correct overviews, you can either:
+* Save the output to a new file using the `output_raster` argument, or
+* Remove or refresh the existing overviews using GDAL.
 
+Since TIFF files store overviews internally, you can remove them with:
+     
 ```bash
 gdal raster overview delete file.tif
 ```
+    
+Or refresh the existing overviews using `average` resampling method:
      
+```bash
+gdal raster overview refresh --resampling average file.tif
+```
+    
 **3. Calculating connectedness or BERI**   
 
 The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
