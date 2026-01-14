@@ -5,12 +5,11 @@ A multi-resolution landscape connectivity algorithm for calculating *Habitat Con
 This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs, or any raster format with overviews structure). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
 
 ### Installation
-
+#### Create or load a Python environment
 You need to load the module and create an environment if you don't alreay have one.
 
 ```bash
 module load python/3.12.3
-module load rust/1.84.1
 ```
 
 ```bash
@@ -25,14 +24,33 @@ source ~/myenv/bin/activate
 python -m venv ~/myenv --system-site-packages
 ```
 
-Build a wheel and install it:
+#### Load the Rust module, build a wheel, and install:
 
+1- Navigate to the repo
 ```bash
 cd ~/connectivity
+```
 
+2- Load the Rust module on HPC
+
+```bash
+module load rust/1.84.1
+```
+For local installation, you need to install Rust on your system.
+
+3- Build the package wheele
+
+On Petrichor, you may enable CPU-specific optimizations for approximately 5–10% performance improvement:
+
+```bash
+RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+fma -C strip=symbols" maturin build --release
+```
+Or use the following to on other systems:
+```bash
 maturin build --release
 ```
-Then find the wheel under `target/wheels/`, and install it with:
+
+4- Then find the wheel under `target/wheels/`, and install it with:
 
 ```bash
 pip install target/wheels/connectivity-*.whl
