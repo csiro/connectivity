@@ -45,7 +45,7 @@ On Petrichor, you may enable CPU-specific optimizations for approximately 5–10
 ```bash
 RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+fma -C strip=symbols" maturin build --release
 ```
-Or use the following to on other systems:
+Or use the following on other systems:
 ```bash
 maturin build --release
 ```
@@ -204,3 +204,34 @@ beris = beri(
     filename = "./results/berri.tif"
 )
 ```
+
+### Running the analysis with tiles
+
+To run the model using tiles, you can supply a rectangular tile polygon as a GeoDataFrame to the `polygon_mask` argument. This limits data loading to only the portion required for the tile (i.e., the pixels within the tile plus a buffered neighborhood).
+
+Be sure to set `closed_border = False` (the default) so that neighborhood information is included and edge effects are avoided.
+
+```python
+import geopandas as gpd 
+
+tiles = gpd.read_file(".data/tiles.gpkg")
+
+tile_id = 0
+tile_poly = tiles.iloc[[tile_id]]
+
+connd = connectedness(
+    condition_file = "./data/condition.tif",
+    polygon_mask = tile_poly,
+    closed_border = False,
+    lambdas = [2, 20, 200],
+    max_cost = 2.0, 
+    window_size = 5, 
+    outer_window = 11,
+    levels = [2, 4, 8, 16, 32], 
+    sigma = 1,
+    option = 3,
+    filename = f"./results/connected_habitat_tile_{tile_id}.tif"
+)
+```
+
+Then you can merge the tiles for a complete raster.

@@ -10,6 +10,7 @@ def connectedness(
         condition_file: str,
         pa_file: str | None = None, 
         polygon_mask: gpd.GeoDataFrame | None = None,
+        closed_border: bool = False,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
         window_size: int = 3, 
@@ -45,9 +46,14 @@ def connectedness(
         Path to the raster file containing protected-area (PA) proportions. This file is required to 
         calculate PARC-connectedness. If provided, the function will compute PARC-connectedness instead 
         of standard habitat connectedness. If `None`, only habitat connectedness is calculated.
-    polygon_mask : str, optional
-        Path to a polygon shapefile or mask file used to limit the analysis area.
-        If None, the entire image is processed.
+    polygon_mask : gpd.GeoDataFrame, optional
+        A GeoDataFrame containing polygon geometry that defines the area of
+        interest. If provided, analysis is limited to this area; if None,
+        the entire image is processed. See `closed_border` for boundary behavior.
+    closed_border : bool
+        Specifies how polygon boundaries are handled when `polygon_mask`
+        is provided. If True, only cells inside the polygon are included.
+        If False, cells outside the polygon within a buffer are considered for the analysis.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -114,10 +120,11 @@ def connectedness(
 
     # Read condition raster overviews; this checks levels as well
     cond_dict, affine_dict, is_geo = read_raster(
-        file=condition_file, 
+        file=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
+        closed=closed_border,
         expand_px=outer_window # * max_level?
     )
 
@@ -126,7 +133,14 @@ def connectedness(
         pa_mask = None
     else:
         # Read PA raster overviews; this checks levels as well
-        pa_dict, _, _ = read_raster(file=pa_file, polygon=polygon_mask, levels=levels, scale=s2, expand_px=outer_window)
+        pa_dict, _, _ = read_raster(
+            file=pa_file, 
+            polygon=polygon_mask, 
+            levels=levels, 
+            scale=s2, 
+            closed=closed_border,
+            expand_px=outer_window
+        )
         # Ensure both dictionaries have the same keys
         if cond_dict.keys() != pa_dict.keys():
             raise ValueError("Input condition and PA date do not have identical overviews.")
@@ -144,10 +158,10 @@ def connectedness(
     # The base Rust connectivity funciton
     conn_array = connectivity(
         condition = cond_dict,
-        pa_array = pa_mask, 
+        pa_array = pa_mask,
         transgrid_list = [{}], # empty dict-list to compute connectedness in Rust, insead of BERI
         transforms = affine_dict,
-        lambdas = lambdas, 
+        lambdas = lambdas,
         is_geo = is_geo,
         max_cost = max_cost,
         window_size = window_size,
@@ -157,8 +171,7 @@ def connectedness(
 
     # Smooth the output array with Gaussian filtering
     if sigma is not None and sigma != 0:
-        sigma = max(sigma, 1)
-        conn_array = smoothing_filter(conn_array, sigma=sigma)
+        conn_array = smoothing_filter(conn_array, sigma=max(sigma, 1))
 
     # Calculate the connected-habitat or just return the PARC-connectedness
     if pa_file is None:
@@ -166,9 +179,9 @@ def connectedness(
     else:
         out_array = conn_array
 
-    tr = None
+    tr = affine_dict[1]
     # Crop array back to the polygon mask
-    if polygon_mask is not None:
+    if not closed_border and polygon_mask is not None:
         out_array, tr = crop_array(out_array, affine_dict[1], polygon_mask)
 
     if len(filename) > 3:
@@ -184,6 +197,7 @@ def beri(
         current_file: str,
         future_files: list[str] = [],
         polygon_mask: gpd.GeoDataFrame | None = None,
+        closed_border: bool = False,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
         window_size: int = 3, 
@@ -221,9 +235,14 @@ def beri(
     future_files : list of str, optional
         List of file paths representing future compositional turnover layers (scenarios).
         Each should be aligned with the spatial resolution and extent of `current_file` and `condition_file`.
-    polygon_mask : str, optional
-        Path to a polygon shapefile or mask used to limit the analysis area.
-        If None, the entire input extent is analyzed.
+    polygon_mask : gpd.GeoDataFrame, optional
+        A GeoDataFrame containing polygon geometry that defines the area of
+        interest. If provided, analysis is limited to this area; if None,
+        the entire image is processed. See `closed_border` for boundary behavior.
+    closed_border : bool
+        Specifies how polygon boundaries are handled when `polygon_mask`
+        is provided. If True, only cells inside the polygon are included.
+        If False, cells outside the polygon within a buffer are considered for the analysis.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -283,6 +302,7 @@ def beri(
         polygon=polygon_mask, 
         levels=levels, 
         scale=scale, # only for condition raster
+        closed=closed_border,
         expand_px=outer_window
     )
 
@@ -291,7 +311,7 @@ def beri(
     # Just get the cond_dict for the transgrids; Ignore the affine_dict
     # the scale parameter is not used here
     trans_grids = [
-        read_raster(file=i, polygon=polygon_mask, levels=levels, expand_px=outer_window)[0]
+        read_raster(file=i, polygon=polygon_mask, levels=levels, closed=closed_border, expand_px=outer_window)[0]
         for i in future_files
     ]
     
@@ -315,12 +335,11 @@ def beri(
 
     # Smooth the output array with Gaussian filtering
     if sigma is not None and sigma != 0:
-        sigma = max(sigma, 1)
-        out_array = smoothing_filter(out_array, sigma=sigma)
+        out_array = smoothing_filter(out_array, sigma=max(sigma, 1))
 
-    tr = None
+    tr = affine_dict[1]
     # Crop array back to the polygon mask
-    if polygon_mask is not None:
+    if not closed_border and polygon_mask is not None:
         out_array, tr = crop_array(out_array, affine_dict[1], polygon_mask)
 
     if len(filename) > 3:

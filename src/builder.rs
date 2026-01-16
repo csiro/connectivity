@@ -6,7 +6,6 @@ use crate::window::FocalWindow;
 
 
 /// Build a graph strcut from a multi-level window data
-/// struct { HashMap<(source, destination) (adj-dist, condtion, dist, sims)>, source-node }
 impl Graph {
     #[inline]
     pub fn from_data(

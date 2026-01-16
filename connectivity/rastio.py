@@ -131,6 +131,7 @@ def read_raster(
         polygon: gpd.GeoDataFrame | None = None,
         levels: list[int] | None = None, 
         scale: float | None = None, 
+        closed: bool = False,
         expand_px: int = 3
     ):
     """Reads specified overview levels from a multi-band GeoTIFF file
@@ -157,22 +158,21 @@ def read_raster(
     with rasterio.open(file) as src:
         # Is the crs geographic or projected?
         try:
-            if src.crs is None:
-                is_geo = guess_geographic(src)
-            else:
-                is_geo = src.crs.is_geographic
+            is_geo = guess_geographic(src) if src.crs is None else src.crs.is_geographic
         except Exception as e:
             raise RuntimeError(f"Error reading CRS info: {e}")
         # Read the overviews
         overviews = src.overviews(1)
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
-        # Get the original overviews
+        # Get the original polygon or its buffer (in case of open-border);
         if polygon is not None:
-            res_x, res_y = src.res
-            pad_x = expand_px * res_x
-            pad_y = expand_px * res_y
-            orig_buffer_geoms = [geom.buffer(max(pad_x, pad_y)) for geom in polygon.geometry]
+            if closed:
+                orig_geoms = [geom for geom in polygon.geometry]
+            else:
+                res_x, res_y = src.res
+                pad_size = max(res_x, res_y) * expand_px
+                orig_buffer_geoms = [geom.buffer(pad_size) for geom in polygon.geometry]
 
     # Round to the nearest pow 2; fixes an issue with rasterio/gdal overview level naming
     # Also, overviews levels are always higher than one, e.g. 2, 4, 8...
@@ -204,19 +204,23 @@ def read_raster(
     
     # else read only padded polygon area 
     else:
-        # Max level to get the correct buffered area that includes all required pixels for the neighbours
-        max_level = len(overviews) - 1 # needs the index of the last one
-        # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
-        with rasterio.open(file, overview_level=max_level) as src:
-            if polygon.crs != src.crs:
-                print("Transforming polyong CRS to match the raster file.")
-                polygon = polygon.to_crs(src.crs)
-            # Get the buffered geom bbox
-            res_x, res_y = src.res
-            pad_x = expand_px * res_x + (res_x / max(levels) / 4) # Just add 1/4 pixel more to make sure gets all borders
-            pad_y = expand_px * res_y + (res_y / max(levels) / 4)
-            # Get the bbox of the buffered version to read all overviews based on it
-            buffer_geoms = [box(*geom.buffer(max(pad_x, pad_y)).bounds) for geom in polygon.geometry]
+        # Select a Geom for the max extent of the arrays
+        if closed:
+            extent_geoms = orig_geoms
+        else:
+            # Max level to get the correct buffered area that includes all required pixels for the neighbours
+            max_level = len(overviews) - 1 # needs the index of the last one
+            # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
+            with rasterio.open(file, overview_level=max_level) as src:
+                if polygon.crs != src.crs:
+                    print("Transforming polyong CRS to match the raster file.")
+                    polygon = polygon.to_crs(src.crs)
+                # Get the buffered geom bbox
+                res_x, res_y = src.res
+                quarter_pixel = 0.25 * (res_x / max(levels)) # Just add 1/4 pixel more to ensure gets all borders
+                pad_size = expand_px * max(res_x, res_y) + quarter_pixel
+                # Get the bbox of the buffered version to read all overviews based on it
+                extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
         # Read all overview layers
         for i, level in enumerate(levels):
@@ -225,7 +229,10 @@ def read_raster(
             
             # Choose masking geometry based on level; for base level get base_level geom so the output map
             # be the same size and shape of the original layer; for the rest get the biggest buffe
-            masking_geom = buffer_geoms if level > 1 else orig_buffer_geoms # polygon.geometry.tolist()
+            if closed:
+                masking_geom = orig_geoms # same geom for all levels;
+            else:
+                masking_geom = extent_geoms if level > 1 else orig_buffer_geoms # polygon.geometry.tolist()
             
             index = i - 1            
             # Read data using desired level
@@ -233,7 +240,7 @@ def read_raster(
                 # Step 1: Mask with buffered geometry (for extent) of the coarsest level i.e. 32
                 out_image, out_transform = mask(
                     dataset,
-                    [mapping(geom) for geom in buffer_geoms],
+                    [mapping(geom) for geom in extent_geoms],
                     crop=True,
                     filled=True,
                     all_touched=True
