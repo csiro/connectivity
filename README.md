@@ -1,17 +1,16 @@
-# connectivity: a multi-resolution landscape connectivity algorithm <a name="top"></a> 
+<h1>connectivity: a multi-resolution landscape connectivity algorithm <a name="top"></a></h1>
 
-- [connectivity: a multi-resolution landscape connectivity algorithm ](#connectivity-a-multi-resolution-landscape-connectivity-algorithm-)
-  - [Installation ](#installation-)
+- [Installation ](#installation-)
     - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
     - [Compile and Install the Rust Library ](#compile-and-install-the-rust-library-)
-  - [Data Preparation ](#data-preparation-)
+- [Data Preparation ](#data-preparation-)
     - [Inspecting Overview Information ](#inspecting-overview-information-)
     - [Creating Overviews ](#creating-overviews-)
-  - [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
+- [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
     - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
     - [PARC-Connectedness ](#parc-connectedness-)
     - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
-  - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+- [Running Analysis with Tiles ](#running-analysis-with-tiles-)
 
 A multi-resolution landscape connectivity algorithm for calculating **Habitat Connectedness (Connected-Habitat)**, **PARC Connectedness** and the **Bioclimatic Ecosystem Resilience Index (BERI)**.
 
