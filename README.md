@@ -47,25 +47,22 @@ cd ~/connectivity
 2- Load the Rust module on HPC:
 
 ```bash
-module load rust/1.84.1
+module load rust/1.92.0
 ```
 For local installation, you need to install Rust on your system.
 
 3- Complie and install the library:
 
-Use the following to build a wheel, then istall it:
+Use the following to build a wheel:
 
 ```bash
-# compile
 maturin build --release
-# install wiht pip
-pip install target/wheels/connectivity-*.whl
 ```
 
-Or, directly compile and install the library (in edit mode) via:
+4- Install the wheel with `pip`:
 
 ```bash
-maturin develop --release
+pip install target/wheels/connectivity-*.whl
 ```
 
 ## Data Preparation <a name="dataprep"></a>     
