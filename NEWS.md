@@ -1,7 +1,7 @@
 # Version 0.6.0
 * Added `closed_border` argument to control whether cells outside the mask are excluded from the analysis.
 * Fixed the polygon-masked output to not return the buffered array.
-* Added compilation optimisation falgs.
+* Added compilation CPU optimisation falgs (slower complie but faster run).
 * Changed the `overview_levels` argument of the `create_overviews()` function to `levels` for consistency. Also, `file_path` in `read_raster()` function.
 
 # Version 0.5.0
