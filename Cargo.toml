@@ -17,3 +17,9 @@ pathfinding = "4.14.0"
 ordered-float = "4.2.0"
 rayon = "1.10"  # or the latest version
 num_cpus = "1.16"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = 3 

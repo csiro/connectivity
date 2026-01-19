@@ -51,23 +51,21 @@ module load rust/1.84.1
 ```
 For local installation, you need to install Rust on your system.
 
-3- Build the package wheel:
+3- Complie and install the library:
 
-On Petrichor, you may enable CPU-specific optimizations for ~5–10% performance improvement:
-
-```bash
-RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+fma -C strip=symbols" maturin build --release
-```
-Or simply use the following on any system:
+Use the following to build a wheel, then istall it:
 
 ```bash
+# compile
 maturin build --release
+# install wiht pip
+pip install target/wheels/connectivity-*.whl
 ```
 
-4- Then find the wheel under `target/wheels/`, and install it with:
+Or, directly compile and install the library (in edit mode) via:
 
 ```bash
-pip install target/wheels/connectivity-*.whl
+maturin develop --release
 ```
 
 ## Data Preparation <a name="dataprep"></a>     
