@@ -119,7 +119,7 @@ Use the `create_overviews()` function to generate and embed overviews into the T
 create_overviews(
     input_raster = "raster_file.tif",
     output_raster = None, # keep None to update the file inplace
-    overview_levels = [2, 4, 8, 16, 32]
+    levels = [2, 4, 8, 16, 32]
 )
 ```
      

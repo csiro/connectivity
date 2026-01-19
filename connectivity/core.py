@@ -120,7 +120,7 @@ def connectedness(
 
     # Read condition raster overviews; this checks levels as well
     cond_dict, affine_dict, is_geo = read_raster(
-        file=condition_file,
+        file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
@@ -134,7 +134,7 @@ def connectedness(
     else:
         # Read PA raster overviews; this checks levels as well
         pa_dict, _, _ = read_raster(
-            file=pa_file, 
+            file_path=pa_file, 
             polygon=polygon_mask, 
             levels=levels, 
             scale=s2, 
@@ -298,7 +298,7 @@ def beri(
 
     # Read raster overview as a dictionary; this checks levels as well.
     cond_dict, affine_dict, is_geo  = read_raster(
-        file=condition_file,
+        file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=scale, # only for condition raster
@@ -311,7 +311,7 @@ def beri(
     # Just get the cond_dict for the transgrids; Ignore the affine_dict
     # the scale parameter is not used here
     trans_grids = [
-        read_raster(file=i, polygon=polygon_mask, levels=levels, closed=closed_border, expand_px=outer_window)[0]
+        read_raster(file_path=i, polygon=polygon_mask, levels=levels, closed=closed_border, expand_px=outer_window)[0]
         for i in future_files
     ]
     

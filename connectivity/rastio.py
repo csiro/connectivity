@@ -13,7 +13,7 @@ from .utils import guess_geographic, round_to_pow2
 def create_overviews(
         input_raster: str, 
         output_raster: str | None = None, 
-        overview_levels: list[int] = [2, 4, 8, 16, 32]
+        levels: list[int] = [2, 4, 8, 16, 32]
     ):
     """Reads a raster file and saves it with overviews at specified levels,
     using rasterio.
@@ -22,7 +22,7 @@ def create_overviews(
         input_raster (str): Path to the input raster file
         output_raster (str, optional): Path to the output raster file. If None,
             overviews are added to the input file in-place.
-        overview_levels (list, optional): List of overview decimation factors to
+        levels (list, optional): List of overview decimation factors to
             generate (e.g., [2, 4, 8, 16, 32]). Default is [2, 4, 8, 16, 32],
             but levels <= 1 are ignored for overview creation.
         
@@ -31,10 +31,10 @@ def create_overviews(
     """
 
     # rasterio expects factors > 1
-    overview_levels = [round_to_pow2(lvl) for lvl in overview_levels if lvl > 1]
+    levels = [round_to_pow2(lvl) for lvl in levels if lvl > 1]
 
-    if not overview_levels:
-        raise ValueError("overview_levels must contain values > 1.")
+    if not levels:
+        raise ValueError("levels must contain values > 1.")
 
     try:
         # If output file is specified, make a copy of the input file first
@@ -54,11 +54,11 @@ def create_overviews(
 
         # Open the target raster in read/write mode
         with rasterio.open(target_raster, "r+") as dst:
-            print(f"Building overviews with levels: {overview_levels}")
+            print(f"Building overviews with levels: {levels}")
             print(f"Using resampling method: average")
 
             # Build the overviews
-            dst.build_overviews(overview_levels, resampling=Resampling.average)
+            dst.build_overviews(levels, resampling=Resampling.average)
 
             # Optional: store resampling method in tags (rasterio convention)
             dst.update_tags(ns="rio_overview", resampling="average")
@@ -67,6 +67,33 @@ def create_overviews(
 
     except Exception as e:
         print(f"Error creating overviews: {e}")
+
+
+def has_overview(file_path: str, levels: list = None) -> bool:
+    """Check if specified overview levels exist for all bands.
+     
+    Parameters:
+    - file_path (str): Path to the TIF/raster file.
+    - levels (list): Overview levels to check for (e.g., [2, 4, 8, 16])
+    
+    Returns:
+    - bool: True if all specified levels exist for all bands
+    """
+    if levels is None:
+        raise ValueError("levels parameter is required")
+    
+    with rasterio.open(file_path) as ds:
+        for band in range(1, ds.count + 1):
+            overviews = ds.overviews(band)
+            if not overviews:
+                print(f"No overview for band {band}.")
+                return False
+            if not set(levels).issubset(set(overviews)):
+                print(f"Band {band} does not contain the required overviews.")
+                print(f"Band {band} has overviews: {overviews}, needs: {levels}")
+                return False
+            
+        return True
 
 
 def overview_info(file_path: str):
@@ -99,35 +126,8 @@ def overview_info(file_path: str):
                 print(f"  Level {level}: {w} x {h}")
 
 
-def has_overview(file_path: str, levels: list = None) -> bool:
-    """Check if specified overview levels exist for all bands.
-     
-    Parameters:
-    - file_path (str): Path to the TIF/raster file.
-    - levels (list): Overview levels to check for (e.g., [2, 4, 8, 16])
-    
-    Returns:
-    - bool: True if all specified levels exist for all bands
-    """
-    if levels is None:
-        raise ValueError("levels parameter is required")
-    
-    with rasterio.open(file_path) as ds:
-        for band in range(1, ds.count + 1):
-            overviews = ds.overviews(band)
-            if not overviews:
-                print(f"No overview for band {band}.")
-                return False
-            if not set(levels).issubset(set(overviews)):
-                print(f"Band {band} does not contain the required overviews.")
-                print(f"Band {band} has overviews: {overviews}, needs: {levels}")
-                return False
-            
-        return True
-
-
 def read_raster(
-        file: str,
+        file_path: str,
         polygon: gpd.GeoDataFrame | None = None,
         levels: list[int] | None = None, 
         scale: float | None = None, 
@@ -138,7 +138,7 @@ def read_raster(
     and stores them in a dictionary.
 
     Parameters:
-    - file (str): Path to the GoeTIFF or raster file with overviews.
+    - file_path (str): Path to the GoeTIFF or raster file with overviews.
     - polygon (GeoPandas):
     - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
     - scale (float or None): Scaling factor. If None, 0, or 1, the data is returned unchanged; otherwise it is divided by scale.
@@ -155,7 +155,7 @@ def read_raster(
         raise ValueError("expand_px must be larger than 1.")
     
     # Get overview levels, and the bbox geometry
-    with rasterio.open(file) as src:
+    with rasterio.open(file_path) as src:
         # Is the crs geographic or projected?
         try:
             is_geo = guess_geographic(src) if src.crs is None else src.crs.is_geographic
@@ -189,7 +189,7 @@ def read_raster(
                 raise ValueError(f"Overview level {level} not found in the dataset.")
             
             index = i - 1 # index -1 is the original resolution
-            with rasterio.open(file, overview_level=index, resampling=Resampling.average) as dataset:
+            with rasterio.open(file_path, overview_level=index, resampling=Resampling.average) as dataset:
                 level_transform = dataset.transform
                 # Read the masked data
                 data = dataset.read(masked=True)
@@ -211,7 +211,7 @@ def read_raster(
             # Max level to get the correct buffered area that includes all required pixels for the neighbours
             max_level = len(overviews) - 1 # needs the index of the last one
             # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
-            with rasterio.open(file, overview_level=max_level) as src:
+            with rasterio.open(file_path, overview_level=max_level) as src:
                 if polygon.crs != src.crs:
                     print("Transforming polyong CRS to match the raster file.")
                     polygon = polygon.to_crs(src.crs)
@@ -236,7 +236,7 @@ def read_raster(
             
             index = i - 1            
             # Read data using desired level
-            with rasterio.open(file, overview_level=index, resampling=Resampling.average) as dataset:
+            with rasterio.open(file_path, overview_level=index, resampling=Resampling.average) as dataset:
                 # Step 1: Mask with buffered geometry (for extent) of the coarsest level i.e. 32
                 out_image, out_transform = mask(
                     dataset,
