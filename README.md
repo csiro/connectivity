@@ -1,17 +1,18 @@
 # connectivity: a multi-resolution landscape connectivity algorithm
 
+- Table of Content: <a name="top"></a>  
 - [connectivity: a multi-resolution landscape connectivity algorithm](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
-  - [Installation ](#installation-)
-    - [Create or load a Python environment ](#create-or-load-a-python-environment-)
-    - [Compile and install the Rust library ](#compile-and-install-the-rust-library-)
-  - [Data Preparation ](#data-preparation-)
-    - [Inspecting Overview Information ](#inspecting-overview-information-)
-    - [Creating Overviews ](#creating-overviews-)
-  - [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
-    - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
-    - [PARC-Connectedness ](#parc-connectedness-)
-    - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
-  - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+- [Installation ](#installation-)
+  - [Create or load a Python environment ](#create-or-load-a-python-environment-)
+  - [Compile and install the Rust library ](#compile-and-install-the-rust-library-)
+- [Data Preparation ](#data-preparation-)
+  - [Inspecting Overview Information ](#inspecting-overview-information-)
+  - [Creating Overviews ](#creating-overviews-)
+- [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
+  - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
+  - [PARC-Connectedness ](#parc-connectedness-)
+  - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
+- [Running Analysis with Tiles ](#running-analysis-with-tiles-)
 
 A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness (Connected-Habitat)*, *PARC Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
 
@@ -82,7 +83,7 @@ from connectivity import overview_info, create_overviews
 You can inspect the overview metadata of a TIFF file using the `overview_info()` function:
 
 ```python
-overview_info(grids)
+overview_info("raster_file.tif")
 ```
 ```
 File: ../data/transgrids/1990.tif
@@ -254,3 +255,5 @@ connd = connectedness(
 ```
 
 Then you can then merge the tiles for a complete raster.
+
+[back to top](#top)
