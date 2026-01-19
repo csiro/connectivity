@@ -121,6 +121,8 @@ create_overviews(
 Optionally, you can use **GDAL** directly to create raster overviews using the `average` resampling method:
 
 ```bash
+module load gdal/3.12.1
+
 gdal raster overview add --resampling=average --levels=2,4,8,16,32 file.tif
 ```
      
@@ -142,7 +144,7 @@ Or refresh the existing overviews using `average` resampling method:
 gdal raster overview refresh --resampling=average file.tif
 ```
     
-## Connectivity Analysis (Connectedness and BERI) <a name="analysis"></a>     
+## Connectivity Analysis <a name="analysis"></a>     
 To bound the spatial extent of the connectivity calculation, the algorithm limits how far it searches across neighboring cells in the condition raster. The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
 `max_distance = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search distance is:
       
@@ -250,4 +252,4 @@ connd = connectedness(
 
 Then you can then merge the tiles for a complete raster.
 
-[back to top](#top)
+[Back to top!](#top)
