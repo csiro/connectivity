@@ -1,12 +1,25 @@
-## connectivity: a multi-resolution landscape connectivity algorithm
+# connectivity: a multi-resolution landscape connectivity algorithm
+
+- [connectivity: a multi-resolution landscape connectivity algorithm](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
+  - [Installation ](#installation-)
+    - [Create or load a Python environment ](#create-or-load-a-python-environment-)
+    - [Compile and install the Rust library ](#compile-and-install-the-rust-library-)
+  - [Data Preparation ](#data-preparation-)
+    - [Inspecting Overview Information ](#inspecting-overview-information-)
+    - [Creating Overviews ](#creating-overviews-)
+  - [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
+    - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
+    - [PARC-Connectedness ](#parc-connectedness-)
+    - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
+  - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
 
 A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness (Connected-Habitat)*, *PARC Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
 
 This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs, or any raster format with overview structure). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
 
-### Installation
-#### Create or load a Python environment
-You need to load the module and create an environment if you don't alreay have one.
+## Installation <a name="install"></a>     
+### Create or load a Python environment <a name="env"></a>     
+You need to load the Python module and create an environment if you don't alreay have one. If you alrady have an envirnment with `rasterio`, `scipay` and `geopandas`, ignore this step and just activate the environment.
 
 ```bash
 module load python/3.12.3
@@ -24,28 +37,29 @@ source ~/myenv/bin/activate
 python -m venv ~/myenv --system-site-packages
 ```
 
-#### Load the Rust module, build a wheel, and install:
+### Compile and install the Rust library <a name="rust"></a>     
 
-1- Navigate to the repo
+1- Navigate to the repo:
 ```bash
 cd ~/connectivity
 ```
 
-2- Load the Rust module on HPC
+2- Load the Rust module on HPC:
 
 ```bash
 module load rust/1.84.1
 ```
 For local installation, you need to install Rust on your system.
 
-3- Build the package wheele
+3- Build the package wheel:
 
-On Petrichor, you may enable CPU-specific optimizations for approximately 5–10% performance improvement:
+On Petrichor, you may enable CPU-specific optimizations for ~5–10% performance improvement:
 
 ```bash
 RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+fma -C strip=symbols" maturin build --release
 ```
-Or use the following on other systems:
+Or simply use the following on any system:
+
 ```bash
 maturin build --release
 ```
@@ -56,13 +70,15 @@ maturin build --release
 pip install target/wheels/connectivity-*.whl
 ```
 
-### Example
+## Data Preparation <a name="dataprep"></a>     
+### Inspecting Overview Information <a name="overinfo"></a>     
+
+You need raster files with overview to be able to run connectivity analysis. Here is the steps to check and create appropriate overview layers.
 
 ```python
-from connectivity import overview_info, create_overviews, connectedness, beri
+from connectivity import overview_info, create_overviews
 ```
 
-**1. Inspecting Overview Information**    
 You can inspect the overview metadata of a TIFF file using the `overview_info()` function:
 
 ```python
@@ -96,7 +112,7 @@ Overview Information:
   Band 1 overviews: []
 ```
 
-**2. Creating Overviews**     
+### Creating Overviews <a name="overgen"></a>    
 Use the `create_overviews()` function to generate and embed overviews into the TIFF file:
 
 ```python
@@ -110,7 +126,7 @@ create_overviews(
 Optionally, you can use **GDAL** directly to create raster overviews using the `average` resampling method:
 
 ```bash
-gdal raster overview add --resampling average --levels=2,4,8,16,32 file.tif
+gdal raster overview add --resampling=average --levels=2,4,8,16,32 file.tif
 ```
      
 ⚠️ Important: If a raster file already contains overviews generated with an inappropriate resampling method (e.g., `nearest`), the `create_overviews()` function may not regenerate overview levels that already exist.
@@ -128,12 +144,11 @@ gdal raster overview delete file.tif
 Or refresh the existing overviews using `average` resampling method:
      
 ```bash
-gdal raster overview refresh --resampling average file.tif
+gdal raster overview refresh --resampling=average file.tif
 ```
     
-**3. Calculating connectedness or BERI**   
-
-The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
+## Connectivity Analysis (Connectedness and BERI) <a name="analysis"></a>     
+To bound the spatial extent of the connectivity calculation, the algorithm limits how far it searches across neighboring cells in the condition raster. The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
 `max_distance = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search distance is:
       
 ```text
@@ -142,12 +157,16 @@ distance = outer_window × max_level × resolution
          = 352 km  
 ```    
 
-**Connected Habitat (Connectedness):**   
+### Connected Habitat (Connectedness) <a name="conn"></a>    
+
 To compute connected-habitat (or plain connectedness), you only need a habitat condition raster. Use `option` argument to generate the connected-habitat from connectedness and input condition with:    
 1. `connectedness`
 2. `connectedness * condition`
 3. `sqrt(connectedness * condition)` — geometric mean (default)
 
+```python
+from connectivity import connectedness, beri
+```
 
 ```python
 connd = connectedness(
@@ -163,7 +182,7 @@ connd = connectedness(
 )
 ```
 
-**PARC-Connectedness:**    
+### PARC-Connectedness <a name="parc"></a>     
 To compute PARC-connectedness, provide both:
 * a habitat condition raster, and
 * a protected-areas proportion raster.    
@@ -184,7 +203,7 @@ parcc = connectedness(
 )
 ```
 
-**BERI:**    
+### Bioclimatic Ecosystem Resilience Index (BERI) <a name="beri"></a>    
 To compute BERI, you must provide:
 * a condition raster
 * current GDM transgrids
@@ -205,7 +224,7 @@ beris = beri(
 )
 ```
 
-### Running the analysis with tiles
+## Running Analysis with Tiles <a name="tiles"></a>    
 
 To run the model using tiles, you can supply a rectangular tile polygon as a GeoDataFrame to the `polygon_mask` argument. This limits data loading to only the portion required for the tile (i.e., the pixels within the tile plus a buffered neighborhood).
 
@@ -234,4 +253,4 @@ connd = connectedness(
 )
 ```
 
-Then you can merge the tiles for a complete raster.
+Then you can then merge the tiles for a complete raster.
