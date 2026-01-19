@@ -11,7 +11,8 @@
     - [PARC-Connectedness ](#parc-connectedness-)
     - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
 4. [Running Analysis with Tiles ](#running-analysis-with-tiles-)
-
+     
+    
 A multi-resolution landscape connectivity algorithm for calculating **Habitat Connectedness (Connected-Habitat)**, **PARC Connectedness** and the **Bioclimatic Ecosystem Resilience Index (BERI)**.
 
 This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs, or any raster format with overview structure). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
