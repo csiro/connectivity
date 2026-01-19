@@ -1,26 +1,25 @@
-# connectivity: a multi-resolution landscape connectivity algorithm
+# connectivity: a multi-resolution landscape connectivity algorithm <a name="top"></a> 
 
-- Table of Content: <a name="top"></a>  
-- [connectivity: a multi-resolution landscape connectivity algorithm](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
-- [Installation ](#installation-)
-  - [Create or load a Python environment ](#create-or-load-a-python-environment-)
-  - [Compile and install the Rust library ](#compile-and-install-the-rust-library-)
-- [Data Preparation ](#data-preparation-)
+[connectivity: a multi-resolution landscape connectivity algorithm](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
+1. [Installation ](#installation-)
+  - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
+  - [Compile and Install the Rust Library ](#compile-and-install-the-rust-library-)
+2. [Data Preparation ](#data-preparation-)
   - [Inspecting Overview Information ](#inspecting-overview-information-)
   - [Creating Overviews ](#creating-overviews-)
-- [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
+3. [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
   - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
   - [PARC-Connectedness ](#parc-connectedness-)
   - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
-- [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+4. [Running Analysis with Tiles ](#running-analysis-with-tiles-)
 
 A multi-resolution landscape connectivity algorithm for calculating *Habitat Connectedness (Connected-Habitat)*, *PARC Connectedness* and the *Bioclimatic Ecosystem Resilience Index (BERI)*.
 
 This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs, or any raster format with overview structure). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
 
 ## Installation <a name="install"></a>     
-### Create or load a Python environment <a name="env"></a>     
-You need to load the Python module and create an environment if you don't alreay have one. If you alrady have an envirnment with `rasterio`, `scipay` and `geopandas`, ignore this step and just activate the environment.
+### Create or Load a Python Environment <a name="env"></a>     
+You need to load the Python module and create an environment if you don't alreay have one. If you alrady have an envirnment with `rasterio`, `scipay` and `geopandas`, ignore this step and just activate your environment.
 
 ```bash
 module load python/3.12.3
@@ -38,7 +37,7 @@ source ~/myenv/bin/activate
 python -m venv ~/myenv --system-site-packages
 ```
 
-### Compile and install the Rust library <a name="rust"></a>     
+### Compile and Install the Rust Library <a name="rust"></a>     
 
 1- Navigate to the repo:
 ```bash
