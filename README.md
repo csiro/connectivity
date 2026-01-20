@@ -180,6 +180,8 @@ connd = connectedness(
 )
 ```
 
+![](figs/condition.png)
+
 ### PARC-Connectedness <a name="parc"></a>     
 To compute PARC-connectedness, provide both:
 * a habitat condition raster, and
@@ -201,6 +203,8 @@ parcc = connectedness(
 )
 ```
 
+<img src="figs/parc.png" width="385" height="300">
+
 ### Bioclimatic Ecosystem Resilience Index (BERI) <a name="beri"></a>    
 To compute BERI, you must provide:
 * a condition raster
@@ -221,6 +225,8 @@ beris = beri(
     filename = "./results/berri.tif"
 )
 ```
+<img src="figs/beri.png" width="385" height="300">
+
 
 ## Running Analysis with Tiles <a name="tiles"></a>    
 
