@@ -6,7 +6,7 @@
 2. [Data Preparation ](#data-preparation-)
     - [Inspecting Overview Information ](#inspecting-overview-information-)
     - [Creating Overviews ](#creating-overviews-)
-3. [Connectivity Analysis (Connectedness and BERI) ](#connectivity-analysis-connectedness-and-beri-)
+3. [Connectivity Analysis ](#connectivity-analysis)
     - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
     - [PARC-Connectedness ](#parc-connectedness-)
     - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
