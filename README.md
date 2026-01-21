@@ -119,10 +119,10 @@ To compute connected-habitat (or plain connectedness), you only need a habitat c
 connd = connectedness(
     condition_file = "./data/condition.tif",
     lambdas = [2, 20, 200],
-    max_cost = 2.0, 
-    window_size = 5, 
+    max_cost = 2.0,
+    window_size = 5,
     outer_window = 11,
-    levels = [2, 4, 8, 16, 32], 
+    levels = [2, 4, 8, 16, 32],
     sigma = 1,
     option = 3,
     filename = "./results/connected_habitat.tif"

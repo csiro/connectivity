@@ -9,9 +9,9 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=mathew.vickers@csiro.au
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
-#SBATCH --time=55:00:00
-#SBATCH --mem=20G
+#SBATCH --cpus-per-task=64
+#SBATCH --time=04:00:00
+#SBATCH --mem=100G
 #SBATCH --output=/scratch3/vic039/logs/koala_job_%A_%a.out
 #SBATCH --error=/scratch3/vic039/logs/koala_job_%A_%a.err
 #SBATCH --signal=B:TERM@120
