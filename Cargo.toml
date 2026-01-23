@@ -1,6 +1,6 @@
 [package]
 name = "rust_conn"
-version = "0.4.2"
+version = "0.6.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,3 +17,9 @@ pathfinding = "4.14.0"
 ordered-float = "4.2.0"
 rayon = "1.10"  # or the latest version
 num_cpus = "1.16"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = 3 

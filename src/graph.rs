@@ -14,6 +14,7 @@ pub struct EdgeData {
 }
 
 /// The multi-resolution graph type
+/// struct { HashMap<(source, destination), EdgeData>, source-node }
 #[derive(Debug, Clone)]
 pub struct Graph {
     pub data: HashMap<(u32, u32), EdgeData>,
@@ -62,8 +63,6 @@ impl Graph {
 
 
 /// Add edges to neighboring cells; if a source is isolated, adds a synthetic edge.
-/// output graph: (u, v) (adj_cond, cond, dist, similarities)
-/// u: source, v: destination
 impl Graph {
     #[inline]
     pub fn neighbours(
@@ -98,7 +97,6 @@ impl Graph {
                 let w: f32 = (1.0 - factor) * z + factor;
     
                 // Store weighted distance + similarities
-                // self.add_node((u, v), (w * dist, z, dist, s.clone()));
                 self.add_node(
                     (u, v), 
                     EdgeData {
@@ -145,8 +143,6 @@ impl Graph {
 
 
 /// Process connections to the next level (e.g. from level 2 to level 4)
-/// output graph: (u, v) (adj_cond, cond, dist, similarities)
-/// u: source, v: destination
 impl Graph {
     #[inline]
     pub fn fringe(
