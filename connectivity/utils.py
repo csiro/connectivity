@@ -1,5 +1,6 @@
 from scipy.ndimage import gaussian_filter
 import numpy as np
+import rasterio
 from rasterio.windows import from_bounds
 from rasterio.transform import Affine
 from rasterio.features import geometry_mask
@@ -31,6 +32,23 @@ def check_grids(x, y):
     x_shape = x if isinstance(x, tuple) else x.shape
     y_shape = y if isinstance(y, tuple) else y.shape
     return x_shape[:2] == y_shape[:2]
+
+
+# Get the common levels
+def common_levels(a, b):
+    with rasterio.open(a) as ds1, rasterio.open(b) as ds2:
+        over1 = ds1.overviews(1)
+        over2 = ds2.overviews(1)
+
+    levels = []
+    for x, y in zip(over1, over2):
+        if x == y:
+            levels.append(x)
+        else:
+            break
+    
+    print(f"Using {levels} levels for connectivity analysis.")
+    return levels
 
 
 def guess_geographic(src):

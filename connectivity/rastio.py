@@ -161,7 +161,7 @@ def read_raster(
             is_geo = guess_geographic(src) if src.crs is None else src.crs.is_geographic
         except Exception as e:
             raise RuntimeError(f"Error reading CRS info: {e}")
-        # Read the overviews
+        # Read and check the overviews
         overviews = src.overviews(1)
         if not overviews:
             raise ValueError("The dataset does not contain any overviews.")
@@ -209,7 +209,8 @@ def read_raster(
             extent_geoms = orig_geoms
         else:
             # Max level to get the correct buffered area that includes all required pixels for the neighbours
-            max_level = len(overviews) - 1 # needs the index of the last one
+            # using level here not overview, as some file might have extra levels
+            max_level = len(levels) - 2 # one for level-1, and one for index of the over len
             # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
             with rasterio.open(file_path, overview_level=max_level) as src:
                 if polygon.crs != src.crs:

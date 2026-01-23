@@ -1,8 +1,9 @@
 import numpy as np
 import geopandas as gpd
+import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
-from .utils import check_grids, smoothing_filter, fn, crop_array
+from .utils import check_grids, smoothing_filter, fn, crop_array, common_levels
 
 
 # Connectedness main funciton
@@ -118,6 +119,19 @@ def connectedness(
     else:
         s1, s2 = scale, None
 
+    # An early check for the overall shapes of grids.
+    if pa_file is not None:
+        if levels is None:
+            levels = common_levels(condition_file, pa_file)
+
+        if polygon_mask is None:
+            # Only check when no masks; grids could have differnce shape but the masked version could be identical.
+            with rasterio.open(condition_file) as ds1, rasterio.open(pa_file) as ds2:
+                if ds1.shape != ds2.shape:
+                    raise ValueError(
+                        f"Shape mismatch: {condition_file} {ds1.shape} vs {pa_file} {ds2.shape}"
+                    )
+
     # Read condition raster overviews; this checks levels as well
     cond_dict, affine_dict, is_geo = read_raster(
         file_path=condition_file,
@@ -144,7 +158,7 @@ def connectedness(
         # Ensure both dictionaries have the same keys
         if cond_dict.keys() != pa_dict.keys():
             raise ValueError("Input condition and PA date do not have identical overviews.")
-        # Ensure dimension of the girds the same
+        # Ensure dimension of the read arrays the same
         if not check_grids(cond_dict[1], pa_dict[1]):
             raise(ValueError("The shape of the condition and PA data doesn't match."))
         
@@ -292,9 +306,23 @@ def beri(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
-    # get only one scale if confused with connectedness function
+    # Get only one scale if confused with connectedness function
     if isinstance(scale, tuple):
         scale = scale[0]
+
+    # Check for common levels
+    if levels is None:
+        levels = common_levels(condition_file, current_file)
+
+    # An early check for the overall shapes of grids.
+    if polygon_mask is not None:
+        # Only check when no masks; grids could have differnce shape but the masked version could be identical.
+        for src in future_files:
+            with rasterio.open(condition_file) as ds1, rasterio.open(src) as ds2:
+                if ds1.shape != ds2.shape:
+                    raise ValueError(
+                        f"Shape mismatch: {condition_file} {ds1.shape} vs {src} {ds2.shape}"
+                    )
 
     # Read raster overview as a dictionary; this checks levels as well.
     cond_dict, affine_dict, is_geo  = read_raster(
@@ -315,14 +343,14 @@ def beri(
         for i in future_files
     ]
     
-    # Ensure dimension of the girds the same
+    # Ensure dimension of the read arrays the same
     if not check_grids(cond_dict[1], trans_grids[0][1]):
         raise(ValueError("The shape of the condition and transgrids doesn't match."))
 
     # The base Rust connectivity funciton
     out_array = connectivity(
         condition = cond_dict,
-        pa_array = None,             # only use for PARC-connectedness; keep None otherwise
+        pa_array = None,             # only used for PARC-connectedness;
         transgrid_list = trans_grids,
         transforms = affine_dict,
         lambdas = lambdas, 
