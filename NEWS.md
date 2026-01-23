@@ -1,6 +1,6 @@
 # Version 0.6.1
 * Fixed a bug for reading files with different overview levels.
-* Added additional early checks for grid shapes.
+* Added additional early checks for grid shapes and values.
 
 # Version 0.6.0
 * Added `closed_border` argument to control whether cells outside the mask are excluded from the analysis.

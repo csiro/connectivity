@@ -142,6 +142,10 @@ def connectedness(
         expand_px=outer_window # * max_level?
     )
 
+    # Extra check and return early if condition is all NA; e.g. in a tile
+    if np.isnan(cond_dict.get(1)).all():
+        return cond_dict.get(1)
+
     # Process PA-array for PARC-connectedness
     if pa_file is None:
         pa_mask = None
@@ -333,6 +337,10 @@ def beri(
         closed=closed_border,
         expand_px=outer_window
     )
+
+    # Extra check and return early if condition is all NA; e.g. in a tile
+    if np.isnan(cond_dict.get(1)).all():
+        return cond_dict.get(1)
 
     # Insert current climate as the first element in the list (this is important) before reading
     future_files.insert(0, current_file)
