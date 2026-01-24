@@ -144,58 +144,58 @@ def connectedness(
 
     # Extra check and return early if condition is all NA; e.g. in a tile
     if np.isnan(cond_dict.get(1)).all():
-        return cond_dict.get(1)
-
-    # Process PA-array for PARC-connectedness
-    if pa_file is None:
-        pa_mask = None
+        out_array = cond_dict.get(1)
     else:
-        # Read PA raster overviews; this checks levels as well
-        pa_dict, _, _ = read_raster(
-            file_path=pa_file, 
-            polygon=polygon_mask, 
-            levels=levels, 
-            scale=s2, 
-            closed=closed_border,
-            expand_px=outer_window
+        # Process PA-array for PARC-connectedness
+        if pa_file is None:
+            pa_mask = None
+        else:
+            # Read PA raster overviews; this checks levels as well
+            pa_dict, _, _ = read_raster(
+                file_path=pa_file, 
+                polygon=polygon_mask, 
+                levels=levels, 
+                scale=s2, 
+                closed=closed_border,
+                expand_px=outer_window
+            )
+            # Ensure both dictionaries have the same keys
+            if cond_dict.keys() != pa_dict.keys():
+                raise ValueError("Input condition and PA date do not have identical overviews.")
+            # Ensure dimension of the read arrays the same
+            if not check_grids(cond_dict[1], pa_dict[1]):
+                raise(ValueError("The shape of the condition and PA data doesn't match."))
+            
+            # Update the condition dict with the max(c, p) for each cell in each level
+            for k in cond_dict:
+                cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
+
+            # Filter for protected areas, prop > 0 or NaN; and any NaN in condition stays NaN;
+            pa_mask = np.where((pa_dict[1] > 0) & ~np.isnan(cond_dict[1]), 1.0, np.nan).astype(np.float32)
+
+        # The base Rust connectivity funciton
+        conn_array = connectivity(
+            condition = cond_dict,
+            pa_array = pa_mask,
+            transgrid_list = [{}], # empty dict-list to compute connectedness in Rust, insead of BERI
+            transforms = affine_dict,
+            lambdas = lambdas,
+            is_geo = is_geo,
+            max_cost = max_cost,
+            window_size = window_size,
+            outer_window = outer_window,
+            n_threads = n_threads,
         )
-        # Ensure both dictionaries have the same keys
-        if cond_dict.keys() != pa_dict.keys():
-            raise ValueError("Input condition and PA date do not have identical overviews.")
-        # Ensure dimension of the read arrays the same
-        if not check_grids(cond_dict[1], pa_dict[1]):
-            raise(ValueError("The shape of the condition and PA data doesn't match."))
-        
-        # Update the condition dict with the max(c, p) for each cell in each level
-        for k in cond_dict:
-            cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
 
-        # Filter for protected areas, prop > 0 or NaN; and any NaN in condition stays NaN;
-        pa_mask = np.where((pa_dict[1] > 0) & ~np.isnan(cond_dict[1]), 1.0, np.nan).astype(np.float32)
+        # Smooth the output array with Gaussian filtering
+        if sigma is not None and sigma != 0:
+            conn_array = smoothing_filter(conn_array, sigma=max(sigma, 1))
 
-    # The base Rust connectivity funciton
-    conn_array = connectivity(
-        condition = cond_dict,
-        pa_array = pa_mask,
-        transgrid_list = [{}], # empty dict-list to compute connectedness in Rust, insead of BERI
-        transforms = affine_dict,
-        lambdas = lambdas,
-        is_geo = is_geo,
-        max_cost = max_cost,
-        window_size = window_size,
-        outer_window = outer_window,
-        n_threads = n_threads,
-    )
-
-    # Smooth the output array with Gaussian filtering
-    if sigma is not None and sigma != 0:
-        conn_array = smoothing_filter(conn_array, sigma=max(sigma, 1))
-
-    # Calculate the connected-habitat or just return the PARC-connectedness
-    if pa_file is None:
-        out_array = fn(conn_array, cond_dict[1], option=option)
-    else:
-        out_array = conn_array
+        # Calculate the connected-habitat or just return the PARC-connectedness
+        if pa_file is None:
+            out_array = fn(conn_array, cond_dict[1], option=option)
+        else:
+            out_array = conn_array
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask
@@ -340,38 +340,38 @@ def beri(
 
     # Extra check and return early if condition is all NA; e.g. in a tile
     if np.isnan(cond_dict.get(1)).all():
-        return cond_dict.get(1)
+        out_array =  cond_dict.get(1)
+    else:
+        # Insert current climate as the first element in the list (this is important) before reading
+        future_files.insert(0, current_file)
+        # Just get the cond_dict for the transgrids; Ignore the affine_dict
+        # the scale parameter is not used here
+        trans_grids = [
+            read_raster(file_path=i, polygon=polygon_mask, levels=levels, closed=closed_border, expand_px=outer_window)[0]
+            for i in future_files
+        ]
+        
+        # Ensure dimension of the read arrays the same
+        if not check_grids(cond_dict[1], trans_grids[0][1]):
+            raise(ValueError("The shape of the condition and transgrids doesn't match."))
 
-    # Insert current climate as the first element in the list (this is important) before reading
-    future_files.insert(0, current_file)
-    # Just get the cond_dict for the transgrids; Ignore the affine_dict
-    # the scale parameter is not used here
-    trans_grids = [
-        read_raster(file_path=i, polygon=polygon_mask, levels=levels, closed=closed_border, expand_px=outer_window)[0]
-        for i in future_files
-    ]
-    
-    # Ensure dimension of the read arrays the same
-    if not check_grids(cond_dict[1], trans_grids[0][1]):
-        raise(ValueError("The shape of the condition and transgrids doesn't match."))
+        # The base Rust connectivity funciton
+        out_array = connectivity(
+            condition = cond_dict,
+            pa_array = None,             # only used for PARC-connectedness;
+            transgrid_list = trans_grids,
+            transforms = affine_dict,
+            lambdas = lambdas, 
+            is_geo = is_geo,
+            max_cost = max_cost,
+            window_size = window_size,
+            outer_window = outer_window,
+            n_threads = n_threads,
+        )
 
-    # The base Rust connectivity funciton
-    out_array = connectivity(
-        condition = cond_dict,
-        pa_array = None,             # only used for PARC-connectedness;
-        transgrid_list = trans_grids,
-        transforms = affine_dict,
-        lambdas = lambdas, 
-        is_geo = is_geo,
-        max_cost = max_cost,
-        window_size = window_size,
-        outer_window = outer_window,
-        n_threads = n_threads,
-    )
-
-    # Smooth the output array with Gaussian filtering
-    if sigma is not None and sigma != 0:
-        out_array = smoothing_filter(out_array, sigma=max(sigma, 1))
+        # Smooth the output array with Gaussian filtering
+        if sigma is not None and sigma != 0:
+            out_array = smoothing_filter(out_array, sigma=max(sigma, 1))
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask
