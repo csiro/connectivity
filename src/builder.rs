@@ -56,7 +56,7 @@ impl Graph {
                     // First level node mapping
                     let nm = create_node_mapping(levelwin, level);
                     // Find the base node index only once
-                    if let Some((_, (u, _, _))) = nm.get_key_value(&(i_base, j_base)) {
+                    if let Some((_, (u, _, _, _))) = nm.get_key_value(&(i_base, j_base)) {
                         graph_temp.source = *u;
                     }
         
@@ -120,10 +120,11 @@ impl Graph {
 
 /// Create node mapping (the unique ID of each node/pixel)
 /// This is done per level/resolution in a window;
+/// (i, j) (id, cond, count, sims)
 fn create_node_mapping(
     win: &FocalWindow,
     level: i32,
-) -> HashMap<(i32, i32), (u32, f32, Rc<Vec<Option<f32>>>)> {
+) -> HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)> {
     let level_id = level as u32 * 1000;
     let num_sims = win.sims.len();
 
@@ -136,8 +137,9 @@ fn create_node_mapping(
             sim_vals.push(sim_vec[idx]);
         }
         let sim_vals = Rc::new(sim_vals);
+        let node_id: u32 = idx as u32 + level_id;
 
-        mapping.insert((i_val, j_val), (idx as u32 + level_id, win.values[idx], sim_vals));
+        mapping.insert((i_val, j_val), (node_id, win.values[idx], win.counts[idx], sim_vals));
     }
 
     mapping

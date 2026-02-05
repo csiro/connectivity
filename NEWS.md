@@ -1,3 +1,6 @@
+# Version 0.7.0
+* Included habitat-area in connectivity calculations by using cell counts in each node.
+
 # Version 0.6.1
 * Fixed a bug for reading files with different overview levels.
 * Added additional early checks for grid shapes and values.

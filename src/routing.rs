@@ -76,12 +76,14 @@ pub fn path_distance(
 ) -> EdgeData {
     let mut dist_adjusted = 0.0;
     let mut last_condition = 0.0;
+    let mut last_num_cells = 1.0;
     let mut last_sims = Rc::new(Vec::new());
 
     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
         if let Some(edge) = graph.get(&(from, to)) {
             dist_adjusted += edge.geo_dist / (0.5 * edge.condition + 0.5);
             last_condition = edge.condition;
+            last_num_cells = edge.num_cells;
             last_sims = Rc::clone(&edge.similarities);
         }
     }
@@ -90,6 +92,7 @@ pub fn path_distance(
         adj_dist: dist_adjusted,
         geo_dist: dist_intact,
         condition: last_condition,
+        num_cells: last_num_cells,
         similarities: last_sims,
     }
 }
