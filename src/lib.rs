@@ -7,6 +7,7 @@ use numpy::{PyArray2, ToPyArray};
 use ndarray::{Array3, Array2};
 // local modules
 mod utils;
+mod overview;
 mod extract;
 mod window;
 mod builder;
@@ -22,8 +23,8 @@ use affine::Affine;
 /// Compute habitat/PARC connectivity and BERI.
 ///
 /// # Arguments
-/// * `condition` - 2D array of habitat-condition values in [0, 1]. Values may be
-///   pre-scaled; higher values represent better condition.
+/// * `condition` - 2D array of habitat-condition values in [0, 1]. Values are
+///   pre-scaled (Python-side); higher values represent better condition.
 /// * `pa_array` - Optional 2D array of protected-area (PA) proportions. If not `None`,
 ///   PARC-connectedness is computed; if `None`, only habitat connectedness is returned.
 /// * `transgrid_list` - List of transition / cost grids (one per resolution level) used
@@ -43,12 +44,13 @@ use affine::Affine;
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, pa_array, transgrid_list, transforms, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
+#[pyfunction(signature = (condition, pa_array, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
 fn connectivity(
     condition: &Bound<PyAny>,
     pa_array: &Bound<PyAny>,
     transgrid_list: &Bound<PyAny>,
     transforms: &Bound<PyAny>,
+    levels: Vec<usize>,
     lambdas: Vec<f32>,
     is_geo: bool,
     max_cost: f32,
@@ -57,8 +59,10 @@ fn connectivity(
     n_threads: Option<usize>,
 ) -> PyResult<Py<PyArray2<f32>>> {
 
-    // Create a Rust HashMap from Py data
-    let cond_map: HashMap<i32, Array2<f32>> = extract::to_2d_map(condition);
+    // Get the Numpy array
+    // let cond_array = extract::to_array(condition)?;
+    let cond_map: HashMap<i32, Array2<f32>> = extract::to_2d_map(condition); // TEMP
+    let cond_array = cond_map.get(&1).cloned(); // TEMP
 
     // Convert Python list into a native Rust Vec<HashMap<i32, Array3<f32>>>
     let list = transgrid_list.downcast::<PyList>()?; // Convert PyAny to PyList
@@ -73,20 +77,20 @@ fn connectivity(
     let override_array = extract::to_array(pa_array)?;
 
     // Set the number of cores for parallel processing with Rayon
-    // Use a local pool as a safe way in PyO3 contexts
+    // Use a local pool to safely control exact number of core
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(n_threads.unwrap_or(num_cpus::get()).max(1))
         .build()
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
  
     // Core connectivity function
     let outarray: Array2<f32> = pool
         .install(|| core::conn(
-            &cond_map,
+            &cond_array,
             &trans_maps,
             &transform_map,
             &override_array,
+            &levels,
             &lambdas,
             is_geo,
             max_cost,
@@ -103,9 +107,52 @@ fn connectivity(
 }
 
 
+
+// Testing the deves
+mod testing;
+use overview::Resampling;
+
+#[pyfunction(signature = (x, levels, key, average, n_threads=None))]
+fn testing_con(
+    x: &Bound<PyAny>,
+    levels: Vec<usize>,
+    key: i32,
+    average: bool,
+    n_threads: Option<usize>,
+) -> PyResult<Py<PyArray2<f32>>> {
+        // Get the Numpy array
+    // let cond_array = extract::to_array(condition)?;
+    let cond_map: HashMap<i32, Array2<f32>> = extract::to_2d_map(x);
+    let raster = cond_map.get(&1).cloned();
+
+    // Set the number of cores for parallel processing with Rayon
+    // Use a local pool to safely control exact number of core
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(n_threads.unwrap_or(num_cpus::get()).max(1))
+        .build()
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+ 
+    let resample = if average { Resampling::Average } else { Resampling::Count };
+    
+    // Core connectivity function
+    let outarray: Array2<f32> = pool
+        .install(|| testing::conn_test(&raster.unwrap(), &levels, key, resample))
+        .map_err(|er| PyRuntimeError::new_err(format!("Climsim failed: {er}")))?;
+
+
+    // Convert the array back to Python with gil
+    Python::with_gil(|py| {
+        let pyarray = outarray.to_pyarray_bound(py);
+        Ok(pyarray.unbind())
+    })
+}
+
+
+
 #[pymodule]
 fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction_bound!(connectivity, m)?)?;
+    m.add_function(wrap_pyfunction_bound!(testing_con, m)?)?;
     Ok(())
 }
 

@@ -1,5 +1,6 @@
 # Version 0.7.0
 * Included habitat-area in connectivity calculations by using cell counts in each node.
+* Added `anyhow` crate for cleaner error handling and moved core functionalities to a new module.
 
 # Version 0.6.1
 * Fixed a bug for reading files with different overview levels.

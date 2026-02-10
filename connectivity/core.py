@@ -1,9 +1,62 @@
 import numpy as np
 import geopandas as gpd
 import rasterio
-from rust_conn import connectivity
+from rust_conn import connectivity, testing_con
 from .rastio import read_raster, write_raster
 from .utils import check_grids, smoothing_filter, fn, crop_array, common_levels
+
+
+
+from rasterio.enums import Resampling
+
+# Connectedness main funciton
+def get_overviews(
+        raster_file: str,
+        levels = [2, 4, 8, 16, 32],
+        key = 1,
+        average = True,
+        n_threads = None,
+        filename: str = ""
+    ):
+    """Testing function
+    """
+    # Read condition raster overviews; this checks levels as well
+    cond_dict, affine_dict, is_geo = read_raster(
+        file_path=raster_file,
+        levels=levels,
+    )
+
+    levels = sorted(set(levels) | {1})
+    # Extra check and return early if condition is all NA; e.g. in a tile
+    if np.isnan(cond_dict.get(1)).all():
+        out_array = cond_dict.get(1)
+    else:
+        # The base Rust connectivity funciton
+        out_array = testing_con(
+            x = cond_dict,
+            levels = levels,
+            key = key,
+            average = average,
+            n_threads = n_threads,
+        )
+
+    with rasterio.open(
+        raster_file,
+        overview_level=3,
+        resampling=Resampling.average
+    ) as src:
+        profile = src.profile
+
+    if len(filename) > 3:
+        with rasterio.open(filename, "w", **profile) as dst:
+            dst.write(out_array, 1)
+
+    # # tr = affine_dict[key]
+    # if len(filename) > 3:
+    #     write_raster(out_array, outfile=filename, template=raster_file, transform=tr)
+
+    return out_array
+
 
 
 # Connectedness main funciton
@@ -179,6 +232,7 @@ def connectedness(
             pa_array = pa_mask,
             transgrid_list = [{}], # empty dict-list to compute connectedness in Rust, insead of BERI
             transforms = affine_dict,
+            levels = sorted(set(levels) | {1}), # needs checking round_to_pow2
             lambdas = lambdas,
             is_geo = is_geo,
             max_cost = max_cost,
@@ -361,6 +415,7 @@ def beri(
             pa_array = None,             # only used for PARC-connectedness;
             transgrid_list = trans_grids,
             transforms = affine_dict,
+            levels = sorted(set(levels) | {1}), # needs checking round_to_pow2
             lambdas = lambdas, 
             is_geo = is_geo,
             max_cost = max_cost,

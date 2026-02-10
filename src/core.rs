@@ -10,20 +10,23 @@ use crate::metrics;
 use crate::affine;
 use crate::graph;
 use crate::routing;
+use crate::overview;
 use affine::Affine;
 use window::FocalWindow;
 use graph::{Graph, EdgeData};
 use routing::{Path, GraphDijkstraExt};
+use overview::Resampling;
 
 
 /// Core connectivity function
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
 pub fn conn(
-    cond_map: &HashMap<i32, Array2<f32>>,
+    cond_array: &Option<Array2<f32>>,
     trans_maps: &[HashMap<i32, Array3<f32>>],
     transform_map: &HashMap<i32, Affine>,
     override_array: &Option<Array2<f32>>,
+    levels: &Vec<usize>,
     lambdas: &[f32],
     is_geo: bool,
     max_cost: f32,
@@ -34,18 +37,19 @@ pub fn conn(
     let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
     
     // Check condition dictionay was not empty and run the code for level 1 (original resolution)
-    if let Some(cond_array) = cond_map.get(&1) {
-        let (nrows, ncols) = (cond_array.shape()[0], cond_array.shape()[1]);
-        let num_levels = cond_map.len();
+    if let Some(cond_base) = cond_array {
+        let (nrows, ncols) = (cond_base.shape()[0], cond_base.shape()[1]);
+        let num_levels = levels.len();
 
-        // Calculate the cell counts as of SUM overview
-        let cell_weights = utils::count_cells(cond_map).expect("Failed to count cells.");
-
+        // Generate overviews
+        let cond_map = overview::make_overview(cond_base, levels, Resampling::Average).expect("Failed to count cells.");
+        // Calculate the cell counts for including habitat area contribution
+        let cell_weights = overview::make_overview(cond_base, levels, Resampling::Count).expect("Failed to count cells.");
         // Ensure cell-counts has the same keys and dimension as condition array map;
-        utils::check_dims(&cell_weights, cond_map)?;
+        utils::check_dims(&cell_weights, &cond_map)?;
 
         // Check for the existance of PA array to run PARC-conn
-        let array: &Array2<f32> = override_array.as_ref().unwrap_or(cond_array);
+        let array: &Array2<f32> = override_array.as_ref().unwrap_or(cond_base);
 
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
@@ -74,7 +78,7 @@ pub fn conn(
                             level,
                             window_size,
                             outer_window,
-                            cond_map,
+                            &cond_map,
                             trans_maps,
                             &ij_values,
                             &cell_weights,
@@ -139,3 +143,4 @@ pub fn conn(
         anyhow::bail!("No base level (key=1) in condition array");
     }  
 }
+

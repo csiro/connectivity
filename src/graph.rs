@@ -8,9 +8,9 @@ use crate::distances;
 #[derive(Debug, Clone)]
 pub struct EdgeData {
     pub adj_dist: f32,   // Condistion-adjusted distance
-    pub geo_dist: f32,   // Geo-distance
+    pub geo_dist: f32,   // Geo-distance; no condition adjustment
     pub condition: f32,  // Raw condition
-    pub num_cells: f32,  // Cell count/weight for habitat area
+    pub num_cells: f32,  // Original Cell count/weight for habitat area
     pub similarities: Rc<Vec<Option<f32>>>, // Similarity of the cell; all scenarios
 }
 

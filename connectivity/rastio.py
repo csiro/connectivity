@@ -200,8 +200,7 @@ def read_raster(
             if data_array.ndim > 2:
                 data_array = np.stack(data_array, axis=-1)
             data_dict[level] = data_array / scale if scale not in (None, 0, 1) else data_array
-            tran_dict[level] = tuple(level_transform)[:6]
-    
+            tran_dict[level] = tuple(level_transform)[:6]    
     # else read only padded polygon area 
     else:
         # Select a Geom for the max extent of the arrays

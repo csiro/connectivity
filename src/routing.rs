@@ -76,9 +76,10 @@ pub fn path_distance(
 ) -> EdgeData {
     let mut dist_adjusted = 0.0;
     let mut last_condition = 0.0;
-    let mut last_num_cells = 1.0;
+    let mut last_num_cells = 0.0;
     let mut last_sims = Rc::new(Vec::new());
 
+    // Loop through nodes in a path to the target node/segment
     for (from, to) in path.windows(2).map(|w| (w[0], w[1])) {
         if let Some(edge) = graph.get(&(from, to)) {
             dist_adjusted += edge.geo_dist / (0.5 * edge.condition + 0.5);

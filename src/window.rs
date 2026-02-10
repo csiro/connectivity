@@ -69,15 +69,12 @@ impl FocalWindow {
             outer_win
         };
         
-        // Find the maximum level
-        let max_level = *cond_dict.keys().max().unwrap_or(&current_level);
-        let is_highest_level = current_level == max_level;
-        // Choose the appropriate neighborhood size
-        let effective_win_size = if is_highest_level {
-            outer_win
-        } else {
-            win_size
+        // Choose the appropriate neighborhood size based on level being procced
+        let effective_win_size: i32 = {
+            let max_level = cond_dict.keys().copied().max().unwrap_or(current_level);
+            if current_level == max_level { outer_win } else { win_size }
         };
+        
         
         // Calculate radius based on effective neighborhood size
         let radius: i32 = effective_win_size / 2;
