@@ -3,14 +3,11 @@
 1. [Installation ](#installation-)
     - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
     - [Compile and Install the Rust Library ](#compile-and-install-the-rust-library-)
-2. [Data Preparation ](#data-preparation-)
-    - [Inspecting Overview Information ](#inspecting-overview-information-)
-    - [Creating Overviews ](#creating-overviews-)
-3. [Connectivity Analysis ](#analysis)
+2. [Connectivity Analysis ](#analysis)
     - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
     - [PARC-Connectedness ](#parc-connectedness-)
     - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
-4. [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+3. [Running Analysis with Tiles ](#running-analysis-with-tiles-)
       
 A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectedness (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
 
