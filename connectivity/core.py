@@ -1,62 +1,9 @@
 import numpy as np
 import geopandas as gpd
 import rasterio
-from rust_conn import connectivity, testing_con
+from rust_conn import connectivity
 from .rastio import read_raster, write_raster
-from .utils import check_grids, smoothing_filter, fn, crop_array, common_levels
-
-
-
-from rasterio.enums import Resampling
-
-# Connectedness main funciton
-def get_overviews(
-        raster_file: str,
-        levels = [2, 4, 8, 16, 32],
-        key = 1,
-        average = True,
-        n_threads = None,
-        filename: str = ""
-    ):
-    """Testing function
-    """
-    # Read condition raster overviews; this checks levels as well
-    cond_dict, affine_dict, is_geo = read_raster(
-        file_path=raster_file,
-        levels=levels,
-    )
-
-    levels = sorted(set(levels) | {1})
-    # Extra check and return early if condition is all NA; e.g. in a tile
-    if np.isnan(cond_dict.get(1)).all():
-        out_array = cond_dict.get(1)
-    else:
-        # The base Rust connectivity funciton
-        out_array = testing_con(
-            x = cond_dict,
-            levels = levels,
-            key = key,
-            average = average,
-            n_threads = n_threads,
-        )
-
-    with rasterio.open(
-        raster_file,
-        overview_level=3,
-        resampling=Resampling.average
-    ) as src:
-        profile = src.profile
-
-    if len(filename) > 3:
-        with rasterio.open(filename, "w", **profile) as dst:
-            dst.write(out_array, 1)
-
-    # # tr = affine_dict[key]
-    # if len(filename) > 3:
-    #     write_raster(out_array, outfile=filename, template=raster_file, transform=tr)
-
-    return out_array
-
+from .utils import check_grids, smoothing_filter, fn, crop_array, round_to_pow2
 
 
 # Connectedness main funciton
@@ -69,7 +16,7 @@ def connectedness(
         max_cost: float = 2.0, 
         window_size: int = 3, 
         outer_window: int = 9,
-        levels: list[int] | None = None,
+        levels: list[int] = [2, 4, 8, 16, 32],
         sigma: float | None = 1,
         scale: float | tuple | None = None,
         option: int = 3,
@@ -94,8 +41,7 @@ def connectedness(
     ----------
     condition_file : str
         Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
-        adjusted using the `scale` parameter. The file must be a GeoTIFF (including COGs) with overview
-        levels generated using the average aggregation method for multi-scale analysis.
+        adjusted using the `scale` parameter.
     pa_file : str, optional
         Path to the raster file containing protected-area (PA) proportions. This file is required to 
         calculate PARC-connectedness. If provided, the function will compute PARC-connectedness instead 
@@ -124,9 +70,9 @@ def connectedness(
         Radius of the neighborhood at the coarsest (largest) resolution level, used to capture broader connectivity context.
         Must be an odd number greater than or equal to window_size.
         Default is 9.
-    levels : list of int, optional
+    levels : list of int
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
-        Default is None (uses all overview levels).
+        Default is [2, 4, 8, 16, 32].
     sigma : float, optional
         Standard deviation of the Gaussian kernel used for smoothing. 
         Default is 1. Zero or None for disabling smoothing.
@@ -185,54 +131,54 @@ def connectedness(
                         f"Shape mismatch: {condition_file} {ds1.shape} vs {pa_file} {ds2.shape}"
                     )
 
+    if levels is None:
+        raise ValueError("levels must be provided")
+    # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
+    levels = sorted({1, *(round_to_pow2(x) for x in levels)})
+
+    # For closed border there'll be no padding
+    pade_size = 0 if closed_border else outer_window
+
     # Read condition raster overviews; this checks levels as well
-    cond_dict, affine_dict, is_geo = read_raster(
+    data_array, mask_array, affine_dict, is_geo = read_raster(
         file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
-        closed=closed_border,
-        expand_px=outer_window # * max_level?
+        expand_px=pade_size
     )
 
     # Extra check and return early if condition is all NA; e.g. in a tile
-    if np.isnan(cond_dict.get(1)).all():
-        out_array = cond_dict.get(1)
+    if np.isnan(data_array).all():
+        out_array = data_array
     else:
         # Process PA-array for PARC-connectedness
-        if pa_file is None:
-            pa_mask = None
-        else:
+        if pa_file is not None:
             # Read PA raster overviews; this checks levels as well
-            pa_dict, _, _ = read_raster(
+            pa_array, _, _, _ = read_raster(
                 file_path=pa_file, 
                 polygon=polygon_mask, 
                 levels=levels, 
                 scale=s2, 
-                closed=closed_border,
-                expand_px=outer_window
+                expand_px=pade_size
             )
-            # Ensure both dictionaries have the same keys
-            if cond_dict.keys() != pa_dict.keys():
-                raise ValueError("Input condition and PA date do not have identical overviews.")
             # Ensure dimension of the read arrays the same
-            if not check_grids(cond_dict[1], pa_dict[1]):
+            if not check_grids(data_array, pa_array):
                 raise(ValueError("The shape of the condition and PA data doesn't match."))
             
             # Update the condition dict with the max(c, p) for each cell in each level
-            for k in cond_dict:
-                cond_dict[k] = np.maximum(cond_dict[k], pa_dict[k])
+            data_array = np.maximum(data_array, pa_array)
 
             # Filter for protected areas, prop > 0 or NaN; and any NaN in condition stays NaN;
-            pa_mask = np.where((pa_dict[1] > 0) & ~np.isnan(cond_dict[1]), 1.0, np.nan).astype(np.float32)
+            mask_array = np.where((pa_array > 0) & ~np.isnan(data_array), False, True).astype(np.bool)
 
         # The base Rust connectivity funciton
         conn_array = connectivity(
-            condition = cond_dict,
-            pa_array = pa_mask,
-            transgrid_list = [{}], # empty dict-list to compute connectedness in Rust, insead of BERI
+            condition = data_array,
+            mask = mask_array,
+            transgrid_list = None, 
             transforms = affine_dict,
-            levels = sorted(set(levels) | {1}), # needs checking round_to_pow2
+            levels = levels,
             lambdas = lambdas,
             is_geo = is_geo,
             max_cost = max_cost,
@@ -247,7 +193,7 @@ def connectedness(
 
         # Calculate the connected-habitat or just return the PARC-connectedness
         if pa_file is None:
-            out_array = fn(conn_array, cond_dict[1], option=option)
+            out_array = fn(conn_array, data_array, option=option)
         else:
             out_array = conn_array
 
@@ -274,7 +220,7 @@ def beri(
         max_cost: float = 2.0, 
         window_size: int = 3, 
         outer_window: int = 9,
-        levels: list[int] | None = None,
+        levels: list[int] = [2, 4, 8, 16, 32],
         sigma: float | None = 1,
         scale: float | None = None,
         n_threads: int | None = None,
@@ -287,10 +233,7 @@ def beri(
     of habitat condition with projected species turnover, comparing current 
     and future scenarios to assess resilience.
 
-    This algorithm operates on the overview layers of a GeoTIFF file (including 
-    Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated 
-    using the `average`, not `nearest` resampling method. Use the `create_overviews()` 
-    function to generate the required overview layers correctly.
+    This algorithm operates on the overview layers of a raster file that are generated on-the-fly.
     
     The maximum distance/raduis the algorithm searches for cells (in the condition 
     raster) to calculate connectivity in BERI is computed as:
@@ -300,8 +243,7 @@ def beri(
     ----------
     condition_file : str
         Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
-        adjusted using the `scale` parameter. The file must be a GeoTIFF (including COGs) with overview
-        levels generated using the average aggregation method for multi-scale analysis.
+        adjusted using the `scale` parameter. 
     current_file : str
         Path to the current compositional turnover layer (e.g., dissimilarity surface under current climate).
     future_files : list of str, optional
@@ -331,9 +273,9 @@ def beri(
         Radius of the neighborhood at the coarsest (largest) resolution level, used to capture broader connectivity context.
         Must be an odd number greater than or equal to window_size.
         Default is 9.
-    levels : list of int, optional
+    levels : list of int
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
-        Default is None (uses all overview levels).
+        Default is [2, 4, 8, 16, 32].
     sigma : float, optional
         Standard deviation for the Gaussian kernel if smoothing is applied to input layers.
         Default is 1. Zero or None for disabling smoothing.
@@ -368,9 +310,17 @@ def beri(
     if isinstance(scale, tuple):
         scale = scale[0]
 
-    # Check for common levels
+    # # Check for common levels
+    # if levels is None:
+    #     levels = common_levels(condition_file, current_file)
+
     if levels is None:
-        levels = common_levels(condition_file, current_file)
+        raise ValueError("levels must be provided")
+    # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
+    levels = sorted({1, *(round_to_pow2(x) for x in levels)})
+
+    # For closed border there'll be no padding
+    pade_size = 0 if closed_border else outer_window
 
     # An early check for the overall shapes of grids.
     if polygon_mask is not None:
@@ -383,39 +333,38 @@ def beri(
                     )
 
     # Read raster overview as a dictionary; this checks levels as well.
-    cond_dict, affine_dict, is_geo  = read_raster(
+    cond_array, mask_array, affine_dict, is_geo  = read_raster(
         file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=scale, # only for condition raster
-        closed=closed_border,
-        expand_px=outer_window
+        expand_px=pade_size
     )
 
     # Extra check and return early if condition is all NA; e.g. in a tile
-    if np.isnan(cond_dict.get(1)).all():
-        out_array =  cond_dict.get(1)
+    if np.isnan(cond_array).all():
+        out_array = cond_array
     else:
         # Insert current climate as the first element in the list (this is important) before reading
         future_files.insert(0, current_file)
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
         # the scale parameter is not used here
         trans_grids = [
-            read_raster(file_path=i, polygon=polygon_mask, levels=levels, closed=closed_border, expand_px=outer_window)[0]
+            read_raster(file_path=i, polygon=polygon_mask, levels=levels, expand_px=pade_size)[0]
             for i in future_files
         ]
         
         # Ensure dimension of the read arrays the same
-        if not check_grids(cond_dict[1], trans_grids[0][1]):
+        if not check_grids(cond_array, trans_grids[0]):
             raise(ValueError("The shape of the condition and transgrids doesn't match."))
 
         # The base Rust connectivity funciton
         out_array = connectivity(
-            condition = cond_dict,
-            pa_array = None,             # only used for PARC-connectedness;
+            condition = cond_array,
+            mask = mask_array,             # only used for PARC-connectedness;
             transgrid_list = trans_grids,
             transforms = affine_dict,
-            levels = sorted(set(levels) | {1}), # needs checking round_to_pow2
+            levels = levels, 
             lambdas = lambdas, 
             is_geo = is_geo,
             max_cost = max_cost,

@@ -23,9 +23,9 @@ use overview::Resampling;
 /// A 2D array of connectivity values for each cell at the native resolution.
 pub fn conn(
     cond_array: &Option<Array2<f32>>,
-    trans_maps: &[HashMap<i32, Array3<f32>>],
+    trans_arrays: Option<&[Array3<f32>]>,
     transform_map: &HashMap<i32, Affine>,
-    override_array: &Option<Array2<f32>>,
+    mask_array: &Array2<bool>,
     levels: &Vec<usize>,
     lambdas: &[f32],
     is_geo: bool,
@@ -34,7 +34,9 @@ pub fn conn(
     outer_window: i32,
 ) -> Result<Array2<f32>> {
     // If transgrids are provided run BERI, otherwise connectedness.
-    let run_beri = !trans_maps.is_empty() && trans_maps.iter().any(|map| !map.is_empty());
+    let run_beri = trans_arrays
+        .map(|arrays| !arrays.is_empty())
+        .unwrap_or(false);
     
     // Check condition dictionay was not empty and run the code for level 1 (original resolution)
     if let Some(cond_base) = cond_array {
@@ -42,14 +44,24 @@ pub fn conn(
         let num_levels = levels.len();
 
         // Generate overviews
-        let cond_map = overview::make_overview(cond_base, levels, Resampling::Average).expect("Failed to count cells.");
+        let cond_map = overview::make_overview(cond_base, levels, Resampling::Average).expect("Failed average resampling.");
         // Calculate the cell counts for including habitat area contribution
         let cell_weights = overview::make_overview(cond_base, levels, Resampling::Count).expect("Failed to count cells.");
         // Ensure cell-counts has the same keys and dimension as condition array map;
         utils::check_dims(&cell_weights, &cond_map)?;
 
-        // Check for the existance of PA array to run PARC-conn
-        let array: &Array2<f32> = override_array.as_ref().unwrap_or(cond_base);
+        // Generate overviews for all scenarios
+        let trans_maps: Vec<HashMap<i32, Array3<f32>>> = if let Some(arrays) = trans_arrays {
+            arrays
+                .iter()
+                .map(|arr| {
+                    overview::make_overview_3d(arr, levels, Resampling::Average)
+                        .expect("Failed average resampling.")
+                })
+                .collect()
+        } else {
+            Vec::new()  // Empty vec if None
+        };
 
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
@@ -61,13 +73,13 @@ pub fn conn(
                 let mut row_result = vec![f32::NAN; ncols];
             
                 for j in 0..ncols {
-                    // Skip an NaN in the orginal resolution of the condition/PARC data
-                    if array[[i, j]].is_nan() {
+                    // Skip masked areas
+                    if mask_array[[i, j]] {
                         continue;
                     }
 
                     // Get the transgrid values for ij cell for the current climate
-                    let ij_values: Array1<f32> = utils::get_current(trans_maps, i, j);
+                    let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
                     // Pre-allocate window hashmap
                     let mut windows: HashMap::<i32, FocalWindow> = HashMap::with_capacity(num_levels);
                     // Build window for each level for the cell ij
@@ -79,7 +91,7 @@ pub fn conn(
                             window_size,
                             outer_window,
                             &cond_map,
-                            trans_maps,
+                            &trans_maps,
                             &ij_values,
                             &cell_weights,
                         );

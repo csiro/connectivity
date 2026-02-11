@@ -4,6 +4,7 @@
 single_mod.rs
 
 src/testing.rs
+connectivity/testing.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,6 +1,11 @@
-# Version 0.7.0
-* Included habitat-area in connectivity calculations by using cell counts in each node.
-* Added `anyhow` crate for cleaner error handling and moved core functionalities to a new module.
+# Version 1.0.0
+## Added
+- Incorporated habitat area into connectivity calculations using per-node cell counts (aggregate-based weighting).
+- Integrated overview generation directly in Rust to eliminate preprocessing steps and reduce raster I/O bottlenecks.
+- Added the `anyhow` crate for improved, centralized error handling.
+- Refactored core functionality into a dedicated module for improved structure and maintainability.
+## Removed
+- Removed `create_overviews()` and `has_overview()`; overview handling is now fully internal.
 
 # Version 0.6.1
 * Fixed a bug for reading files with different overview levels.

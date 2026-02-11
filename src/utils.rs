@@ -5,8 +5,12 @@ use anyhow::{anyhow, Result};
 
 /// Get the transgrid values for ij cell
 pub fn get_current(trans_maps: &[HashMap<i32, Array3<f32>>], i: usize, j: usize) -> Array1<f32> {
+    // Guard against empty trans_maps
+    if trans_maps.is_empty() {
+        return Array1::zeros(0);
+    }
+    
     let trans_array = &trans_maps[0];
-
     if let Some(array3) = trans_array.get(&1) {
         if i < array3.shape()[0] && j < array3.shape()[1] {
             return array3.slice(s![i, j, ..]).to_owned(); // returns Array1<f32>
