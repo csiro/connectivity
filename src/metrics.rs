@@ -1,5 +1,3 @@
-use core::f32;
-use std::f32::consts::E;
 use crate::graph::EdgeData;
 
 // Compute the connectedness from a segment and a lambda
@@ -7,8 +5,8 @@ pub fn connectedness(segment: &[EdgeData], lambda: f32) -> f32 {
     let (sum_numerator, sum_denominator): (f32, f32) = segment
         .iter()
         .map(|edge| {
-            let numerator = E.powf(-(edge.adj_dist / lambda)) * edge.condition;
-            let denominator = E.powf(-(edge.geo_dist / lambda));
+            let numerator = (-(edge.adj_dist / lambda)).exp() * edge.condition * edge.num_cells;
+            let denominator = (-(edge.geo_dist / lambda)).exp() * edge.num_cells;
             (numerator, denominator)
         })
         .fold((0.0, 0.0), |(acc_num, acc_den), (num, den)| {
@@ -72,13 +70,13 @@ pub fn beri_score(segment: &[EdgeData], lambda: f32) -> f32 {
         let weight_num: f32 = {
             let t = edge.adj_dist * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
-            edge.condition * (-exp_term).exp()
+            (-exp_term).exp() * edge.condition * edge.num_cells
         };
         // Calculate denominator weight with dist
         let weight_denom: f32 = {
             let t = edge.geo_dist * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
-            (-exp_term).exp()
+            (-exp_term).exp() * edge.num_cells
         };
 
         // Update numerator values with similarity of scenarios

@@ -1,99 +1,11 @@
 import numpy as np
 import rasterio
 from rasterio.mask import mask
-from rasterio.enums import Resampling
 from rasterio.transform import Affine
 from rasterio.features import geometry_mask
-from rasterio.shutil import copy as rio_copy
 from shapely.geometry import box, mapping
 import geopandas as gpd
-from .utils import guess_geographic, round_to_pow2
-
-
-def create_overviews(
-        input_raster: str, 
-        output_raster: str | None = None, 
-        levels: list[int] = [2, 4, 8, 16, 32]
-    ):
-    """Reads a raster file and saves it with overviews at specified levels,
-    using rasterio.
-    
-    Args:
-        input_raster (str): Path to the input raster file
-        output_raster (str, optional): Path to the output raster file. If None,
-            overviews are added to the input file in-place.
-        levels (list, optional): List of overview decimation factors to
-            generate (e.g., [2, 4, 8, 16, 32]). Default is [2, 4, 8, 16, 32],
-            but levels <= 1 are ignored for overview creation.
-        
-    Returns:
-        No returns
-    """
-
-    # rasterio expects factors > 1
-    levels = [round_to_pow2(lvl) for lvl in levels if lvl > 1]
-
-    if not levels:
-        raise ValueError("levels must contain values > 1.")
-
-    try:
-        # If output file is specified, make a copy of the input file first
-        if output_raster and (output_raster != input_raster):
-            rio_copy(
-                input_raster,
-                output_raster,
-                driver="GTiff",
-                compress="LZW",
-                tiled=True,
-                BIGTIFF="IF_SAFER",
-            )
-            target_raster = output_raster
-        else:
-            # Otherwise, add overviews to the original file
-            target_raster = input_raster
-
-        # Open the target raster in read/write mode
-        with rasterio.open(target_raster, "r+") as dst:
-            print(f"Building overviews with levels: {levels}")
-            print(f"Using resampling method: average")
-
-            # Build the overviews
-            dst.build_overviews(levels, resampling=Resampling.average)
-
-            # Optional: store resampling method in tags (rasterio convention)
-            dst.update_tags(ns="rio_overview", resampling="average")
-
-        print(f"Successfully created overviews for {target_raster}")
-
-    except Exception as e:
-        print(f"Error creating overviews: {e}")
-
-
-def has_overview(file_path: str, levels: list = None) -> bool:
-    """Check if specified overview levels exist for all bands.
-     
-    Parameters:
-    - file_path (str): Path to the TIF/raster file.
-    - levels (list): Overview levels to check for (e.g., [2, 4, 8, 16])
-    
-    Returns:
-    - bool: True if all specified levels exist for all bands
-    """
-    if levels is None:
-        raise ValueError("levels parameter is required")
-    
-    with rasterio.open(file_path) as ds:
-        for band in range(1, ds.count + 1):
-            overviews = ds.overviews(band)
-            if not overviews:
-                print(f"No overview for band {band}.")
-                return False
-            if not set(levels).issubset(set(overviews)):
-                print(f"Band {band} does not contain the required overviews.")
-                print(f"Band {band} has overviews: {overviews}, needs: {levels}")
-                return False
-            
-        return True
+from .utils import guess_geographic
 
 
 def overview_info(file_path: str):
@@ -101,8 +13,7 @@ def overview_info(file_path: str):
      
     Parameters:
     - file_path (str): Path to the TIF/raster file.
-    """
-    
+    """    
     print(f"\nFile: {file_path}")
     
     with rasterio.open(file_path) as ds:
@@ -126,153 +37,145 @@ def overview_info(file_path: str):
                 print(f"  Level {level}: {w} x {h}")
 
 
+
 def read_raster(
-        file_path: str,
-        polygon: gpd.GeoDataFrame | None = None,
-        levels: list[int] | None = None, 
-        scale: float | None = None, 
-        closed: bool = False,
-        expand_px: int = 3
-    ):
-    """Reads specified overview levels from a multi-band GeoTIFF file
-    and stores them in a dictionary.
+    file_path: str,
+    polygon: gpd.GeoDataFrame | None = None,
+    levels: list[int] | None = None,
+    scale: float | None = None,
+    expand_px: int = 0,
+):
+    """Reads data from a multi-band GeoTIFF (base resolution) and returns NaN-filled array + transforms + masks.
 
     Parameters:
-    - file_path (str): Path to the GoeTIFF or raster file with overviews.
-    - polygon (GeoPandas):
-    - levels (list of int): List of overview reduction factors to read (e.g., [2, 4, 8]). None returns all available.
-    - scale (float or None): Scaling factor. If None, 0, or 1, the data is returned unchanged; otherwise it is divided by scale.
-    - expand_px (bool): The number of pixels to pad the polygon; this depends on the window size selected
+        - file_path (str): Path to the GeoTIFF or raster file.
+        - polygon (GeoPandas): Optional polygon to mask the raster.
+        - levels (list of int): List of overview reduction factors (e.g., [1, 2, 4, 8]).
+        - scale (float or None): Scaling factor. If None, 0, or 1, data returned unchanged; otherwise divided by scale.
+        - expand_px (int): Number of pixels to buffer the polygon. 0 means closed boundary (tight crop).
+    
+    Modes:
+      - closed (expand_px == 0): crop to polygon extent AND mask outside polygon
+      - non-closed (expand_px > 0): crop to bounding box of buffered polygon, DO NOT mask outside polygon
 
     Returns:
-    - dict: A two dictionaries where keys are overview levels and values are 3D numpy arrays
-            with shape (bands, height, width) for the corresponding overview, and their respective transform info.
+      - data_array: (rows, cols) for single-band or (rows, cols, bands) for multi-band, float32 with NaNs
+      - mask_array: 2D bool, True where inside original polygon AND valid (not nodata/NaN) in the returned extent
+      - tran_dict: dict[level] -> GDAL-style 6-tuple transform
+      - is_geo: bool
     """
-    data_dict = {}
-    tran_dict = {}
+    if levels is None:
+        levels = [1]
+    if len(levels) == 0:
+        levels = [1]
 
-    if expand_px < 1:
-        raise ValueError("expand_px must be larger than 1.")
-    
-    # Get overview levels, and the bbox geometry
+    # basic sanity: ensure levels are positive
+    if any(l <= 0 for l in levels):
+        raise ValueError(f"levels must be positive ints, got: {levels}")
+
     with rasterio.open(file_path) as src:
-        # Is the crs geographic or projected?
+        # CRS / geographic
         try:
-            is_geo = guess_geographic(src) if src.crs is None else src.crs.is_geographic
+            is_geo = guess_geographic(src) if src.crs is None else bool(src.crs.is_geographic)
         except Exception as e:
             raise RuntimeError(f"Error reading CRS info: {e}")
-        # Read and check the overviews
-        overviews = src.overviews(1)
-        if not overviews:
-            raise ValueError("The dataset does not contain any overviews.")
-        # Get the original polygon or its buffer (in case of open-border);
-        if polygon is not None:
-            if closed:
-                orig_geoms = [geom for geom in polygon.geometry]
-            else:
-                res_x, res_y = src.res
-                pad_size = max(res_x, res_y) * expand_px
-                orig_buffer_geoms = [geom.buffer(pad_size) for geom in polygon.geometry]
 
-    # Round to the nearest pow 2; fixes an issue with rasterio/gdal overview level naming
-    # Also, overviews levels are always higher than one, e.g. 2, 4, 8...
-    overviews = [round_to_pow2(x) for x in overviews if x > 1]
-    # If levels are not provided get them; make sure 1 is there and keep unique records
-    levels = sorted(set(overviews if levels is None else levels) | {1})
+        base_transform = src.transform
+        base_res_x, base_res_y = src.res
 
-    # If polygon is not provided read the entire dataset
-    if polygon is None:
-        # Read all overview levels; here levels must conatin 1 as well!
-        for i, level in enumerate(levels):
-            # check user-supplied levels with corrected overviews
-            if level != 1 and level not in overviews:
-                raise ValueError(f"Overview level {level} not found in the dataset.")
-            
-            index = i - 1 # index -1 is the original resolution
-            with rasterio.open(file_path, overview_level=index, resampling=Resampling.average) as dataset:
-                level_transform = dataset.transform
-                # Read the masked data
-                data = dataset.read(masked=True)
-                
-            # Convert any no-data to nan to be skiped in Rust model
-            data_array = np.where(data.mask, np.nan, data).squeeze().astype(np.float32)
-            # Change the array memory arrangement for faster access in Rust
-            if data_array.ndim > 2:
-                data_array = np.stack(data_array, axis=-1)
-            data_dict[level] = data_array / scale if scale not in (None, 0, 1) else data_array
-            tran_dict[level] = tuple(level_transform)[:6]
-    
-    # else read only padded polygon area 
-    else:
-        # Select a Geom for the max extent of the arrays
-        if closed:
-            extent_geoms = orig_geoms
+        if polygon is None:
+            # Read entire raster as masked array so nodata/internal masks are preserved
+            data_ma = src.read(masked=True).astype(np.float32)  # shape: (bands, rows, cols)
+            out_transform = base_transform
+            out_image_data = np.ma.getdata(data_ma)
+            data_mask = np.ma.getmaskarray(data_ma)
+            geom_mask = None
+
         else:
-            # Max level to get the correct buffered area that includes all required pixels for the neighbours
-            # using level here not overview, as some file might have extra levels
-            max_level = len(levels) - 2 # one for level-1, and one for index of the over len
-            # Use coarsest overview to calculate buffer size to avoid edge effect; for all levels
-            with rasterio.open(file_path, overview_level=max_level) as src:
-                if polygon.crs != src.crs:
-                    print("Transforming polyong CRS to match the raster file.")
-                    polygon = polygon.to_crs(src.crs)
-                # Get the buffered geom bbox
-                res_x, res_y = src.res
-                quarter_pixel = 0.25 * (res_x / max(levels)) # Just add 1/4 pixel more to ensure gets all borders
-                pad_size = expand_px * max(res_x, res_y) + quarter_pixel
-                # Get the bbox of the buffered version to read all overviews based on it
+            # Ensure polygon CRS matches raster
+            if polygon.crs != src.crs:
+                polygon = polygon.to_crs(src.crs)
+
+            closed = (expand_px == 0)
+
+            # Geometry used ONLY to define the read extent
+            if closed:
+                extent_geoms = [geom for geom in polygon.geometry]
+            else:
+                # pad in map units: expand_px (in base pixels) * max_level scaling * max(res)
+                max_level = max(levels)
+                pad_size = float(expand_px) * float(max_level) * float(max(base_res_x, base_res_y))
                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
-        # Read all overview layers
-        for i, level in enumerate(levels):
-            if level != 1 and level not in overviews:
-                raise ValueError(f"Overview decimation {level} not found in dataset.")
-            
-            # Choose masking geometry based on level; for base level get base_level geom so the output map
-            # be the same size and shape of the original layer; for the rest get the biggest buffe
+            # Read/crop to extent geoms, but keep nodata/internal mask -> filled=False gives MaskedArray
+            out_ma, out_transform = mask(
+                src,
+                [mapping(g) for g in extent_geoms],
+                crop=True,
+                filled=False,        # <-- key: keep a real mask from rasterio/GDAL
+                all_touched=True,
+            )
+            # out_ma: np.ma.MaskedArray, shape (bands, rows, cols)
+            out_image_data = np.ma.getdata(out_ma).astype(np.float32)
+            data_mask = np.ma.getmaskarray(out_ma)  # includes nodata, alpha/mask band, etc.
+
+            # Mask for ORIGINAL polygon footprint on the output grid
+            geom_mask = geometry_mask(
+                geometries=[mapping(g) for g in polygon.geometry],
+                out_shape=out_image_data.shape[1:],  # (rows, cols)
+                transform=out_transform,
+                invert=True,       # True inside polygon
+                all_touched=True,
+            )
+
+            # Add NaNs to data_mask as invalid too (both modes)
+            data_mask |= np.isnan(out_image_data)
+
+            # Closed mode: also mask outside original polygon
             if closed:
-                masking_geom = orig_geoms # same geom for all levels;
+                data_mask |= ~geom_mask[np.newaxis, :, :]
+
+            # Final masked array
+            data_ma = np.ma.masked_array(out_image_data, mask=data_mask)
+
+        # Convert masked array to ndarray with NaNs
+        data_array = np.where(data_ma.mask, np.nan, data_ma.data).astype(np.float32)  # (bands, rows, cols)
+        data_array = np.squeeze(data_array)
+
+        # Build a 2D "valid inside polygon" mask for the returned extent
+        if polygon is not None:
+            if data_mask.ndim == 3:
+                invalid_2d = np.any(data_mask, axis=0)
             else:
-                masking_geom = extent_geoms if level > 1 else orig_buffer_geoms # polygon.geometry.tolist()
-            
-            index = i - 1            
-            # Read data using desired level
-            with rasterio.open(file_path, overview_level=index, resampling=Resampling.average) as dataset:
-                # Step 1: Mask with buffered geometry (for extent) of the coarsest level i.e. 32
-                out_image, out_transform = mask(
-                    dataset,
-                    [mapping(geom) for geom in extent_geoms],
-                    crop=True,
-                    filled=True,
-                    all_touched=True
-                )
-                # Step 2: Create rasterized mask of original geometries (same shape as out_image)
-                # Geometry mask returns True outside, False inside → invert it
-                geom_mask = geometry_mask(
-                    geometries=[mapping(g) for g in masking_geom],
-                    out_shape=out_image.shape[1:],  # height x width  ### NOTE: check this line..
-                    transform=out_transform,
-                    invert=True,
-                    all_touched=True
-                )
+                invalid_2d = data_mask.astype(bool)
 
-                # Step 3: Combine with nodata mask
-                nodata = dataset.nodata
-                nodata_mask = (out_image == nodata)
+            valid_inside = geom_mask & ~invalid_2d
+            mask_array = ~valid_inside
+        else:
+            if data_mask.ndim == 3:
+                mask_array = np.any(data_mask, axis=0)
+            else:
+                mask_array = data_mask.astype(bool)
+    
 
-                # Mask everything not in original geometry or nodata
-                final_mask = nodata_mask | ~geom_mask[np.newaxis, :, :]  # add band dim
-                masked = np.ma.masked_array(out_image, mask=final_mask)
-                # Get only the masked areas and convert to f32
-                nan_array = masked.squeeze().astype(np.float32).filled(np.nan)
-                # Dvivid by the scale to make it in the 0-1 range
-                # Change the array memory arrangement for faster access in Rust
-                if nan_array.ndim > 2:
-                    nan_array = np.stack(nan_array, axis=-1)
-                data_dict[level] = nan_array / scale if scale not in (None, 0, 1) else nan_array
-                tran_dict[level] = tuple(out_transform)[:6]
+        # Reshape to (rows, cols, bands) if multiband and not squeezed away
+        # If single band, data_array should be (rows, cols)
+        if data_array.ndim == 3:
+            # currently (bands, rows, cols) -> (rows, cols, bands)
+            data_array = np.moveaxis(data_array, 0, -1)
 
-    return data_dict, tran_dict, is_geo
+        # Apply scaling
+        if scale not in (None, 0, 1):
+            data_array = data_array / float(scale)
+
+        # Transform dict for all levels (GDAL 6-tuple)
+        tran_dict: dict[int, tuple[float, float, float, float, float, float]] = {}
+        for level in levels:
+            overview_transform = out_transform * Affine.scale(level)
+            tran_dict[int(level)] = tuple(overview_transform)[:6]
+
+        return data_array, mask_array, tran_dict, is_geo
+
 
 
 def write_raster(

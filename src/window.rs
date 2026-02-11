@@ -9,6 +9,7 @@ pub struct FocalWindow {
     pub i_array: Vec<i32>, // i/col array of neighbour cells
     pub j_array: Vec<i32>, // j/row array ...
     pub values: Vec<f32>,  // condition values of the cell
+    pub counts: Vec<f32>,  // cell count contribution to each level (habitat-area)
     pub sims: Vec<Vec<Option<f32>>>, // similiarity with the ij cell in the current climate; scen<cell<sim>>
 }
 
@@ -37,12 +38,14 @@ impl FocalWindow {
         win_size: i32,
         outer_win: i32,
         cond_dict: &HashMap<i32, Array2<f32>>,
-        trans_vect: &Vec<HashMap<i32, Array3<f32>>>,
+        trans_vect: &[HashMap<i32, Array3<f32>>],
         trans_ij: &Array1<f32>,
+        cell_weights: &HashMap<i32, Array2<f32>>,
     ) -> Self {
         let agg_factor = 2;
         let higher_level = current_level * agg_factor;
         
+        let count_array = cell_weights.get(&current_level).expect("Weights level not found!");
         let current_array = cond_dict.get(&current_level).expect("Condition level not found!");
         let current_height = current_array.shape()[0] as i32;
         let current_width = current_array.shape()[1] as i32;
@@ -66,15 +69,12 @@ impl FocalWindow {
             outer_win
         };
         
-        // Find the maximum level
-        let max_level = *cond_dict.keys().max().unwrap_or(&current_level);
-        let is_highest_level = current_level == max_level;
-        // Choose the appropriate neighborhood size
-        let effective_win_size = if is_highest_level {
-            outer_win
-        } else {
-            win_size
+        // Choose the appropriate neighborhood size based on level being procced
+        let effective_win_size: i32 = {
+            let max_level = cond_dict.keys().copied().max().unwrap_or(current_level);
+            if current_level == max_level { outer_win } else { win_size }
         };
+        
         
         // Calculate radius based on effective neighborhood size
         let radius: i32 = effective_win_size / 2;
@@ -88,6 +88,7 @@ impl FocalWindow {
         let mut i_array = Vec::with_capacity(estimated_capacity);
         let mut j_array = Vec::with_capacity(estimated_capacity);
         let mut values = Vec::with_capacity(estimated_capacity);
+        let mut counts = Vec::with_capacity(estimated_capacity);
         
         // Determine higher level dimensions
         let (higher_height, higher_width) = if cond_dict.contains_key(&higher_level) {
@@ -123,6 +124,8 @@ impl FocalWindow {
                             continue;
                         }
 
+                        // Cell weights; num valid cell for habitat-area contribution
+                        let weight: f32 = count_array[[curr_i as usize, curr_j as usize]];
                         // Skip the cell/segment if habitat condition is nan!
                         let condition: f32 = current_array[[curr_i as usize, curr_j as usize]];
                         if condition.is_nan() {
@@ -131,6 +134,7 @@ impl FocalWindow {
                             i_array.push(curr_i);
                             j_array.push(curr_j);
                             values.push(condition);
+                            counts.push(weight);
                         }                    
                     }
                 }
@@ -156,7 +160,7 @@ impl FocalWindow {
             })
             .collect();
         
-        Self { i_array, j_array, values, sims }
+        Self { i_array, j_array, values, counts, sims }
     }
 }
 

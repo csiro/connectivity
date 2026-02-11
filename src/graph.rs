@@ -8,8 +8,9 @@ use crate::distances;
 #[derive(Debug, Clone)]
 pub struct EdgeData {
     pub adj_dist: f32,   // Condistion-adjusted distance
-    pub geo_dist: f32,   // Geo-distance
+    pub geo_dist: f32,   // Geo-distance; no condition adjustment
     pub condition: f32,  // Raw condition
+    pub num_cells: f32,  // Original Cell count/weight for habitat area
     pub similarities: Rc<Vec<Option<f32>>>, // Similarity of the cell; all scenarios
 }
 
@@ -73,7 +74,7 @@ impl Graph {
         i_ngb: &[i32],
         j_ngb: &[i32],
         factor: f32,
-        node_mapping: &HashMap<(i32, i32), (u32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
         transform: &Affine,
         is_wgs: bool,
     ) -> bool {
@@ -89,7 +90,7 @@ impl Graph {
             let nj = j + dj;
     
             // Check if neighbor exists in node_mapping
-            if let Some(&(v, z, ref s)) = node_mapping.get(&(ni, nj)) {
+            if let Some(&(v, z, c, ref s)) = node_mapping.get(&(ni, nj)) {
                 // Distance to adjacent node/cell in kilometers
                 let (x2, y2) = transform.xy(nj, ni);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
@@ -103,6 +104,7 @@ impl Graph {
                         adj_dist: w * dist,
                         geo_dist: dist,
                         condition: z,
+                        num_cells: c,
                         similarities: s.clone(),
                     }
                 );
@@ -114,7 +116,7 @@ impl Graph {
         
         // If the source node is isolated, create a "synthetic" edge so it is connected somewhere
         if is_isolated {
-            if let Some(&(_, z, ref s)) = node_mapping.get(&(i, j)) {
+            if let Some(&(_, z, c, ref s)) = node_mapping.get(&(i, j)) {
                 // Distance to an adjacent cell in kilometers
                 let (x2, y2) = transform.xy(j, i+1);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
@@ -131,6 +133,7 @@ impl Graph {
                         adj_dist: w * dist,
                         geo_dist: dist,
                         condition: z,
+                        num_cells: c,
                         similarities: s.clone(),
                     }
                 );
@@ -150,12 +153,12 @@ impl Graph {
         i: i32, j: i32,
         factor: f32,
         level: i32, 
-        node_mapping: &HashMap<(i32, i32), (u32, f32, Rc<Vec<Option<f32>>>)>,
-        node_mapping_higher: &HashMap<(i32, i32), (u32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping_higher: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
     ) {
-        if let Some(&(uu, _, _)) = node_mapping.get(&(i, j)) {
+        if let Some(&(uu, _, _, _)) = node_mapping.get(&(i, j)) {
             let higher_level: i32 = level * 2;
             
             // Get all higher neighbours at once
@@ -170,13 +173,14 @@ impl Graph {
             // Use 'ref' to borrow Vec<f32> rather than moving it
             for &(ni, nj) in &higher_neighbours {
                 // Only if the neghbours are in the higher mapping proceess
-                if let Some(&(v, z, ref s)) = node_mapping_higher.get(&(ni, nj)) {
-                    let w = (1.0 - factor) * z + factor;
-
+                if let Some(&(v, z, c, ref s)) = node_mapping_higher.get(&(ni, nj)) {
                     // Get the actual coordinates of the higher level
                     let (x2, y2) = transform_upper.xy(nj, ni);
                     // Distance in kilometer
                     let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
+                    
+                    // Calcualte the weight using max_cost
+                    let w = (1.0 - factor) * z + factor;
                             
                     self.add_node(
                         (uu, v), 
@@ -184,6 +188,7 @@ impl Graph {
                             adj_dist: w * dist,
                             geo_dist: dist,
                             condition: z,
+                            num_cells: c,
                             similarities: s.clone(),
                         }
                     );

@@ -34,22 +34,6 @@ def check_grids(x, y):
     return x_shape[:2] == y_shape[:2]
 
 
-# Get the common levels
-def common_levels(a, b):
-    with rasterio.open(a) as ds1, rasterio.open(b) as ds2:
-        over1 = ds1.overviews(1)
-        over2 = ds2.overviews(1)
-
-    levels = []
-    for x, y in zip(over1, over2):
-        if x == y:
-            levels.append(x)
-        else:
-            break
-    
-    print(f"Using {levels} levels for connectivity analysis.")
-    return levels
-
 
 def guess_geographic(src):
     """Guess CRS type from transform and bounds when CRS is missing."""
