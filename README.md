@@ -14,7 +14,7 @@
       
 A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectedness (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
 
-This algorithm operates on the overview layers of a GeoTIFF file (including Cloud-Optimized GeoTIFFs, or any raster format with overview structure). Please ensure that these overview layers are generated using the `average`, not `nearest` resampling method. Use the `create_overviews()` function to generate the required overview layers correctly.
+This algorithm operates on the overview layers of raster files which are now generated on-the-fly.
 
 ## Installation <a name="install"></a>     
 ### Create or Load a Python Environment <a name="env"></a>     
@@ -64,87 +64,6 @@ maturin build --release
 pip install target/wheels/connectivity-*.whl
 ```
 
-## Data Preparation <a name="dataprep"></a>     
-### Inspecting Overview Information <a name="overinfo"></a>     
-
-You need raster files with overview to be able to run connectivity analysis. Here is the steps to check and create appropriate overview layers.
-
-```python
-from connectivity import overview_info, create_overviews
-```
-
-You can inspect the overview metadata of a TIFF file using the `overview_info()` function:
-
-```python
-overview_info("raster_file.tif")
-```
-```
-File: ../data/transgrids/1990.tif
-Resolution: 588 x 516
-Bands: 19
-CRS: EPSG:4326
-
-Overview Information:
-  Band 1 overviews: [2, 4, 8, 16, 32]
-  Overview resolutions:
-    Level 2: 294 x 258
-    Level 4: 147 x 129
-    Level 8: 74 x 65
-    Level 16: 37 x 33
-    Level 32: 19 x 17
-```
-
-**Missing Overviews:**    
-If a file has no existing overviews, the output will indicate an empty list:
-
-```
-Resolution: 588 x 516
-Bands: 19
-CRS: EPSG:4326
-
-Overview Information:
-  Band 1 overviews: []
-```
-
-### Creating Overviews <a name="overgen"></a>    
-Use the `create_overviews()` function to generate and embed overviews into the TIFF file:
-
-```python
-create_overviews(
-    input_raster = "raster_file.tif",
-    output_raster = None, # keep None to update the file inplace
-    levels = [2, 4, 8, 16, 32]
-)
-```
-     
-Optionally, you can use **GDAL** directly to create raster overviews using the `average` resampling method:
-
-```bash
-module load gdal/3.12.1
-```
-
-```bash
-gdal raster overview add --resampling=average --levels=2,4,8,16,32 file.tif
-```
-     
-⚠️ Important: If a raster file already contains overviews generated with an inappropriate resampling method (e.g., `nearest`), the `create_overviews()` function may not regenerate overview levels that already exist.
-
-To ensure correct overviews, you can either:
-* Save the output to a new file using the `output_raster` argument, or
-* Remove or refresh the existing overviews using GDAL.
-
-Since TIFF files store overviews internally, you can remove them with:
-     
-```bash
-gdal raster overview delete file.tif
-```
-    
-Or refresh the existing overviews using `average` resampling method:
-     
-```bash
-gdal raster overview refresh --resampling=average file.tif
-```
-    
 ## Connectivity Analysis <a name="analysis"></a>     
 To bound the spatial extent of the connectivity calculation, the algorithm limits how far it searches across neighboring cells in the condition raster. The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
 `max_distance = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search distance is:
