@@ -1,3 +1,7 @@
+# Version 1.0.1
+* Fixed a missing row when reading tiles.
+* Modified `overview_info()` to return only the estimated size of overviews for validation, rather than the actual overview. This means it now works for any raster, even if it does not contain a real overview.
+
 # Version 1.0.0
 ## Added
 - Incorporated habitat area into connectivity calculations using per-node cell counts (aggregate-based weighting).

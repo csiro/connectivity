@@ -27,14 +27,6 @@ def round_to_pow2(n: int) -> int:
     return lower if n - lower <= upper - n else upper
 
 
-# Check grids are equal
-def check_grids(x, y):
-    x_shape = x if isinstance(x, tuple) else x.shape
-    y_shape = y if isinstance(y, tuple) else y.shape
-    return x_shape[:2] == y_shape[:2]
-
-
-
 def guess_geographic(src):
     """Guess CRS type from transform and bounds when CRS is missing."""
     transform = src.transform

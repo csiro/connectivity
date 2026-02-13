@@ -3,7 +3,7 @@ import geopandas as gpd
 import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
-from .utils import check_grids, smoothing_filter, fn, crop_array, round_to_pow2
+from .utils import smoothing_filter, fn, crop_array, round_to_pow2
 
 
 # Connectedness main funciton
@@ -137,20 +137,20 @@ def connectedness(
     levels = sorted({1, *(round_to_pow2(x) for x in levels)})
 
     # For closed border there'll be no padding
-    pade_size = 0 if closed_border else outer_window
+    pad_size = 0 if closed_border else outer_window
 
     # Read condition raster overviews; this checks levels as well
-    data_array, mask_array, affine_dict, is_geo = read_raster(
+    cond_array, mask_array, affine_dict, is_geo = read_raster(
         file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
-        expand_px=pade_size
+        expand_px=pad_size
     )
 
     # Extra check and return early if condition is all NA; e.g. in a tile
-    if np.isnan(data_array).all():
-        out_array = data_array
+    if np.isnan(cond_array).all():
+        out_array = cond_array
     else:
         # Process PA-array for PARC-connectedness
         if pa_file is not None:
@@ -160,21 +160,25 @@ def connectedness(
                 polygon=polygon_mask, 
                 levels=levels, 
                 scale=s2, 
-                expand_px=pade_size
+                expand_px=pad_size
             )
-            # Ensure dimension of the read arrays the same
-            if not check_grids(data_array, pa_array):
-                raise(ValueError("The shape of the condition and PA data doesn't match."))
+            # Ensure dimension of the arrays the same
+            if cond_array.shape != pa_array.shape:
+                raise ValueError(
+                    "The shape of the condition and trans_grids[0] doesn't match.\n"
+                    f"cond_array shape: {cond_array.shape}\n"
+                    f"trans_grids[0] shape: {pa_array[0].shape}"
+                )
             
             # Update the condition dict with the max(c, p) for each cell in each level
-            data_array = np.maximum(data_array, pa_array)
+            cond_array = np.maximum(cond_array, pa_array)
 
             # Filter for protected areas, prop > 0 or NaN; and any NaN in condition stays NaN;
-            mask_array = np.where((pa_array > 0) & ~np.isnan(data_array), False, True).astype(np.bool)
+            mask_array = np.where((pa_array > 0) & ~np.isnan(cond_array), False, True).astype(np.bool)
 
         # The base Rust connectivity funciton
         conn_array = connectivity(
-            condition = data_array,
+            condition = cond_array,
             mask = mask_array,
             transgrid_list = None, 
             transforms = affine_dict,
@@ -193,7 +197,7 @@ def connectedness(
 
         # Calculate the connected-habitat or just return the PARC-connectedness
         if pa_file is None:
-            out_array = fn(conn_array, data_array, option=option)
+            out_array = fn(conn_array, cond_array, option=option)
         else:
             out_array = conn_array
 
@@ -320,7 +324,7 @@ def beri(
     levels = sorted({1, *(round_to_pow2(x) for x in levels)})
 
     # For closed border there'll be no padding
-    pade_size = 0 if closed_border else outer_window
+    pad_size = 0 if closed_border else outer_window
 
     # An early check for the overall shapes of grids.
     if polygon_mask is not None:
@@ -338,7 +342,7 @@ def beri(
         polygon=polygon_mask, 
         levels=levels, 
         scale=scale, # only for condition raster
-        expand_px=pade_size
+        expand_px=pad_size
     )
 
     # Extra check and return early if condition is all NA; e.g. in a tile
@@ -350,13 +354,17 @@ def beri(
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
         # the scale parameter is not used here
         trans_grids = [
-            read_raster(file_path=i, polygon=polygon_mask, levels=levels, expand_px=pade_size)[0]
+            read_raster(file_path=i, polygon=polygon_mask, levels=levels, expand_px=pad_size)[0]
             for i in future_files
         ]
         
-        # Ensure dimension of the read arrays the same
-        if not check_grids(cond_array, trans_grids[0]):
-            raise(ValueError("The shape of the condition and transgrids doesn't match."))
+        # Ensure rows/cols of the arrays the same
+        if cond_array.shape[:2] != trans_grids[0].shape[:2]:
+            raise ValueError(
+                "The shape of the condition and trans_grids[0] doesn't match.\n"
+                f"cond_array shape: {cond_array.shape}\n"
+                f"trans_grids[0] shape: {trans_grids[0].shape}"
+            )
 
         # The base Rust connectivity funciton
         out_array = connectivity(

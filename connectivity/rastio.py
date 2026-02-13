@@ -8,34 +8,37 @@ import geopandas as gpd
 from .utils import guess_geographic
 
 
-def overview_info(file_path: str):
-    """Display information about all available overviews and their actual dimensions.
+def overview_info(file_path: str, levels: list = None):
+    """Display information about possible overview dimensions that could be generated.
      
     Parameters:
     - file_path (str): Path to the TIF/raster file.
-    """    
+    - levels (list): List of overview levels (powers of 2). Default: [2, 4, 8, 16, 32, 64, 128]
+    """
+    if levels is None:
+        levels = [2, 4, 8, 16, 32, 64, 128]
+    
     print(f"\nFile: {file_path}")
     
     with rasterio.open(file_path) as ds:
-        print(f"Resolution: {ds.width} x {ds.height}")
+        base_width = ds.width
+        base_height = ds.height
+        
+        print(f"Base Resolution: {base_width} x {base_height}")
         print(f"Bands: {ds.count}")
         print(f"CRS: {ds.crs}")
-
-        for band in range(1, ds.count + 1):
-            overviews = ds.overviews(band)
-
-            if not overviews:
-                print(f"No overview for band {band}.")
-                continue
-
-            print(f"\nBand {band} overviews: {overviews}")
-            print("Overview resolutions:")
-            for i, level in enumerate(overviews):
-                # Open the actual overview level
-                with rasterio.open(file_path, overview_level=i) as src:
-                    h, w = src.shape  # (rows, cols)
-                print(f"  Level {level}: {w} x {h}")
-
+        
+        print(f"\nPossible overview levels:")
+        print("Estimated overview resolutions:")
+        for level in levels:
+            # Calculate dimensions using the same logic as Rust make_overview
+            estimated_width = (base_width + level - 1) // level
+            estimated_height = (base_height + level - 1) // level            
+            # Stop if either dimension is lower than 5
+            if estimated_width < 5 or estimated_height < 5:
+                break
+            
+            print(f"  Level {level}: {estimated_width} x {estimated_height}")
 
 
 def read_raster(
@@ -104,7 +107,8 @@ def read_raster(
             else:
                 # pad in map units: expand_px (in base pixels) * max_level scaling * max(res)
                 max_level = max(levels)
-                pad_size = float(expand_px) * float(max_level) * float(max(base_res_x, base_res_y))
+                eps = 0.25 * float(max(base_res_x, base_res_y)) # add half-pixel to avoid missing rows/cols
+                pad_size = float(expand_px) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
             # Read/crop to extent geoms, but keep nodata/internal mask -> filled=False gives MaskedArray
