@@ -75,6 +75,8 @@ def read_raster(
     # basic sanity: ensure levels are positive
     if any(l <= 0 for l in levels):
         raise ValueError(f"levels must be positive ints, got: {levels}")
+    # ensure levels contain 1
+    levels = sorted({1, *levels})
 
     with rasterio.open(file_path) as src:
         # CRS / geographic
@@ -109,6 +111,7 @@ def read_raster(
                 max_level = max(levels)
                 eps = 0.25 * float(max(base_res_x, base_res_y)) # add half-pixel to avoid missing rows/cols
                 pad_size = float(expand_px) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
+                            
                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
             # Read/crop to extent geoms, but keep nodata/internal mask -> filled=False gives MaskedArray
@@ -123,9 +126,16 @@ def read_raster(
             out_image_data = np.ma.getdata(out_ma).astype(np.float32)
             data_mask = np.ma.getmaskarray(out_ma)  # includes nodata, alpha/mask band, etc.
 
+            if closed:
+                mask_geoms = extent_geoms
+            else:
+                # add some padded rows for mask as well.
+                pad_size = max(base_res_x, base_res_y) * expand_px
+                mask_geoms = [geom.buffer(pad_size) for geom in polygon.geometry]
+
             # Mask for ORIGINAL polygon footprint on the output grid
             geom_mask = geometry_mask(
-                geometries=[mapping(g) for g in polygon.geometry],
+                geometries=[mapping(g) for g in mask_geoms],
                 out_shape=out_image_data.shape[1:],  # (rows, cols)
                 transform=out_transform,
                 invert=True,       # True inside polygon
@@ -161,7 +171,6 @@ def read_raster(
             else:
                 mask_array = data_mask.astype(bool)
     
-
         # Reshape to (rows, cols, bands) if multiband and not squeezed away
         # If single band, data_array should be (rows, cols)
         if data_array.ndim == 3:
