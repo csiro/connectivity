@@ -109,8 +109,8 @@ def read_raster(
             else:
                 # pad in map units: expand_px (in base pixels) * max_level scaling * max(res)
                 max_level = max(levels)
-                eps = 0.25 * float(max(base_res_x, base_res_y)) # add half-pixel to avoid missing rows/cols
-                pad_size = float(expand_px) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
+                eps = 0.5 * float(max(base_res_x, base_res_y)) # add half-pixel to avoid missing rows/cols
+                pad_size = float(expand_px * 2) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
                             
                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
