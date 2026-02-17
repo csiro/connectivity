@@ -39,12 +39,13 @@ use affine::Affine;
 ///   resolution. Must be an odd number (e.g. 3 for a 3×3 window).
 /// * `outer_window` - Radius of the neighborhood at the coarsest resolution level,
 ///   capturing broader connectivity context. Must be odd and ≥ `window_size`.
+/// * `offsets` - 
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, n_threads=None))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None))]
 fn connectivity(
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,
@@ -56,6 +57,7 @@ fn connectivity(
     max_cost: f32,
     window_size: i32,
     outer_window: i32,
+    offsets: (usize, usize),
     n_threads: Option<usize>,
 ) -> PyResult<Py<PyArray2<f32>>> {
     // Get the Numpy array
@@ -103,6 +105,7 @@ fn connectivity(
             max_cost,
             window_size,
             outer_window,
+            offsets,
         ))
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
 

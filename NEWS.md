@@ -1,5 +1,6 @@
 # Version 1.0.1
-* Fixed a missing row when reading tiles.
+* Fixed a subtle misalignment in overview generation when processing tiles independently. Aggregation windows are now globally anchored to the original dataset pixel grid, ensuring that multi-resolution overviews (e.g., 4×4, 8×8, 16×16) align perfectly across adjacent polygon runs and no longer produce seam artifacts.
+* Fixed a missing row when reading tiles by adding half a pixel to the buffer.
 * Modified `overview_info()` to return only the estimated size of overviews for validation, rather than the actual overview. This means it now works for any raster, even if it does not contain a real overview.
 
 # Version 1.0.0

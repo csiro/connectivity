@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use ndarray::{Array2, Array3};
 use anyhow::{bail, Result};
+use ndarray::{Array2, Array3};
 use rayon::prelude::*;
-
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Resampling {
@@ -10,9 +9,8 @@ pub enum Resampling {
     Count,
 }
 
-
-/// Check levels are a power fo two with bitwise operation.
-fn check_levels(levels: &Vec<usize>) -> Result<()> {
+/// Check levels are a power of two with bitwise operation.
+fn check_levels(levels: &[usize]) -> Result<()> {
     for &level in levels {
         if level == 0 || (level & (level - 1)) != 0 {
             bail!("Level {} is not a power of 2", level);
@@ -22,126 +20,234 @@ fn check_levels(levels: &Vec<usize>) -> Result<()> {
 }
 
 
-/// Generate overviews for raster arrays
+/// Generate globally-anchored overviews for a SINGLE tile (polygon crop).
+///
+/// The key fix is that aggregation windows are aligned to the ORIGINAL dataset pixel grid
+/// using `tile_row0` / `tile_col0`. This prevents seams when adjacent polygon runs are
+/// later stitched, because overview cell boundaries are identical across independent runs.
+///
+/// Inputs:
+/// - `base`: tile-local array where base[[0,0]] corresponds to global pixel (tile_row0, tile_col0)
+/// - `offsets`: (tile_row0, tile_col0) in ORIGINAL dataset pixel coordinates (top-left of this tile)
+///
+/// Output:
+/// - level -> overview array covering exactly the global overview cells that intersect this tile
+///
+/// Note:
+/// - This function does NOT need the full dataset width/height.
+/// - If you write these arrays to GeoTIFF, you must ensure the output transform is consistent
+///   with the global overview grid origin (often easiest if you also track ov_row_start/ov_col_start).
 pub fn make_overview(
     base: &Array2<f32>,
-    levels: &Vec<usize>,
+    levels: &[usize],
+    offsets: (usize, usize),
     method: Resampling,
 ) -> Result<HashMap<i32, Array2<f32>>> {
-    // Check levels are a power of two
     check_levels(levels)?;
-    let (base_rows, base_cols) = base.dim();
-    
+
+    let (base_rows_u, base_cols_u) = base.dim();
+    let base_rows = base_rows_u as i32;
+    let base_cols = base_cols_u as i32;
+
+    let (tile_row0_u, tile_col0_u) = offsets;
+    let tile_row0 = tile_row0_u as i32;
+    let tile_col0 = tile_col0_u as i32;
+
+    let tile_r0 = tile_row0;
+    let tile_c0 = tile_col0;
+    let tile_r1 = tile_row0 + base_rows; // exclusive
+    let tile_c1 = tile_col0 + base_cols; // exclusive
+
     let mut result = HashMap::with_capacity(levels.len());
-    
-    for &f in levels.iter() {
-        let out_rows = (base_rows + f - 1) / f;
-        let out_cols = (base_cols + f - 1) / f;
-        
-        let raster: Vec<f32> = (0..out_rows)
-            .into_par_iter()
-            .flat_map(|out_r| {
-                let mut row = vec![f32::NAN; out_cols];
-                let base_r_start = out_r * f;
-                let base_r_end = (base_r_start + f).min(base_rows);
-                
-                for out_c in 0..out_cols {
-                    let base_c_start = out_c * f;
-                    let base_c_end = (base_c_start + f).min(base_cols);
-                    
-                    let mut valid_count = 0.0;
-                    let mut sum_values = 0.0;
-                    for r in base_r_start..base_r_end {
-                        for c in base_c_start..base_c_end {
-                            let cell_value = base[[r, c]];
-                            if !cell_value.is_nan() {
+
+    for &f_u in levels {
+        let f = f_u as i32;
+
+        let ov_row_start = tile_r0.div_euclid(f);
+        let ov_col_start = tile_c0.div_euclid(f);
+        let ov_row_end = (tile_r1 - 1).div_euclid(f);
+        let ov_col_end = (tile_c1 - 1).div_euclid(f);
+
+        let out_rows = (ov_row_end - ov_row_start + 1) as usize;
+        let out_cols = (ov_col_end - ov_col_start + 1) as usize;
+
+        // Preallocate row-major output
+        let mut raster = vec![f32::NAN; out_rows * out_cols];
+
+        raster
+            .par_chunks_mut(out_cols)
+            .enumerate()
+            .for_each(|(local_r, row)| {
+                let ov_r = ov_row_start + local_r as i32;
+
+                let block_r0 = ov_r * f;
+                let block_r1 = block_r0 + f;
+
+                let r0 = block_r0.max(tile_r0);
+                let r1 = block_r1.min(tile_r1);
+                if r1 <= r0 {
+                    return;
+                }
+
+                let tile_r_start = (r0 - tile_r0) as usize;
+                let tile_r_end = (r1 - tile_r0) as usize;
+
+                for local_c in 0..out_cols {
+                    let ov_c = ov_col_start + local_c as i32;
+
+                    let block_c0 = ov_c * f;
+                    let block_c1 = block_c0 + f;
+
+                    let c0 = block_c0.max(tile_c0);
+                    let c1 = block_c1.min(tile_c1);
+                    if c1 <= c0 {
+                        continue;
+                    }
+
+                    let tile_c_start = (c0 - tile_c0) as usize;
+                    let tile_c_end = (c1 - tile_c0) as usize;
+
+                    let mut valid_count = 0.0_f32;
+                    let mut sum_values = 0.0_f32;
+
+                    for r in tile_r_start..tile_r_end {
+                        for c in tile_c_start..tile_c_end {
+                            let v = base[[r, c]];
+                            if v.is_finite() {
                                 valid_count += 1.0;
                                 if let Resampling::Average = method {
-                                    sum_values += cell_value;
+                                    sum_values += v;
                                 }
                             }
                         }
                     }
-                    
+
                     if valid_count > 0.0 {
-                        row[out_c] = match method {
+                        row[local_c] = match method {
                             Resampling::Average => sum_values / valid_count,
                             Resampling::Count => valid_count,
                         };
                     }
                 }
-                row
-            })
-            .collect();
-        
-        let array = Array2::from_shape_vec((out_rows, out_cols), raster)?;
-        result.insert(f as i32, array);
+            });
+
+        result.insert(f as i32, Array2::from_shape_vec((out_rows, out_cols), raster)?);
     }
-    
+
     Ok(result)
 }
 
 
-/// Generate overviews for 3D arrays (multi-band rasters such as GDM transgrids)
+
+/// Generate globally-aligned overviews for 3D arrays (rows, cols, bands).
+///
+/// Fixes the same seam issue as the 2D version by:
+/// - defining each overview cell by global indices floor(global_pixel / level)
+/// - intersecting each global f×f block with the tile extent
+/// - avoiding saturating_sub by doing intersections in signed coords
 pub fn make_overview_3d(
-    base: &Array3<f32>,  // shape: (rows, cols, bands)
-    levels: &Vec<usize>,
+    base: &Array3<f32>, // shape: (rows, cols, bands)
+    levels: &[usize],
+    offsets: (usize, usize), // (tile_row0, tile_col0) in ORIGINAL dataset pixel coords
     method: Resampling,
 ) -> Result<HashMap<i32, Array3<f32>>> {
-    // Check levels are a power of two
     check_levels(levels)?;
-    let (base_rows, base_cols, n_bands) = base.dim();
-    
-    let mut result = HashMap::new();
-    
-    for &f in levels.iter() {
-        let out_rows = (base_rows + f - 1) / f;
-        let out_cols = (base_cols + f - 1) / f;
-        
-        let raster: Vec<f32> = (0..out_rows)
-            .into_par_iter()
-            .flat_map(|out_r| {
-                let mut row = vec![f32::NAN; out_cols * n_bands];
-                let base_r_start = out_r * f;
-                let base_r_end = (base_r_start + f).min(base_rows);
-                
-                for out_c in 0..out_cols {
-                    let base_c_start = out_c * f;
-                    let base_c_end = (base_c_start + f).min(base_cols);
-                    
-                    // Process each band (from multi-dimensional raster)
+
+    let (base_rows_u, base_cols_u, n_bands_u) = base.dim();
+    let base_rows = base_rows_u as i32;
+    let base_cols = base_cols_u as i32;
+    let n_bands = n_bands_u as usize;
+
+    let (tile_row0_u, tile_col0_u) = offsets;
+    let tile_row0 = tile_row0_u as i32;
+    let tile_col0 = tile_col0_u as i32;
+
+    let tile_r0 = tile_row0;
+    let tile_c0 = tile_col0;
+    let tile_r1 = tile_row0 + base_rows; // exclusive
+    let tile_c1 = tile_col0 + base_cols; // exclusive
+
+    let mut result = HashMap::with_capacity(levels.len());
+
+    for &f_u in levels {
+        let f = f_u as i32;
+
+        let ov_row_start = tile_r0.div_euclid(f);
+        let ov_col_start = tile_c0.div_euclid(f);
+        let ov_row_end = (tile_r1 - 1).div_euclid(f);
+        let ov_col_end = (tile_c1 - 1).div_euclid(f);
+
+        let out_rows = (ov_row_end - ov_row_start + 1) as usize;
+        let out_cols = (ov_col_end - ov_col_start + 1) as usize;
+
+        let row_stride = out_cols * n_bands;
+        let mut raster = vec![f32::NAN; out_rows * row_stride];
+
+        raster
+            .par_chunks_mut(row_stride)
+            .enumerate()
+            .for_each(|(local_r, row)| {
+                let ov_r = ov_row_start + local_r as i32;
+
+                let block_r0 = ov_r * f;
+                let block_r1 = block_r0 + f;
+
+                let r0 = block_r0.max(tile_r0);
+                let r1 = block_r1.min(tile_r1);
+                if r1 <= r0 {
+                    return;
+                }
+
+                let tile_r_start = (r0 - tile_r0) as usize;
+                let tile_r_end = (r1 - tile_r0) as usize;
+
+                for local_c in 0..out_cols {
+                    let ov_c = ov_col_start + local_c as i32;
+
+                    let block_c0 = ov_c * f;
+                    let block_c1 = block_c0 + f;
+
+                    let c0 = block_c0.max(tile_c0);
+                    let c1 = block_c1.min(tile_c1);
+                    if c1 <= c0 {
+                        continue;
+                    }
+
+                    let tile_c_start = (c0 - tile_c0) as usize;
+                    let tile_c_end = (c1 - tile_c0) as usize;
+
                     for band_idx in 0..n_bands {
-                        let mut valid_count = 0.0;
-                        let mut sum_values = 0.0;
-                        
-                        for r in base_r_start..base_r_end {
-                            for c in base_c_start..base_c_end {
-                                let cell_value = base[[r, c, band_idx]];
-                                if !cell_value.is_nan() {
+                        let mut valid_count = 0.0_f32;
+                        let mut sum_values = 0.0_f32;
+
+                        for r in tile_r_start..tile_r_end {
+                            for c in tile_c_start..tile_c_end {
+                                let v = base[[r, c, band_idx]];
+                                if v.is_finite() {
                                     valid_count += 1.0;
                                     if let Resampling::Average = method {
-                                        sum_values += cell_value;
+                                        sum_values += v;
                                     }
                                 }
                             }
                         }
-                        
+
                         if valid_count > 0.0 {
-                            row[out_c * n_bands + band_idx] = match method {
+                            row[local_c * n_bands + band_idx] = match method {
                                 Resampling::Average => sum_values / valid_count,
                                 Resampling::Count => valid_count,
                             };
                         }
                     }
                 }
-                row
-            })
-            .collect();
-        
-        let array = Array3::from_shape_vec((out_rows, out_cols, n_bands), raster)?;
-        result.insert(f as i32, array);
+            });
+
+        result.insert(
+            f as i32,
+            Array3::from_shape_vec((out_rows, out_cols, n_bands), raster)?,
+        );
     }
-    
+
     Ok(result)
 }
 

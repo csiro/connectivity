@@ -140,7 +140,7 @@ def connectedness(
     pad_size = 0 if closed_border else outer_window
 
     # Read condition raster overviews; this checks levels as well
-    cond_array, mask_array, affine_dict, is_geo = read_raster(
+    cond_array, mask_array, affine_dict, is_geo, tile_row0, tile_col0 = read_raster(
         file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
@@ -155,7 +155,7 @@ def connectedness(
         # Process PA-array for PARC-connectedness
         if pa_file is not None:
             # Read PA raster overviews; this checks levels as well
-            pa_array, _, _, _ = read_raster(
+            pa_array, *_ = read_raster(
                 file_path=pa_file, 
                 polygon=polygon_mask, 
                 levels=levels, 
@@ -188,6 +188,7 @@ def connectedness(
             max_cost = max_cost,
             window_size = window_size,
             outer_window = outer_window,
+            offsets = (tile_row0, tile_col0),
             n_threads = n_threads,
         )
 
@@ -337,7 +338,7 @@ def beri(
                     )
 
     # Read raster overview as a dictionary; this checks levels as well.
-    cond_array, mask_array, affine_dict, is_geo  = read_raster(
+    cond_array, mask_array, affine_dict, is_geo, tile_row0, tile_col0  = read_raster(
         file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
@@ -378,6 +379,7 @@ def beri(
             max_cost = max_cost,
             window_size = window_size,
             outer_window = outer_window,
+            offsets = (tile_row0, tile_col0),
             n_threads = n_threads,
         )
 

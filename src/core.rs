@@ -32,6 +32,7 @@ pub fn conn(
     max_cost: f32,
     window_size: i32,
     outer_window: i32,
+    offsets: (usize, usize),
 ) -> Result<Array2<f32>> {
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = trans_arrays
@@ -44,9 +45,9 @@ pub fn conn(
         let num_levels = levels.len();
 
         // Generate overviews
-        let cond_map = overview::make_overview(cond_base, levels, Resampling::Average).expect("Failed average resampling.");
+        let cond_map = overview::make_overview(cond_base, levels, offsets, Resampling::Average).expect("Failed average resampling.");
         // Calculate the cell counts for including habitat area contribution
-        let cell_weights = overview::make_overview(cond_base, levels, Resampling::Count).expect("Failed to count cells.");
+        let cell_weights = overview::make_overview(cond_base, levels, offsets, Resampling::Count).expect("Failed to count cells.");
         // Ensure cell-counts has the same keys and dimension as condition array map;
         utils::check_dims(&cell_weights, &cond_map)?;
 
@@ -55,7 +56,7 @@ pub fn conn(
             arrays
                 .iter()
                 .map(|arr| {
-                    overview::make_overview_3d(arr, levels, Resampling::Average)
+                    overview::make_overview_3d(arr, levels, offsets, Resampling::Average)
                         .expect("Failed average resampling.")
                 })
                 .collect()
