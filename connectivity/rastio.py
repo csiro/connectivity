@@ -78,7 +78,7 @@ def read_raster(
                 max_level = max(levels)
                 eps = 0.5 * float(max(base_res_x, base_res_y)) # add half-pixel to avoid missing rows/cols
                 # add 1 to expand_px so it skip any partial edge
-                pad_size = float(expand_px + 5) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
+                pad_size = float(expand_px * 2) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
             # Compute exact dataset-pixel offsets for this crop
