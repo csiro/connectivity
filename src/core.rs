@@ -115,7 +115,13 @@ pub fn conn(
                     
                     let mut cell_paths: Vec<EdgeData> = Vec::with_capacity(nodes_altered.len());
 
-                    for &k in nodes_altered.keys() {
+                    // HashMap iteration order is non-deterministic; sort targets so repeated
+                    // tile runs produce bit-stable accumulation at shared boundaries.
+                    let mut targets: Vec<u32> = nodes_altered.keys().copied().collect();
+                    targets.sort_unstable();
+
+                    // for &k in nodes_altered.keys() {
+                    for k in targets {
                         // Calcaulate optimal path for each reachable path
                         let optim_path = build_path(&k, &nodes_altered);
                         // Get the intact distance from source; divided by 100 to cancel out from path adjacency

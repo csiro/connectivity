@@ -105,13 +105,13 @@ def read_raster(
             data_mask = np.ma.getmaskarray(out_ma)
 
             if closed:
-                 extent_geoms = [geom for geom in polygon.geometry]
+                 valid_geoms = [geom for geom in polygon.geometry]
             else:
                  pad_size = float(max(base_res_x, base_res_y)) * 10
-                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
+                 valid_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
             geom_mask = geometry_mask(
-                geometries=[mapping(g) for g in extent_geoms],
+                geometries=[mapping(g) for g in valid_geoms],
                 out_shape=out_image_data.shape[1:],
                 transform=out_transform,
                 invert=True,
