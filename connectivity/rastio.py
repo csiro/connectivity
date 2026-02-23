@@ -111,7 +111,7 @@ def read_raster(
                  extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
             geom_mask = geometry_mask(
-                geometries=[mapping(g) for g in polygon.geometry],
+                geometries=[mapping(g) for g in extent_geoms],
                 out_shape=out_image_data.shape[1:],
                 transform=out_transform,
                 invert=True,

@@ -370,7 +370,7 @@ def beri(
         # The base Rust connectivity funciton
         out_array = connectivity(
             condition = cond_array,
-            mask = mask_array,             # only used for PARC-connectedness;
+            mask = mask_array,
             transgrid_list = trans_grids,
             transforms = affine_dict,
             levels = levels, 
