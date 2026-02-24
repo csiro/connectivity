@@ -6,29 +6,6 @@ from .rastio import read_raster, write_raster
 from .utils import smoothing_filter, fn, crop_array, round_to_pow2
 
 
-def _assert_grid_alignment(reference_file: str, target_file: str, atol: float = 1e-9):
-    """Ensure rasters are on the same grid (shape, CRS, affine within tolerance)."""
-    with rasterio.open(reference_file) as ref, rasterio.open(target_file) as src:
-        if ref.shape != src.shape:
-            raise ValueError(
-                f"Shape mismatch: {reference_file} {ref.shape} vs {target_file} {src.shape}"
-            )
-
-        if ref.crs != src.crs:
-            raise ValueError(
-                f"CRS mismatch: {reference_file} {ref.crs} vs {target_file} {src.crs}"
-            )
-
-        t_ref = np.array(tuple(ref.transform)[:6], dtype=np.float64)
-        t_src = np.array(tuple(src.transform)[:6], dtype=np.float64)
-        if not np.allclose(t_ref, t_src, rtol=0.0, atol=atol):
-            raise ValueError(
-                "Transform mismatch beyond tolerance.\n"
-                f"{reference_file}: {tuple(ref.transform)[:6]}\n"
-                f"{target_file}: {tuple(src.transform)[:6]}"
-            )
-
-
 # Connectedness main funciton
 def connectedness(
         condition_file: str,
@@ -145,7 +122,14 @@ def connectedness(
     if pa_file is not None:
         if levels is None:
             levels = common_levels(condition_file, pa_file)
-        _assert_grid_alignment(condition_file, pa_file)
+
+        if polygon_mask is None:
+            # Only check when no masks; grids could have differnce shape but the masked version could be identical.
+            with rasterio.open(condition_file) as ds1, rasterio.open(pa_file) as ds2:
+                if ds1.shape != ds2.shape:
+                    raise ValueError(
+                        f"Shape mismatch: {condition_file} {ds1.shape} vs {pa_file} {ds2.shape}"
+                    )
 
     if levels is None:
         raise ValueError("levels must be provided")
@@ -163,7 +147,6 @@ def connectedness(
         scale=s1, # only for condition raster
         expand_px=pad_size
     )
-    fixed_window = (tile_row0, tile_col0, cond_array.shape[0], cond_array.shape[1])
 
     # Extra check and return early if condition is all NA; e.g. in a tile
     if np.isnan(cond_array).all():
@@ -174,11 +157,10 @@ def connectedness(
             # Read PA raster overviews; this checks levels as well
             pa_array, *_ = read_raster(
                 file_path=pa_file, 
-                polygon=None,
+                polygon=polygon_mask, 
                 levels=levels, 
                 scale=s2, 
-                expand_px=pad_size,
-                fixed_window=fixed_window,
+                expand_px=pad_size
             )
             # Ensure dimension of the arrays the same
             if cond_array.shape != pa_array.shape:
@@ -349,11 +331,15 @@ def beri(
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
 
-    # Build scenario list without mutating caller input.
-    scenario_files = [current_file, *future_files]
-    # Ensure all scenario grids are aligned with condition grid.
-    for src in scenario_files:
-        _assert_grid_alignment(condition_file, src)
+    # An early check for the overall shapes of grids.
+    if polygon_mask is not None:
+        # Only check when no masks; grids could have differnce shape but the masked version could be identical.
+        for src in future_files:
+            with rasterio.open(condition_file) as ds1, rasterio.open(src) as ds2:
+                if ds1.shape != ds2.shape:
+                    raise ValueError(
+                        f"Shape mismatch: {condition_file} {ds1.shape} vs {src} {ds2.shape}"
+                    )
 
     # Read raster overview as a dictionary; this checks levels as well.
     cond_array, mask_array, affine_dict, is_geo, tile_row0, tile_col0  = read_raster(
@@ -363,22 +349,17 @@ def beri(
         scale=scale, # only for condition raster
         expand_px=pad_size
     )
-    fixed_window = (tile_row0, tile_col0, cond_array.shape[0], cond_array.shape[1])
 
     # Extra check and return early if condition is all NA; e.g. in a tile
     if np.isnan(cond_array).all():
         out_array = cond_array
     else:
+        # Build scenario list without mutating caller input.
+        scenario_files = [current_file, *future_files]
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
         # the scale parameter is not used here
         trans_grids = [
-            read_raster(
-                file_path=i,
-                polygon=None,
-                levels=levels,
-                expand_px=pad_size,
-                fixed_window=fixed_window,
-            )[0]
+            read_raster(file_path=i, polygon=polygon_mask, levels=levels, expand_px=pad_size)[0]
             for i in scenario_files
         ]
         
