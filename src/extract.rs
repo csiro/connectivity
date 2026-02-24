@@ -30,27 +30,6 @@ pub fn to_transform_map(data_dict: &Bound<PyAny>) -> Result<HashMap<i32, Affine>
 }
 
 
-/// Convert a Python dict of 2D-arrays into a Rust HashMap<i32, Array2<f32>>.
-pub fn to_2d_map(data_dict: &Bound<PyAny>) -> HashMap<i32, Array2<f32>> {
-    let mut rust_map = HashMap::new();
-
-    // Convert to iterable
-    let iter = data_dict
-        .call_method0("items").unwrap()
-        .iter().unwrap();
-
-    for pair in iter {
-        let (key_obj, value_obj) = pair.unwrap().extract::<(&PyAny, &PyAny)>().unwrap();
-        let key = key_obj.extract::<i32>().unwrap();
-        let py_array = value_obj.extract::<&PyArray2<f32>>().unwrap();
-        let array_owned = unsafe { py_array.as_array().to_owned() };
-        rust_map.insert(key, array_owned);
-    }
-
-    rust_map
-}
-
-
 /// Convert a Python 2D mask array to Array2<bool>
 pub fn to_mask<'py>(data: &Bound<'py, PyAny>) -> Result<Array2<bool>> {
     if data.is_none() {

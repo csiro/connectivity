@@ -45,7 +45,7 @@ use affine::Affine;
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, cell_weights=None, use_num_cells=true, n_threads=None))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None))]
 fn connectivity(
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,
@@ -58,8 +58,6 @@ fn connectivity(
     window_size: i32,
     outer_window: i32,
     offsets: (usize, usize),
-    cell_weights: Option<&Bound<PyAny>>,
-    use_num_cells: bool,
     n_threads: Option<usize>,
 ) -> PyResult<Py<PyArray2<f32>>> {
     // Get the Numpy array
@@ -87,16 +85,6 @@ fn connectivity(
     let mask_array = extract::to_mask(mask)
         .map_err(|er| PyRuntimeError::new_err(format!("Reading mask failed: {er}")))?;
 
-    let cell_weights_map: Option<HashMap<i32, Array2<f32>>> = if let Some(data) = cell_weights {
-        if data.is_none() {
-            None
-        } else {
-            Some(extract::to_2d_map(data))
-        }
-    } else {
-        None
-    };
-
     // Set the number of cores for parallel processing with Rayon
     // Use a local pool to safely control exact number of core
     let pool = rayon::ThreadPoolBuilder::new()
@@ -118,8 +106,6 @@ fn connectivity(
             window_size,
             outer_window,
             offsets,
-            cell_weights_map.as_ref(),
-            use_num_cells,
         ))
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
 

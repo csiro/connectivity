@@ -2,7 +2,7 @@ import numpy as np
 import geopandas as gpd
 import rasterio
 from rust_conn import connectivity
-from .rastio import read_raster, write_raster, load_weight_overviews
+from .rastio import read_raster, write_raster
 from .utils import smoothing_filter, fn, crop_array, round_to_pow2
 
 
@@ -20,8 +20,6 @@ def connectedness(
         sigma: float | None = 1,
         scale: float | tuple | None = None,
         option: int = 3,
-        weight_overviews: dict[int, str] | None = None,
-        use_num_cells: bool = True,
         n_threads: int | None = None,
         filename: str = ""
     ):
@@ -154,18 +152,6 @@ def connectedness(
     if np.isnan(cond_array).all():
         out_array = cond_array
     else:
-        # Load externally-generated global overview weights into {level: array}.
-        # These are passed to Rust instead of internally computing cell_weights.
-        weight_map = None
-        if weight_overviews is not None:
-            weight_map = load_weight_overviews(
-                overview_files=weight_overviews,
-                levels=levels,
-                tile_row0=tile_row0,
-                tile_col0=tile_col0,
-                tile_shape=cond_array.shape[:2],
-            )
-
         # Process PA-array for PARC-connectedness
         if pa_file is not None:
             # Read PA raster overviews; this checks levels as well
@@ -203,8 +189,6 @@ def connectedness(
             window_size = window_size,
             outer_window = outer_window,
             offsets = (tile_row0, tile_col0),
-            cell_weights = weight_map,
-            use_num_cells = use_num_cells,
             n_threads = n_threads,
         )
 
@@ -244,8 +228,6 @@ def beri(
         levels: list[int] = [2, 4, 8, 16, 32],
         sigma: float | None = 1,
         scale: float | None = None,
-        weight_overviews: dict[int, str] | None = None,
-        use_num_cells: bool = True,
         n_threads: int | None = None,
         filename: str = ""
     ):
@@ -372,18 +354,6 @@ def beri(
     if np.isnan(cond_array).all():
         out_array = cond_array
     else:
-        # Load externally-generated global overview weights into {level: array}.
-        # These are passed to Rust instead of internally computing cell_weights.
-        weight_map = None
-        if weight_overviews is not None:
-            weight_map = load_weight_overviews(
-                overview_files=weight_overviews,
-                levels=levels,
-                tile_row0=tile_row0,
-                tile_col0=tile_col0,
-                tile_shape=cond_array.shape[:2],
-            )
-
         # Build scenario list without mutating caller input.
         scenario_files = [current_file, *future_files]
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
@@ -414,8 +384,6 @@ def beri(
             window_size = window_size,
             outer_window = outer_window,
             offsets = (tile_row0, tile_col0),
-            cell_weights = weight_map,
-            use_num_cells = use_num_cells,
             n_threads = n_threads,
         )
 
