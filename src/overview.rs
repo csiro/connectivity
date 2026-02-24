@@ -2,11 +2,13 @@ use anyhow::{bail, Result};
 use ndarray::{Array2, Array3};
 use rayon::prelude::*;
 use std::collections::HashMap;
+use crate::affine::Affine;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Resampling {
     Average,
     Count,
+    Area,
     #[allow(dead_code)]
     Sum,
 }
@@ -44,6 +46,7 @@ pub fn make_overview(
     levels: &[usize],
     offsets: (usize, usize),
     method: Resampling,
+    base_transform: Option<&Affine>,
 ) -> Result<HashMap<i32, Array2<f32>>> {
     check_levels(levels)?;
 
@@ -59,6 +62,28 @@ pub fn make_overview(
     let tile_c0 = tile_col0;
     let tile_r1 = tile_row0 + base_rows; // exclusive
     let tile_c1 = tile_col0 + base_cols; // exclusive
+
+    // For area-weighted counts, precompute a per-row relative area factor: cos(latitude).
+    // This applies only to geographic grids and requires the base-level transform.
+    let row_area_factor: Option<Vec<f32>> = if matches!(method, Resampling::Area) {
+        let tr = base_transform.ok_or_else(|| {
+            anyhow::anyhow!("Area resampling requires base-level transform information.")
+        })?;
+
+        let mut factors = Vec::with_capacity(base_rows_u);
+        for local_r in 0..base_rows_u {
+            let global_r = tile_row0 + local_r as i32;
+            let row_f = global_r as f64 + 0.5;
+            let col_f = 0.5_f64;
+            let lat_deg = tr.y_skew * col_f + tr.y_scale * row_f + tr.y_origin;
+            let w = lat_deg.to_radians().cos().abs() as f32;
+            factors.push(if w.is_finite() { w.max(0.0) } else { 0.0 });
+        }
+        Some(factors)
+    } else {
+        None
+    };
+    let row_area_factor = row_area_factor.as_deref();
 
     let mut result = HashMap::with_capacity(levels.len());
 
@@ -111,14 +136,23 @@ pub fn make_overview(
 
                     let mut valid_count = 0.0_f32;
                     let mut sum_values = 0.0_f32;
+                    let mut area_count = 0.0_f32;
 
                     for r in tile_r_start..tile_r_end {
                         for c in tile_c_start..tile_c_end {
                             let v = base[[r, c]];
                             if v.is_finite() {
                                 valid_count += 1.0;
-                                if let Resampling::Average | Resampling::Sum = method {
-                                    sum_values += v;
+                                match method {
+                                    Resampling::Average | Resampling::Sum => {
+                                        sum_values += v;
+                                    }
+                                    Resampling::Area => {
+                                        if let Some(area_rows) = row_area_factor {
+                                            area_count += area_rows[r];
+                                        }
+                                    }
+                                    Resampling::Count => {}
                                 }
                             }
                         }
@@ -128,6 +162,7 @@ pub fn make_overview(
                         row[local_c] = match method {
                             Resampling::Average => sum_values / valid_count,
                             Resampling::Count => valid_count,
+                            Resampling::Area => area_count,
                             Resampling::Sum => sum_values,
                         };
                     }
@@ -239,6 +274,9 @@ pub fn make_overview_3d(
                             row[local_c * n_bands + band_idx] = match method {
                                 Resampling::Average => sum_values / valid_count,
                                 Resampling::Count => valid_count,
+                                // Area-weighted counting is only used for 2D cell weights.
+                                // For 3D overviews this falls back to plain valid counts.
+                                Resampling::Area => valid_count,
                                 Resampling::Sum => sum_values,
                             };
                         }

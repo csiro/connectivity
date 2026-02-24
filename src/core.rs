@@ -45,9 +45,19 @@ pub fn conn(
         let num_levels = levels.len();
 
         // Generate overviews
-        let cond_map = overview::make_overview(cond_base, levels, offsets, Resampling::Average).expect("Failed average resampling.");
-        let cell_weights = overview::make_overview(cond_base, levels, offsets, Resampling::Count)
-            .expect("Failed to build valid-count weights.");
+        let cond_map = overview::make_overview(cond_base, levels, offsets, Resampling::Average, None)
+            .expect("Failed average resampling.");
+        let weight_method = if is_geo { Resampling::Area } else { Resampling::Count };
+        let base_transform = transform_map
+            .get(&1)
+            .expect("Missing base-level transform (key=1).");
+        let cell_weights = overview::make_overview(
+            cond_base,
+            levels,
+            offsets,
+            weight_method,
+            Some(base_transform),
+        ).expect("Failed to build cell weights.");
         // Ensure cell-counts has the same keys and dimension as condition array map;
         utils::check_dims(&cell_weights, &cond_map)?;
 
