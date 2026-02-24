@@ -33,6 +33,7 @@ pub fn conn(
     window_size: i32,
     outer_window: i32,
     offsets: (usize, usize),
+    cell_weights_map: Option<&HashMap<i32, Array2<f32>>>,
     use_num_cells: bool,
 ) -> Result<Array2<f32>> {
     // If transgrids are provided run BERI, otherwise connectedness.
@@ -47,11 +48,25 @@ pub fn conn(
 
         // Generate overviews
         let cond_map = overview::make_overview(cond_base, levels, offsets, Resampling::Average).expect("Failed average resampling.");
-        // Valid-pixel counts per segment for habitat-area contribution.
-        let cell_weights = overview::make_overview(cond_base, levels, offsets, Resampling::Count)
-            .expect("Failed to build valid-count weights.");
+        // Deprecated internal fallback retained for reference:
+        // let cell_weights = overview::make_overview(cond_base, levels, offsets, Resampling::Count)
+        //     .expect("Failed to build valid-count weights.");
+        let internal_weights = if cell_weights_map.is_none() {
+            Some(
+                overview::make_overview(cond_base, levels, offsets, Resampling::Count)
+                    .expect("Failed to build fallback valid-count weights."),
+            )
+        } else {
+            None
+        };
+        let cell_weights: &HashMap<i32, Array2<f32>> = match cell_weights_map {
+            Some(map) => map,
+            None => internal_weights
+                .as_ref()
+                .expect("Internal fallback weights were not created."),
+        };
         // Ensure cell-counts has the same keys and dimension as condition array map;
-        utils::check_dims(&cell_weights, &cond_map)?;
+        utils::check_dims(cell_weights, &cond_map)?;
 
         // Generate overviews for all scenarios
         let trans_maps: Vec<HashMap<i32, Array3<f32>>> = if let Some(arrays) = trans_arrays {
@@ -97,7 +112,7 @@ pub fn conn(
                             &cond_map,
                             &trans_maps,
                             &ij_values,
-                            &cell_weights,
+                            cell_weights,
                         );
                         windows.insert(level, win);
                     }
