@@ -18,6 +18,7 @@ def read_raster(
     levels: list[int] | None = None,
     scale: float | None = None,
     expand_px: int = 0,
+    fixed_window: tuple[int, int, int, int] | None = None,
 ):
     """Reads data from a multi-band GeoTIFF (base resolution) and returns NaN-filled array + transforms + masks + offsets.
 
@@ -27,6 +28,9 @@ def read_raster(
         - levels (list of int): List of overview reduction factors (e.g., [1, 2, 4, 8]).
         - scale (float or None): Scaling factor. If None, 0, or 1, data returned unchanged; otherwise divided by scale.
         - expand_px (int): Number of pixels to buffer the polygon. 0 means closed boundary (tight crop).
+        - fixed_window (tuple[int, int, int, int] or None): Optional fixed read window as
+          (row_off, col_off, height, width) in dataset pixel coordinates. When provided,
+          this exact window is used instead of geometry-derived windowing.
     
     Modes:
       - closed (expand_px == 0): crop to polygon extent AND mask outside polygon
@@ -58,7 +62,64 @@ def read_raster(
         base_transform = src.transform
         base_res_x, base_res_y = src.res
 
-        if polygon is None:
+        if fixed_window is not None:
+            if len(fixed_window) != 4:
+                raise ValueError("fixed_window must be a 4-item tuple: (row_off, col_off, height, width)")
+
+            row_off, col_off, height, width = (int(v) for v in fixed_window)
+            if height <= 0 or width <= 0:
+                raise ValueError(f"Invalid fixed_window size: height={height}, width={width}")
+
+            row_end = row_off + height
+            col_end = col_off + width
+            if row_off < 0 or col_off < 0 or row_end > src.height or col_end > src.width:
+                raise ValueError(
+                    f"fixed_window {(row_off, col_off, height, width)} is out of bounds for "
+                    f"raster shape {(src.height, src.width)}"
+                )
+
+            read_win = Window(
+                col_off=col_off,
+                row_off=row_off,
+                width=width,
+                height=height,
+            )
+
+            tile_row0, tile_col0 = row_off, col_off
+            out_ma = src.read(window=read_win, masked=True).astype(np.float32)
+            out_transform = src.window_transform(read_win)
+            out_image_data = np.ma.getdata(out_ma).astype(np.float32)
+            data_mask = np.ma.getmaskarray(out_ma)
+
+            geom_mask = None
+            if polygon is not None:
+                if polygon.crs != src.crs:
+                    polygon = polygon.to_crs(src.crs)
+
+                closed = (expand_px == 0)
+                if closed:
+                    valid_geoms = [geom for geom in polygon.geometry]
+                else:
+                    pad_size = float(max(base_res_x, base_res_y)) * 10
+                    valid_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
+
+                geom_mask = geometry_mask(
+                    geometries=[mapping(g) for g in valid_geoms],
+                    out_shape=out_image_data.shape[1:],
+                    transform=out_transform,
+                    invert=True,
+                    all_touched=True,
+                )
+
+                data_mask |= np.isnan(out_image_data)
+                if closed:
+                    data_mask |= ~geom_mask[np.newaxis, :, :]
+            else:
+                data_mask |= np.isnan(out_image_data)
+
+            data_ma = np.ma.masked_array(out_image_data, mask=data_mask)
+
+        elif polygon is None:
             data_ma = src.read(masked=True).astype(np.float32)  # (bands, rows, cols)
             out_transform = base_transform
             out_image_data = np.ma.getdata(data_ma)
