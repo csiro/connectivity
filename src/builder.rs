@@ -15,6 +15,7 @@ impl Graph {
         windows: &HashMap<i32, FocalWindow>,
         transforms: &HashMap<i32, Affine>,
         geographic: bool,
+        offsets: (usize, usize),
     ) -> Self {
         // Pre-compute queen-case neighbour indices
         const COLS: [i32; 8] = [0, 1, 0, -1, 1, 1, -1, -1];
@@ -107,6 +108,7 @@ impl Graph {
                             &node_mapping_higher,
                             &transforms,
                             geographic,
+                            offsets,
                         );
                     }
                 }
@@ -164,4 +166,3 @@ fn get_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
     
     edge_set
 }
-

@@ -33,6 +33,7 @@ pub fn conn(
     window_size: i32,
     outer_window: i32,
     offsets: (usize, usize),
+    use_num_cells: bool,
 ) -> Result<Array2<f32>> {
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = trans_arrays
@@ -46,8 +47,9 @@ pub fn conn(
 
         // Generate overviews
         let cond_map = overview::make_overview(cond_base, levels, offsets, Resampling::Average).expect("Failed average resampling.");
-        // Calculate the cell counts for including habitat area contribution
-        let cell_weights = overview::make_overview(cond_base, levels, offsets, Resampling::Count).expect("Failed to count cells.");
+        // Valid-pixel counts per segment for habitat-area contribution.
+        let cell_weights = overview::make_overview(cond_base, levels, offsets, Resampling::Count)
+            .expect("Failed to build valid-count weights.");
         // Ensure cell-counts has the same keys and dimension as condition array map;
         utils::check_dims(&cell_weights, &cond_map)?;
 
@@ -91,6 +93,7 @@ pub fn conn(
                             level,
                             window_size,
                             outer_window,
+                            offsets,
                             &cond_map,
                             &trans_maps,
                             &ij_values,
@@ -106,7 +109,8 @@ pub fn conn(
                         max_cost,
                         &windows, 
                         transform_map,
-                        is_geo
+                        is_geo,
+                        offsets,
                     );
                     // Calculate all reachable paths using weighted distance by conditon; altered condition
                     let nodes_altered  = the_graph.dijkstra(Path::Adjusted);
@@ -120,7 +124,6 @@ pub fn conn(
                     let mut targets: Vec<u32> = nodes_altered.keys().copied().collect();
                     targets.sort_unstable();
 
-                    // for &k in nodes_altered.keys() {
                     for k in targets {
                         // Calcaulate optimal path for each reachable path
                         let optim_path = build_path(&k, &nodes_altered);
@@ -136,9 +139,9 @@ pub fn conn(
                     } else {
                         let sum: f32 = lambdas.iter().map(|&lambda| {
                             if run_beri {
-                                metrics::beri_score(&cell_paths, lambda)
+                                metrics::beri_score(&cell_paths, lambda, use_num_cells)
                             } else {
-                                metrics::connectedness(&cell_paths, lambda)
+                                metrics::connectedness(&cell_paths, lambda, use_num_cells)
                             }
                         }).sum();
                         
@@ -162,4 +165,3 @@ pub fn conn(
         anyhow::bail!("No base level (key=1) in condition array");
     }  
 }
-

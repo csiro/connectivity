@@ -37,6 +37,7 @@ impl FocalWindow {
         current_level: i32,
         win_size: i32,
         outer_win: i32,
+        offsets: (usize, usize),
         cond_dict: &HashMap<i32, Array2<f32>>,
         trans_vect: &[HashMap<i32, Array3<f32>>],
         trans_ij: &Array1<f32>,
@@ -44,16 +45,24 @@ impl FocalWindow {
     ) -> Self {
         let agg_factor = 2;
         let higher_level = current_level * agg_factor;
+
+        let (tile_row0_u, tile_col0_u) = offsets;
+        let tile_row0 = tile_row0_u as i32;
+        let tile_col0 = tile_col0_u as i32;
+
+        let level_index = |base_idx: i32, tile0: i32, level: i32| -> i32 {
+            (tile0 + base_idx).div_euclid(level) - tile0.div_euclid(level)
+        };
         
         let count_array = cell_weights.get(&current_level).expect("Weights level not found!");
         let current_array = cond_dict.get(&current_level).expect("Condition level not found!");
         let current_height = current_array.shape()[0] as i32;
         let current_width = current_array.shape()[1] as i32;
         
-        let higher_center_i: i32 = base_i / higher_level;
-        let higher_center_j: i32 = base_j / higher_level;
-        let i: i32 = base_i / current_level;
-        let j: i32 = base_j / current_level;
+        let higher_center_i: i32 = level_index(base_i, tile_row0, higher_level);
+        let higher_center_j: i32 = level_index(base_j, tile_col0, higher_level);
+        let i: i32 = level_index(base_i, tile_row0, current_level);
+        let j: i32 = level_index(base_j, tile_col0, current_level);
         
         // Ensure neighborhood sizes are odd
         if win_size % 2 == 0 {
@@ -95,7 +104,12 @@ impl FocalWindow {
             let higher_array = cond_dict.get(&higher_level).expect("Condition level not found!");
             (higher_array.shape()[0] as i32, higher_array.shape()[1] as i32)
         } else {
-            (current_height / agg_factor, current_width / agg_factor)
+            // Virtual 2x aggregation grid for the highest level: use ceil division so
+            // trailing partial blocks are still represented at tile edges.
+            (
+                (current_height + agg_factor - 1) / agg_factor,
+                (current_width + agg_factor - 1) / agg_factor,
+            )
         };
         
         // Iterate over the NxN neighborhood (this is in potential higher level)
@@ -183,4 +197,3 @@ fn similarity(a: &Array1<f32>, b: &ArrayView1<f32>) -> Option<f32> {
 
     Some((-l1).exp())
 }
-

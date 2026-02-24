@@ -157,12 +157,13 @@ impl Graph {
         node_mapping_higher: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
+        offsets: (usize, usize),
     ) {
         if let Some(&(uu, _, _, _)) = node_mapping.get(&(i, j)) {
             let higher_level: i32 = level * 2;
             
             // Get all higher neighbours at once
-            let higher_neighbours = get_edge_neighbours(i, j);
+            let higher_neighbours = get_edge_neighbours(i, j, level, offsets);
 
             // Get the Affines for distance calc
             let transform: &Affine = transforms.get(&level).unwrap();
@@ -201,9 +202,23 @@ impl Graph {
 
 /// Get the 3 possible neighbours of edge cells in the higher level 
 /// i.e. the link between a level edge to its higher level cells
-fn get_edge_neighbours(i: i32, j: i32) -> [(i32, i32); 3] {
+fn get_edge_neighbours(i: i32, j: i32, level: i32, offsets: (usize, usize)) -> [(i32, i32); 3] {
+    let (tile_row0_u, tile_col0_u) = offsets;
+    let tile_row0 = tile_row0_u as i32;
+    let tile_col0 = tile_col0_u as i32;
+
+    #[inline]
+    fn to_higher_local(idx: i32, level: i32, tile0: i32) -> i32 {
+        let curr_origin = tile0.div_euclid(level);
+        let higher_origin = tile0.div_euclid(level * 2);
+        (curr_origin + idx).div_euclid(2) - higher_origin
+    }
+
     // Higher level cell containing the target cell
-    let target_higher = (i >> 1, j >> 1);    
+    let target_higher = (
+        to_higher_local(i, level, tile_row0),
+        to_higher_local(j, level, tile_col0),
+    );
     // 8 neighbor offsets: N, S, W, E, NW, NE, SW, SE
     const OFFSETS: [(i32, i32); 8] = [
         (-1, 0), (1, 0), (0, -1), (0, 1),
@@ -217,7 +232,10 @@ fn get_edge_neighbours(i: i32, j: i32) -> [(i32, i32); 3] {
     for (di, dj) in OFFSETS {
         let ni = i + di;
         let nj = j + dj;
-        let higher = (ni >> 1, nj >> 1);
+        let higher = (
+            to_higher_local(ni, level, tile_row0),
+            to_higher_local(nj, level, tile_col0),
+        );
         
         // Skip if it's the same as target's higher cell
         if higher == target_higher {
@@ -242,4 +260,3 @@ fn get_edge_neighbours(i: i32, j: i32) -> [(i32, i32); 3] {
     
     higher_cells
 }
-

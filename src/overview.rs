@@ -7,6 +7,8 @@ use std::collections::HashMap;
 pub enum Resampling {
     Average,
     Count,
+    #[allow(dead_code)]
+    Sum,
 }
 
 /// Check levels are a power of two with bitwise operation.
@@ -115,7 +117,7 @@ pub fn make_overview(
                             let v = base[[r, c]];
                             if v.is_finite() {
                                 valid_count += 1.0;
-                                if let Resampling::Average = method {
+                                if let Resampling::Average | Resampling::Sum = method {
                                     sum_values += v;
                                 }
                             }
@@ -126,6 +128,7 @@ pub fn make_overview(
                         row[local_c] = match method {
                             Resampling::Average => sum_values / valid_count,
                             Resampling::Count => valid_count,
+                            Resampling::Sum => sum_values,
                         };
                     }
                 }
@@ -225,7 +228,7 @@ pub fn make_overview_3d(
                                 let v = base[[r, c, band_idx]];
                                 if v.is_finite() {
                                     valid_count += 1.0;
-                                    if let Resampling::Average = method {
+                                    if let Resampling::Average | Resampling::Sum = method {
                                         sum_values += v;
                                     }
                                 }
@@ -236,6 +239,7 @@ pub fn make_overview_3d(
                             row[local_c * n_bands + band_idx] = match method {
                                 Resampling::Average => sum_values / valid_count,
                                 Resampling::Count => valid_count,
+                                Resampling::Sum => sum_values,
                             };
                         }
                     }
@@ -250,4 +254,3 @@ pub fn make_overview_3d(
 
     Ok(result)
 }
-

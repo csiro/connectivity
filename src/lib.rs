@@ -45,7 +45,7 @@ use affine::Affine;
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, use_num_cells=true, n_threads=None))]
 fn connectivity(
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,
@@ -58,6 +58,7 @@ fn connectivity(
     window_size: i32,
     outer_window: i32,
     offsets: (usize, usize),
+    use_num_cells: bool,
     n_threads: Option<usize>,
 ) -> PyResult<Py<PyArray2<f32>>> {
     // Get the Numpy array
@@ -106,6 +107,7 @@ fn connectivity(
             window_size,
             outer_window,
             offsets,
+            use_num_cells,
         ))
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
 
@@ -122,4 +124,3 @@ fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction_bound!(connectivity, m)?)?;
     Ok(())
 }
-

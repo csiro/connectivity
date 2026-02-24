@@ -20,6 +20,7 @@ def connectedness(
         sigma: float | None = 1,
         scale: float | tuple | None = None,
         option: int = 3,
+        use_num_cells: bool = True,
         n_threads: int | None = None,
         filename: str = ""
     ):
@@ -189,6 +190,7 @@ def connectedness(
             window_size = window_size,
             outer_window = outer_window,
             offsets = (tile_row0, tile_col0),
+            use_num_cells = use_num_cells,
             n_threads = n_threads,
         )
 
@@ -218,7 +220,7 @@ def connectedness(
 def beri(
         condition_file: str,
         current_file: str,
-        future_files: list[str] = [],
+        future_files: list[str] | None = None,
         polygon_mask: gpd.GeoDataFrame | None = None,
         closed_border: bool = False,
         lambdas: list[float] = [2, 20, 200],
@@ -228,6 +230,7 @@ def beri(
         levels: list[int] = [2, 4, 8, 16, 32],
         sigma: float | None = 1,
         scale: float | None = None,
+        use_num_cells: bool = True,
         n_threads: int | None = None,
         filename: str = ""
     ):
@@ -311,6 +314,10 @@ def beri(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
+    # Avoid mutable default/list aliasing across repeated calls (e.g., tiled loops).
+    if future_files is None:
+        future_files = []
+
     # Get only one scale if confused with connectedness function
     if isinstance(scale, tuple):
         scale = scale[0]
@@ -350,13 +357,13 @@ def beri(
     if np.isnan(cond_array).all():
         out_array = cond_array
     else:
-        # Insert current climate as the first element in the list (this is important) before reading
-        future_files.insert(0, current_file)
+        # Build scenario list without mutating caller input.
+        scenario_files = [current_file, *future_files]
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
         # the scale parameter is not used here
         trans_grids = [
             read_raster(file_path=i, polygon=polygon_mask, levels=levels, expand_px=pad_size)[0]
-            for i in future_files
+            for i in scenario_files
         ]
         
         # Ensure rows/cols of the arrays the same
@@ -380,6 +387,7 @@ def beri(
             window_size = window_size,
             outer_window = outer_window,
             offsets = (tile_row0, tile_col0),
+            use_num_cells = use_num_cells,
             n_threads = n_threads,
         )
 
@@ -396,4 +404,3 @@ def beri(
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
 
     return out_array
-

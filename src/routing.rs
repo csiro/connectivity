@@ -44,6 +44,12 @@ impl Graph {
                 neighbors.push((v, weight));
             }
         }
+
+        // Make successor traversal deterministic across runs/tiles.
+        // This avoids tie-breaking differences in Dijkstra caused by HashMap iteration order.
+        for neighbors in adjacency.values_mut() {
+            neighbors.sort_unstable_by_key(|&(v, w)| (v, w));
+        }
     
         adjacency
     }
@@ -97,4 +103,3 @@ pub fn path_distance(
         similarities: last_sims,
     }
 }
-
