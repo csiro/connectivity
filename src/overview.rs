@@ -73,9 +73,7 @@ pub fn make_overview(
         let mut factors = Vec::with_capacity(base_rows_u);
         for local_r in 0..base_rows_u {
             let global_r = tile_row0 + local_r as i32;
-            let row_f = global_r as f64 + 0.5;
-            let col_f = 0.5_f64;
-            let lat_deg = tr.y_skew * col_f + tr.y_scale * row_f + tr.y_origin;
+            let (_, lat_deg) = tr.xy(global_r, 0);
             let w = lat_deg.to_radians().cos().abs() as f32;
             factors.push(if w.is_finite() { w.max(0.0) } else { 0.0 });
         }
@@ -190,6 +188,13 @@ pub fn make_overview_3d(
     method: Resampling,
 ) -> Result<HashMap<i32, Array3<f32>>> {
     check_levels(levels)?;
+    if !matches!(method, Resampling::Average | Resampling::Sum) {
+        bail!(
+            "3D overviews support only Average and Sum resampling; got {:?}",
+            method
+        );
+    }
+    let is_average = matches!(method, Resampling::Average);
 
     let (base_rows_u, base_cols_u, n_bands_u) = base.dim();
     let base_rows = base_rows_u as i32;
@@ -263,21 +268,16 @@ pub fn make_overview_3d(
                                 let v = base[[r, c, band_idx]];
                                 if v.is_finite() {
                                     valid_count += 1.0;
-                                    if let Resampling::Average | Resampling::Sum = method {
-                                        sum_values += v;
-                                    }
+                                    sum_values += v;
                                 }
                             }
                         }
 
                         if valid_count > 0.0 {
-                            row[local_c * n_bands + band_idx] = match method {
-                                Resampling::Average => sum_values / valid_count,
-                                Resampling::Count => valid_count,
-                                // Area-weighted counting is only used for 2D cell weights.
-                                // For 3D overviews this falls back to plain valid counts.
-                                Resampling::Area => valid_count,
-                                Resampling::Sum => sum_values,
+                            row[local_c * n_bands + band_idx] = if is_average {
+                                sum_values / valid_count
+                            } else {
+                                sum_values
                             };
                         }
                     }

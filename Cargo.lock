@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "rust_conn"
-version = "1.0.10003"
+version = "1.0.10005"
 dependencies = [
  "anyhow",
  "ndarray",
