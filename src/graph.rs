@@ -3,6 +3,8 @@ use std::rc::Rc;
 use crate::affine::Affine;
 use crate::distances;
 
+pub type NodeId = u64;
+
 
 // The data of Graph edge
 #[derive(Debug, Clone)]
@@ -18,8 +20,8 @@ pub struct EdgeData {
 /// struct { HashMap<(source, destination), EdgeData>, source-node }
 #[derive(Debug, Clone)]
 pub struct Graph {
-    pub data: HashMap<(u32, u32), EdgeData>,
-    pub source: u32, // should be separate as data-oriented design principal, but cleaner now;
+    pub data: HashMap<(NodeId, NodeId), EdgeData>,
+    pub source: NodeId, // should be separate as data-oriented design principal, but cleaner now;
 }
 
 impl Graph {
@@ -36,19 +38,19 @@ impl Graph {
     }
 
     /// Insert a new node entry
-    pub fn add_node(&mut self, key: (u32, u32), value: EdgeData) {
+    pub fn add_node(&mut self, key: (NodeId, NodeId), value: EdgeData) {
         self.data.insert(key, value);
     }
 
     /// Get an entry by reference
-    pub fn get(&self, key: &(u32, u32)) -> Option<&EdgeData> {
+    pub fn get(&self, key: &(NodeId, NodeId)) -> Option<&EdgeData> {
         self.data.get(&key)
     }
 
     /// Count how many outgoing edges each `u` node has.
-    pub fn count_edges(&self) -> HashMap<u32, usize> {
+    pub fn count_edges(&self) -> HashMap<NodeId, usize> {
         // Count the source in hashmap to keep the keys unique
-        let mut edge_counts: HashMap<u32, usize> = HashMap::new();
+        let mut edge_counts: HashMap<NodeId, usize> = HashMap::new();
         for &(u, _) in self.data.keys() {
             *edge_counts.entry(u).or_insert(0) += 1;
         }        
@@ -70,11 +72,11 @@ impl Graph {
         &mut self,
         i: i32,
         j: i32,
-        u: u32, // target node id
+        u: NodeId, // target node id
         i_ngb: &[i32],
         j_ngb: &[i32],
         factor: f32,
-        node_mapping: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
         transform: &Affine,
         is_wgs: bool,
     ) -> bool {
@@ -153,8 +155,8 @@ impl Graph {
         i: i32, j: i32,
         factor: f32,
         level: i32, 
-        node_mapping: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
-        node_mapping_higher: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping_higher: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
         offsets: (usize, usize),

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use crate::affine::Affine;
-use crate::graph::Graph;
+use crate::graph::{Graph, NodeId};
 use crate::window::FocalWindow;
 
 
@@ -55,7 +55,7 @@ impl Graph {
                 // Generate or update node mappings
                 let node_mapping = if iter_level == 0 {
                     // First level node mapping
-                    let nm = create_node_mapping(levelwin, level);
+                    let nm = create_node_mapping(levelwin, level, offsets);
                     // Find the base node index only once
                     if let Some((_, (u, _, _, _))) = nm.get_key_value(&(i_base, j_base)) {
                         graph_temp.source = *u;
@@ -71,7 +71,7 @@ impl Graph {
                 if level < max_level {
                     let higher_level = level * 2;
                     if let Some(higherwin) = windows.get(&higher_level) {
-                        node_mapping_higher = create_node_mapping(higherwin, higher_level);
+                        node_mapping_higher = create_node_mapping(higherwin, higher_level, offsets);
                     }
                 }
                 
@@ -79,7 +79,10 @@ impl Graph {
                 for cell_idx in 0..num_cell {
                     let i = levelwin.i_array[cell_idx];
                     let j = levelwin.j_array[cell_idx];
-                    let u = cell_idx as u32 + level as u32 * 1000; // unique identifier of the node
+                    let u = node_mapping
+                        .get(&(i, j))
+                        .expect("Node not found in node mapping.")
+                        .0;
                     
                     // Process neighbors at the current level
                     // Modify the graph, and return true if cell is isolated
@@ -126,9 +129,12 @@ impl Graph {
 fn create_node_mapping(
     win: &FocalWindow,
     level: i32,
-) -> HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)> {
-    let level_id = level as u32 * 1000;
+    offsets: (usize, usize),
+) -> HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)> {
     let num_sims = win.sims.len();
+    let (tile_row0_u, tile_col0_u) = offsets;
+    let level_origin_i = (tile_row0_u as i32).div_euclid(level);
+    let level_origin_j = (tile_col0_u as i32).div_euclid(level);
 
     let mut mapping = HashMap::with_capacity(win.i_array.len());
 
@@ -139,12 +145,44 @@ fn create_node_mapping(
             sim_vals.push(sim_vec[idx]);
         }
         let sim_vals = Rc::new(sim_vals);
-        let node_id: u32 = idx as u32 + level_id;
+        let global_i = level_origin_i + i_val;
+        let global_j = level_origin_j + j_val;
+        let node_id = make_node_id(level, global_i, global_j);
 
         mapping.insert((i_val, j_val), (node_id, win.values[idx], win.counts[idx], sim_vals));
     }
 
     mapping
+}
+
+
+/// Create a tile-invariant node id from (level, global_row, global_col).
+/// Layout in 64 bits: [level:16 | row:24 | col:24]
+#[inline]
+fn make_node_id(level: i32, global_i: i32, global_j: i32) -> NodeId {
+    let l = level as i64;
+    let r = global_i as i64;
+    let c = global_j as i64;
+
+    if l < 0 || r < 0 || c < 0 {
+        panic!(
+            "Negative node coordinates are not supported: level={}, row={}, col={}",
+            level, global_i, global_j
+        );
+    }
+
+    let l = l as u64;
+    let r = r as u64;
+    let c = c as u64;
+
+    if l > 0xFFFF || r > 0xFF_FFFF || c > 0xFF_FFFF {
+        panic!(
+            "Node id overflow for (level,row,col)=({},{},{}); exceeds 16/24/24-bit layout",
+            level, global_i, global_j
+        );
+    }
+
+    (l << 48) | (r << 24) | c
 }
 
 

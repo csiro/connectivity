@@ -13,7 +13,7 @@ use crate::routing;
 use crate::overview;
 use affine::Affine;
 use window::FocalWindow;
-use graph::{Graph, EdgeData};
+use graph::{Graph, EdgeData, NodeId};
 use routing::{Path, GraphDijkstraExt};
 use overview::Resampling;
 
@@ -76,6 +76,8 @@ pub fn conn(
 
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
+        let mut sorted_levels: Vec<i32> = cond_map.keys().copied().collect();
+        sorted_levels.sort_unstable();
 
         // Parallel iteration over rows in the thread pool
         let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)
@@ -94,7 +96,7 @@ pub fn conn(
                     // Pre-allocate window hashmap
                     let mut windows: HashMap::<i32, FocalWindow> = HashMap::with_capacity(num_levels);
                     // Build window for each level for the cell ij
-                    for &level in cond_map.keys() {
+                    for &level in &sorted_levels {
                         let win = FocalWindow::from_data(
                             i as i32,
                             j as i32,
@@ -129,7 +131,7 @@ pub fn conn(
 
                     // HashMap iteration order is non-deterministic; sort targets so repeated
                     // tile runs produce bit-stable accumulation at shared boundaries.
-                    let mut targets: Vec<u32> = nodes_altered.keys().copied().collect();
+                    let mut targets: Vec<NodeId> = nodes_altered.keys().copied().collect();
                     targets.sort_unstable();
 
                     for k in targets {
