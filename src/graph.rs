@@ -84,7 +84,7 @@ impl Graph {
         let mut is_isolated = u == self.source;
     
         // Coordinates of the current node only need to be computed once
-        let (x1, y1) = transform.xy(j, i);
+        let (x1, y1) = transform.xy(i, j);
     
         // Iterate over queen-case neighbor offsets (8 adjacent neighbours)
         for (&di, &dj) in i_ngb.iter().zip(j_ngb.iter()) {
@@ -94,7 +94,7 @@ impl Graph {
             // Check if neighbor exists in node_mapping
             if let Some(&(v, z, c, ref s)) = node_mapping.get(&(ni, nj)) {
                 // Distance to adjacent node/cell in kilometers
-                let (x2, y2) = transform.xy(nj, ni);
+                let (x2, y2) = transform.xy(ni, nj);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                 // Calcualte the weight using max_cost
                 let w: f32 = (1.0 - factor) * z + factor;
@@ -120,7 +120,7 @@ impl Graph {
         if is_isolated {
             if let Some(&(_, z, c, ref s)) = node_mapping.get(&(i, j)) {
                 // Distance to an adjacent cell in kilometers
-                let (x2, y2) = transform.xy(j, i+1);
+                let (x2, y2) = transform.xy(i + 1, j);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                 // Calcualte the weight using max_cost
                 let w: f32 = (1.0 - factor) * z + factor;
@@ -171,14 +171,14 @@ impl Graph {
             let transform: &Affine = transforms.get(&level).unwrap();
             let transform_upper: &Affine = transforms.get(&higher_level).unwrap();
             // Get the actual coordinates values for distance calc
-            let (x1, y1) = transform.xy(j, i);
+            let (x1, y1) = transform.xy(i, j);
             
             // Use 'ref' to borrow Vec<f32> rather than moving it
             for &(ni, nj) in &higher_neighbours {
                 // Only if the neghbours are in the higher mapping proceess
                 if let Some(&(v, z, c, ref s)) = node_mapping_higher.get(&(ni, nj)) {
                     // Get the actual coordinates of the higher level
-                    let (x2, y2) = transform_upper.xy(nj, ni);
+                    let (x2, y2) = transform_upper.xy(ni, nj);
                     // Distance in kilometer
                     let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                     
