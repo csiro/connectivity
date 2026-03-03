@@ -14,7 +14,7 @@ use crate::overview;
 use affine::Affine;
 use window::FocalWindow;
 use graph::{Graph, EdgeData, NodeId};
-use routing::{Path, GraphDijkstraExt};
+use routing::{Path, GraphDijkstraExt, PATH_WEIGHT_SCALE};
 use overview::Resampling;
 
 
@@ -137,8 +137,8 @@ pub fn conn(
                     for k in targets {
                         // Calcaulate optimal path for each reachable path
                         let optim_path = build_path(&k, &nodes_altered);
-                        // Get the intact distance from source; divided by 100 to cancel out from path adjacency
-                        let dist_intact: f32 = nodes_intact.get(&k).expect("Node not found!").1 as f32 / 100.0;
+                        // Get the intact distance from source and de-scale from Dijkstra integer space.
+                        let dist_intact: f32 = nodes_intact.get(&k).expect("Node not found!").1 as f32 / PATH_WEIGHT_SCALE;
                         // Get the path info for each target segment/node
                         cell_paths.push(routing::path_distance(&the_graph, &optim_path, dist_intact));
                     }
