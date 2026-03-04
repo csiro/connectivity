@@ -13,7 +13,7 @@ use crate::routing;
 use crate::overview;
 use affine::Affine;
 use window::FocalWindow;
-use graph::{Graph, EdgeData, NodeId};
+use graph::{Graph, EdgeData};
 use routing::{Path, GraphDijkstraExt};
 use overview::Resampling;
 
@@ -129,12 +129,7 @@ pub fn conn(
                     
                     let mut cell_paths: Vec<EdgeData> = Vec::with_capacity(nodes_altered.len());
 
-                    // HashMap iteration order is non-deterministic; sort targets so repeated
-                    // tile runs produce bit-stable accumulation at shared boundaries.
-                    let mut targets: Vec<NodeId> = nodes_altered.keys().copied().collect();
-                    targets.sort_unstable();
-
-                    for k in targets {
+                    for &k in nodes_altered.keys() {
                         // Calcaulate optimal path for each reachable path
                         let optim_path = build_path(&k, &nodes_altered);
                         // Get the intact distance from source; divided by 100 to cancel out from path adjacency
