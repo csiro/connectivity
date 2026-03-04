@@ -78,7 +78,8 @@ def read_raster(
                 # pad in map units: expand_px (in base pixels) * max_level scaling * max(res)
                 max_level = max(levels)
                 eps = 0.5 * float(max(base_res_x, base_res_y)) # add half-pixel to avoid missing rows/cols
-                pad_size = float(expand_px) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
+                # add an offset to expand to ensure all required cells are taken.
+                pad_size = float(expand_px + 3) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
             # Compute exact dataset-pixel offsets for this crop
@@ -139,10 +140,8 @@ def read_raster(
             out_image_data = np.ma.getdata(out_ma).astype(np.float32)
             data_mask = np.ma.getmaskarray(out_ma)
 
-            valid_geoms = [geom for geom in polygon.geometry]
-
             geom_mask = geometry_mask(
-                geometries=[mapping(g) for g in valid_geoms],
+                geometries=[mapping(g) for g in polygon.geometry],
                 out_shape=out_image_data.shape[1:],
                 transform=out_transform,
                 invert=True,
