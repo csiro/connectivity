@@ -1,4 +1,8 @@
 # Version 1.1.0
+## Added
+- Added `remove_grid_effect()` as a standalone FFT notch-filter post-processing function (also exported from the top-level package import).
+- Added a Rust `inpaint_nans_diffusion` implementation (Rayon-parallel), with optional thread control via `n_threads`.
+
 ## Fixed
 - Fixed seam artifacts caused by swapped row/column arguments in graph distance coordinate conversion (`Affine::xy` now consistently receives `(row, col)`).
 - Fixed overview alignment across independently processed tiles by anchoring aggregation windows to global dataset pixel coordinates via tile offsets.
@@ -13,6 +17,13 @@
 - Added `Area` resampling for 2D overviews (latitude-weighted by `cos(phi)`), alongside `Average`, `Sum`, and `Count`.
 - 3D overview generation now explicitly supports only `Average` and `Sum` resampling.
 - `overview_info()` now reports estimated overview dimensions and does not require pre-existing file overviews.
+- `connectedness()` and `beri()` now apply FFT notch filtering (`remove_grid_effect`) instead of the previous Gaussian smoother.
+- `sigma` now controls notch-filter strength (mapped to notch half-width), and the default is now `3`.
+- Inpainting used by filtering now relies on the Rust implementation and uses `n_threads` when provided.
+
+## Removed
+- Removed legacy `smoothing_filter()` backward-compatibility wrapper.
+- Removed SciPy-based inpainting fallback and dropped the `scipy` Python dependency.
 
 # Version 1.0.0
 ## Added
