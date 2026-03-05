@@ -3,7 +3,7 @@ import geopandas as gpd
 import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
-from .utils import remove_grid_effect, fn, crop_array, round_to_pow2
+from .utils import remove_grid_effect, fn, crop_array, round_to_pow2, _resolve_filter_kwargs
 
 
 # Connectedness main funciton
@@ -18,11 +18,11 @@ def connectedness(
         window_size: int = 3, 
         outer_window: int = 9,
         levels: list[int] = [2, 4, 8, 16, 32],
-        sigma: float | None = 3,
         scale: float | tuple | None = None,
         option: int = 3,
         n_threads: int | None = None,
-        filename: str = ""
+        filename: str = "",
+        filter_kwargs: dict | None = {}
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics 
     
@@ -81,9 +81,6 @@ def connectedness(
     levels : list of int
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
-    sigma : float, optional
-        Grid-artifact suppression strength, mapped to FFT notch half-width.
-        Default is 3. Zero or None for disabling post-filtering.
     scale : float or tuple, optional
         Scaling factor(s) applied to the condition and PA rasters.
         - If a single float is provided, it is applied only to the condition raster.
@@ -104,6 +101,13 @@ def connectedness(
     filename : str, optional
         Path to save the output file. If empty, the result is not written to disk.
         Default is "".
+    filter_kwargs : dict, optional
+        Dictionary of extra keyword arguments forwarded to `remove_grid_effect()`
+        (e.g. `center_radius`, `soft_notch`, `inpaint_size`).
+        The `n_threads` key is not accepted here; thread count is controlled
+        by the top-level `n_threads` argument.
+        Set to `None` to disable filtering. Use `{}` to run filtering with defaults
+        (`notch_width=3`). Default is `{}`.
 
     Returns
     -------
@@ -147,6 +151,12 @@ def connectedness(
 
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
+
+    rg_kwargs = _resolve_filter_kwargs(
+        n_threads=n_threads,
+        filter_kwargs=filter_kwargs,
+        fn_name="connectedness",
+    )
 
     # Read condition raster overviews; this checks levels as well
     cond_array, mask_array, affine_dict, is_geo, tile_row0, tile_col0 = read_raster(
@@ -204,12 +214,8 @@ def connectedness(
         )
 
         # Remove grid artifacts with an FFT notch filter
-        if sigma is not None and sigma != 0:
-            conn_array = remove_grid_effect(
-                conn_array,
-                notch_width=max(int(round(float(sigma))), 1),
-                n_threads=n_threads,
-            )
+        if rg_kwargs is not None:
+            conn_array = remove_grid_effect(conn_array, **rg_kwargs)
 
         # Calculate the connected-habitat or just return the PARC-connectedness
         if pa_file is None:
@@ -242,10 +248,10 @@ def beri(
         window_size: int = 3, 
         outer_window: int = 9,
         levels: list[int] = [2, 4, 8, 16, 32],
-        sigma: float | None = 3,
         scale: float | None = None,
         n_threads: int | None = None,
-        filename: str = ""
+        filename: str = "",
+        filter_kwargs: dict | None = {}
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -304,9 +310,6 @@ def beri(
     levels : list of int
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
-    sigma : float, optional
-        Grid-artifact suppression strength, mapped to FFT notch half-width.
-        Default is 3. Zero or None for disabling post-filtering.
     scale : float, optional
         Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
         otherwise it is divided by scale.
@@ -317,6 +320,13 @@ def beri(
     filename : str, optional
         Path to save the resulting BERI raster. If empty, the output is not written to disk.
         Default is "".
+    filter_kwargs : dict, optional
+        Dictionary of extra keyword arguments forwarded to `remove_grid_effect()`
+        (e.g. `center_radius`, `soft_notch`, `inpaint_size`).
+        The `n_threads` key is not accepted here; thread count is controlled
+        by the top-level `n_threads` argument.
+        Set to `None` to disable filtering. Use `{}` to run filtering with defaults
+        (`notch_width=3`). Default is `{}`.
 
     Returns
     -------
@@ -354,6 +364,12 @@ def beri(
 
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
+
+    rg_kwargs = _resolve_filter_kwargs(
+        n_threads=n_threads,
+        filter_kwargs=filter_kwargs,
+        fn_name="beri",
+    )
 
     # An early check for the overall shapes of grids.
     if polygon_mask is not None:
@@ -419,12 +435,8 @@ def beri(
         )
 
         # Remove grid artifacts with an FFT notch filter
-        if sigma is not None and sigma != 0:
-            out_array = remove_grid_effect(
-                out_array,
-                notch_width=max(int(round(float(sigma))), 1),
-                n_threads=n_threads,
-            )
+        if rg_kwargs is not None:
+            out_array = remove_grid_effect(out_array, **rg_kwargs)
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask

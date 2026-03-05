@@ -18,7 +18,8 @@
 - 3D overview generation now explicitly supports only `Average` and `Sum` resampling.
 - `overview_info()` now reports estimated overview dimensions and does not require pre-existing file overviews.
 - `connectedness()` and `beri()` now apply FFT notch filtering (`remove_grid_effect`) instead of the previous Gaussian smoother.
-- `sigma` now controls notch-filter strength (mapped to notch half-width), and the default is now `3`.
+- Filtering in `connectedness()` and `beri()` is now controlled via `filter_kwargs`:
+  pass `None` to disable filtering, or `{}` to apply default filtering (`notch_width=3`).
 - Inpainting used by filtering now relies on the Rust implementation and uses `n_threads` when provided.
 
 ## Removed

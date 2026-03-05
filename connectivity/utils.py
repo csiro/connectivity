@@ -220,3 +220,45 @@ def remove_grid_effect(
 
     img_back[nan_mask] = np.nan
     return img_back
+
+
+# Get kwargs for filtering
+def _resolve_filter_kwargs(
+    n_threads: int | None,
+    filter_kwargs: dict | None,
+    fn_name: str,
+):
+    """Build validated kwargs for remove_grid_effect from filter_kwargs."""
+    _REMOVE_GRID_EFFECT_KEYS = {
+        "notch_width",
+        "center_radius",
+        "inpaint_size",
+        "inpaint_init",
+        "inpaint_max_iter",
+        "inpaint_tol",
+        "soft_notch",
+        "soft_sigma",
+    }
+
+    if filter_kwargs is None:
+        return None
+
+    merged = {}
+    if not isinstance(filter_kwargs, dict):
+        raise TypeError(f"{fn_name}() expects filter_kwargs to be a dict or None.")
+    merged.update(filter_kwargs)
+
+    invalid = sorted(set(merged) - _REMOVE_GRID_EFFECT_KEYS)
+    if invalid:
+        bad = ", ".join(invalid)
+        raise TypeError(
+            f"{fn_name}() got unexpected keyword argument(s): {bad}. "
+            "Use only remove_grid_effect parameters."
+        )
+
+    if "notch_width" not in merged:
+        merged["notch_width"] = 3
+    # Thread control is taken only from the main function argument.
+    merged["n_threads"] = n_threads
+
+    return merged

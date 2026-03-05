@@ -145,7 +145,7 @@ beris = beri(
 
 To run the model using tiles, you can supply a rectangular tile polygon as a GeoDataFrame to the `polygon_mask` argument. This limits data loading to only the portion required for the tile (i.e., the pixels within the tile plus a buffered neighborhood).
 
-Be sure to set `closed_border = False` (the default) so that neighborhood information is included and edge effects are avoided in adjacent tiles.
+Be sure to set `closed_border = False` (the default) so that neighborhood information is included and edge effects are avoided in adjacent tiles. 
 
 ```python
 import geopandas as gpd 
@@ -159,15 +159,18 @@ connd = connectedness(
     condition_file = "./data/condition.tif",
     polygon_mask = tile_poly,
     closed_border = False,
+    margin_px = 32,
     lambdas = [2, 20, 200],
     max_cost = 2.0, 
     window_size = 5, 
     outer_window = 11,
     levels = [2, 4, 8, 16, 32], 
-    sigma = 0,
+    filter_kwargs = {"notch_width": 3},
     option = 1,
     filename = f"./results/connected_habitat_tile_{tile_id}.tif"
 )
 ```
+
+Increase `margin_px` to `64` if you see edge effects at tile joints. Increase `notch_width` to `5` (larger values produce a blurrier map on grid pattern areas), or tune other filtering arguments, if you still see excessive grid effects.
 
 [Back to top!](#top)
