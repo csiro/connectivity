@@ -90,7 +90,6 @@ connd = connectedness(
     window_size = 5, 
     outer_window = 11,
     levels = [2, 4, 8, 16, 32], 
-    sigma = 1,
     option = 3,
     filename = "./results/connected_habitat.tif"
 )
@@ -114,7 +113,6 @@ parcc = connectedness(
     window_size = 5, 
     outer_window = 11,
     levels = [2, 4, 8, 16, 32], 
-    sigma = 1,
     filename = "./results/parc_connectedness.tif"
 )
 ```
@@ -137,7 +135,6 @@ beris = beri(
     window_size = 5, 
     outer_window = 11,
     levels = [2, 4, 8, 16, 32],
-    sigma = 1,
     filename = "./results/berri.tif"
 )
 ```
