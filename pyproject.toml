@@ -13,7 +13,6 @@ dependencies = [
     "rasterio>=1.2",
     "geopandas",
     "shapely",
-    "scipy",
 ]
 classifiers = [
     "Programming Language :: Rust",

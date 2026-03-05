@@ -1,9 +1,10 @@
-from scipy.ndimage import gaussian_filter
 import numpy as np
-import rasterio
+from numpy.fft import fft2, ifft2, fftshift, ifftshift
 from rasterio.windows import from_bounds
 from rasterio.transform import Affine
 from rasterio.features import geometry_mask
+from rust_conn import inpaint_nans_diffusion
+
 
 # Calculate connected condition
 def fn(connectivity, habitat, option=3):
@@ -113,41 +114,109 @@ def crop_array(array, transform, polygon):
     return masked, cropped_transform
 
 
-# Gaussian smoothing with no edge effect
-def smoothing_filter(data, sigma=3, **kwargs):
-    """Apply a Gaussian filter on the an array to smooth the values. 
-    Only filters valid data points, NaN areas remain NaN.
+# Notch mask for removing grid effect function
+def make_notch_mask(rows, cols, notch_width=3, center_radius=25, soft=False, sigma=2.0):
+    """Build a cross-notch mask for suppressing row/column grid artifacts."""
+    crow, ccol = rows // 2, cols // 2
+    rr = (np.arange(rows, dtype=np.float32) - crow)[:, None]
+    cc = (np.arange(cols, dtype=np.float32) - ccol)[None, :]
 
-    Args:
-        sigma: the standard deviation for Gaussian kernel.
+    if not soft:
+        mask = np.ones((rows, cols), dtype=np.float32)
+        mask[crow - notch_width : crow + notch_width + 1, :] = 0.0
+        mask[:, ccol - notch_width : ccol + notch_width + 1] = 0.0
+    else:
+        g_row = np.exp(-(rr ** 2) / (2.0 * sigma ** 2))
+        g_col = np.exp(-(cc ** 2) / (2.0 * sigma ** 2))
+        cross = np.maximum(g_row, g_col)
+        mask = (1.0 - cross).astype(np.float32)
+
+    r2 = rr ** 2 + cc ** 2
+    preserve = (r2 <= float(center_radius) ** 2).astype(np.float32)
+    mask = mask * (1.0 - preserve) + preserve
+
+    return mask.astype(np.float32)
+
+
+def remove_grid_effect(
+    data,
+    notch_width=3,
+    center_radius=25,
+    inpaint_size=11,
+    inpaint_init="nearest",
+    inpaint_max_iter=200,
+    inpaint_tol=1e-3,
+    soft_notch=False,
+    soft_sigma=2.0,
+    n_threads=None,
+):
     """
-    # Store original NaN mask
-    original_nan_mask = np.isnan(data)
-    
-    # If no valid data, return original
-    if np.all(original_nan_mask):
-        return data
-    
-    # Start with original data
-    result = data.copy()
-    
-    # Create a working copy where NaN -> 0
-    work_data = np.where(original_nan_mask, 0, data)
-    
-    # Create weights
-    weights = (~original_nan_mask).astype(float)
-    
-    # Apply Gaussian filter on both data and weights
-    filtered_data = gaussian_filter(work_data * weights, sigma, **kwargs)
-    filtered_weights = gaussian_filter(weights, sigma, **kwargs)
-    
-    # Only update non-NaN locations
-    valid_filter_mask = filtered_weights > 1e-10
-    update_mask = (~original_nan_mask) & valid_filter_mask    
-    result[update_mask] = filtered_data[update_mask] / filtered_weights[update_mask]
-    
-    # Ensure NaN areas stay NaN
-    result[original_nan_mask] = np.nan
-    
-    return result
+    Remove regular grid artifacts from a 2D array using FFT notch filtering.
 
+    The workflow is:
+    1. Inpaint NaN cells (nodata) using the Rust diffusion solver.
+    2. Apply an FFT notch mask to suppress row/column grid artifacts.
+    3. Restore NaN cells to their original locations.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Input 2D array.
+    notch_width : int, optional
+        Half-width of the suppressed cross band in frequency space.
+    center_radius : int, optional
+        Radius of low-frequency core preserved in the FFT mask.
+    inpaint_size : int, optional
+        Uniform-filter kernel size used by diffusion inpainting.
+    inpaint_init : {"nearest", "mean"}, optional
+        Initial fill strategy for NaN cells before diffusion.
+    inpaint_max_iter : int, optional
+        Maximum diffusion iterations.
+    inpaint_tol : float, optional
+        Convergence threshold for diffusion updates.
+    soft_notch : bool, optional
+        Use Gaussian-tapered notch instead of hard binary notch.
+    soft_sigma : float, optional
+        Gaussian width for the soft-notch mode.
+    n_threads : int | None, optional
+        Number of Rust worker threads for inpainting. `None` uses all cores.
+
+    Returns
+    -------
+    np.ndarray
+        Filtered 2D array with original NaN mask restored.
+    """
+    img = np.asarray(data)
+    if img.ndim != 2:
+        raise ValueError("remove_grid_effect expects a 2D array.")
+
+    img = img.astype(np.float32, copy=True)
+    nan_mask = np.isnan(img)
+
+    if np.any(nan_mask):
+        img_filled = inpaint_nans_diffusion(
+            img,
+            size=inpaint_size,
+            max_iter=inpaint_max_iter,
+            tol=inpaint_tol,
+            init=inpaint_init,
+            n_threads=n_threads,
+        )
+    else:
+        img_filled = img
+
+    rows, cols = img.shape
+    f_shifted = fftshift(fft2(img_filled))
+    mask = make_notch_mask(
+        rows,
+        cols,
+        notch_width=notch_width,
+        center_radius=center_radius,
+        soft=soft_notch,
+        sigma=soft_sigma,
+    )
+    f_filtered = f_shifted * mask
+    img_back = np.real(ifft2(ifftshift(f_filtered))).astype(np.float32)
+
+    img_back[nan_mask] = np.nan
+    return img_back
