@@ -145,8 +145,7 @@ beris = beri(
 
 To run the model using tiles, you can supply a rectangular tile polygon as a GeoDataFrame to the `polygon_mask` argument. This limits data loading to only the portion required for the tile (i.e., the pixels within the tile plus a buffered neighborhood).
 
-Be sure to set `closed_border = False` (the default) so that neighborhood information is included and edge effects are avoided.
-For tiled workflows, it is recommended to disable filtering during each tile run (`sigma = 0` or `sigma = None`) and apply filtering once after tiles are merged. For connectedness, if you are running with tiles, you need to use `option = 1` to generate connectedness, merge the tiles, apply the filtering of grid-effect removal, then generate connected-habitat by taking the geometric mean of original condition and processed connectedness. Note that none of these are required when you are running a model as closed-border or as a whole, so you can use the default sigma (`sigma = 3`).
+Be sure to set `closed_border = False` (the default) so that neighborhood information is included and edge effects are avoided in adjacent tiles.
 
 ```python
 import geopandas as gpd 
@@ -169,37 +168,6 @@ connd = connectedness(
     option = 1,
     filename = f"./results/connected_habitat_tile_{tile_id}.tif"
 )
-```
-
-Then merge the tiles into a complete raster and run `remove_grid_effect()` on the merged output:
-
-```python
-import numpy as np
-import rasterio
-from connectivity import remove_grid_effect
-
-infile = "./results/connected_habitat_mosaic.tif"
-outfile = "./results/connected_habitat_mosaic_filtered.tif"
-
-with rasterio.open(infile) as src:
-    arr = src.read(1).astype(np.float32)
-    meta = src.meta.copy()
-    nodata = src.nodata
-
-nan_mask = np.isnan(arr)
-if nodata is not None and not np.isnan(nodata):
-    nan_mask |= (arr == nodata)
-arr[nan_mask] = np.nan
-
-arr_filtered = remove_grid_effect(arr, n_threads=8)
-
-if nodata is not None and not np.isnan(nodata):
-    out = np.where(nan_mask, nodata, arr_filtered).astype(meta["dtype"])
-else:
-    out = np.where(nan_mask, np.nan, arr_filtered).astype(meta["dtype"])
-
-with rasterio.open(outfile, "w", **meta) as dst:
-    dst.write(out, 1)
 ```
 
 [Back to top!](#top)
