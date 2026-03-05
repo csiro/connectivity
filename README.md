@@ -1,13 +1,13 @@
 <h1><a name="top"></a>connectivity: a multi-resolution landscape connectivity algorithm</h1>
 
-1. [Installation ](#installation-)
-    - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
-    - [Compile and Install the Rust Library ](#compile-and-install-the-rust-library-)
-2. [Connectivity Analysis ](#analysis)
-    - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
-    - [PARC-Connectedness ](#parc-connectedness-)
-    - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
-3. [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+- [Installation ](#installation-)
+  - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
+  - [Compile and Install the Rust Library ](#compile-and-install-the-rust-library-)
+- [Connectivity Analysis ](#connectivity-analysis-)
+  - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
+  - [PARC-Connectedness ](#parc-connectedness-)
+  - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
+- [Running Analysis with Tiles ](#running-analysis-with-tiles-)
       
 A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectedness (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
 
@@ -82,19 +82,6 @@ To compute connected-habitat (or plain connectedness), you only need a habitat c
 from connectivity import connectedness, beri, remove_grid_effect
 ```
 
-### Grid Artifact Removal
-
-`remove_grid_effect()` is also available as a standalone post-processing function.
-
-```python
-help(remove_grid_effect)
-```
-
-```python
-# array2d is a 2D numpy array (NaN = nodata)
-clean_array = remove_grid_effect(array2d, n_threads=8)
-```
-
 ```python
 connd = connectedness(
     condition_file = "./data/condition.tif",
@@ -162,6 +149,7 @@ beris = beri(
 To run the model using tiles, you can supply a rectangular tile polygon as a GeoDataFrame to the `polygon_mask` argument. This limits data loading to only the portion required for the tile (i.e., the pixels within the tile plus a buffered neighborhood).
 
 Be sure to set `closed_border = False` (the default) so that neighborhood information is included and edge effects are avoided.
+For tiled workflows, it is recommended to disable filtering during each tile run (`sigma = 0` or `sigma = None`) and apply filtering once after tiles are merged. For connectedness, if you are running with tiles, you need to use `option = 1` to generate connectedness, merge the tiles, apply the filtering of grid-effect removal, then generate connected-habitat by taking the geometric mean of original condition and processed connectedness. Note that none of these are required when you are running a model as closed-border or as a whole, so you can use the default sigma (`sigma = 3`).
 
 ```python
 import geopandas as gpd 
@@ -180,12 +168,41 @@ connd = connectedness(
     window_size = 5, 
     outer_window = 11,
     levels = [2, 4, 8, 16, 32], 
-    sigma = 1,
-    option = 3,
+    sigma = 0,
+    option = 1,
     filename = f"./results/connected_habitat_tile_{tile_id}.tif"
 )
 ```
 
-Then you can then merge the tiles for a complete raster.
+Then merge the tiles into a complete raster and run `remove_grid_effect()` on the merged output:
+
+```python
+import numpy as np
+import rasterio
+from connectivity import remove_grid_effect
+
+infile = "./results/connected_habitat_mosaic.tif"
+outfile = "./results/connected_habitat_mosaic_filtered.tif"
+
+with rasterio.open(infile) as src:
+    arr = src.read(1).astype(np.float32)
+    meta = src.meta.copy()
+    nodata = src.nodata
+
+nan_mask = np.isnan(arr)
+if nodata is not None and not np.isnan(nodata):
+    nan_mask |= (arr == nodata)
+arr[nan_mask] = np.nan
+
+arr_filtered = remove_grid_effect(arr, n_threads=8)
+
+if nodata is not None and not np.isnan(nodata):
+    out = np.where(nan_mask, nodata, arr_filtered).astype(meta["dtype"])
+else:
+    out = np.where(nan_mask, np.nan, arr_filtered).astype(meta["dtype"])
+
+with rasterio.open(outfile, "w", **meta) as dst:
+    dst.write(out, 1)
+```
 
 [Back to top!](#top)
