@@ -18,7 +18,7 @@ def read_raster(
     levels: list[int] | None = None,
     scale: float | None = None,
     expand_px: int = 0,
-    valid_expand_px: int = 16,
+    valid_expand_px: int = 32,
 ):
     """Reads data from a multi-band GeoTIFF (base resolution) and returns NaN-filled array + transforms + masks + offsets.
 
