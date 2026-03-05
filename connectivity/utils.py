@@ -1,9 +1,14 @@
-from scipy.ndimage import gaussian_filter
 import numpy as np
-import rasterio
+from numpy.fft import fft2, ifft2, fftshift, ifftshift
+from scipy.ndimage import uniform_filter, distance_transform_edt
 from rasterio.windows import from_bounds
 from rasterio.transform import Affine
 from rasterio.features import geometry_mask
+
+try:
+    from rust_conn import inpaint_nans_diffusion as _rust_inpaint_nans_diffusion
+except Exception:
+    _rust_inpaint_nans_diffusion = None
 
 # Calculate connected condition
 def fn(connectivity, habitat, option=3):
@@ -113,41 +118,159 @@ def crop_array(array, transform, polygon):
     return masked, cropped_transform
 
 
-# Gaussian smoothing with no edge effect
-def smoothing_filter(data, sigma=3, **kwargs):
-    """Apply a Gaussian filter on the an array to smooth the values. 
-    Only filters valid data points, NaN areas remain NaN.
+def _inpaint_nans_diffusion_python(img, size=11, max_iter=200, tol=1e-3, init="nearest"):
+    """Python fallback for diffusion-style inpainting."""
+    filled = img.astype(np.float32).copy()
+    nan_mask = np.isnan(filled)
 
-    Args:
-        sigma: the standard deviation for Gaussian kernel.
+    if not np.any(nan_mask):
+        return filled
+
+    valid = ~nan_mask
+    if not np.any(valid):
+        raise ValueError("All pixels are NaN; cannot inpaint.")
+
+    if init == "nearest":
+        _, (iy, ix) = distance_transform_edt(~valid, return_indices=True)
+        filled[nan_mask] = filled[iy[nan_mask], ix[nan_mask]]
+    elif init == "mean":
+        filled[nan_mask] = np.nanmean(filled)
+    else:
+        raise ValueError("init must be 'nearest' or 'mean'")
+
+    if np.sum(nan_mask) < 10:
+        return filled
+
+    last = filled[nan_mask].copy()
+    for _ in range(max_iter):
+        smoothed = uniform_filter(filled, size=size, mode="nearest")
+        filled[nan_mask] = smoothed[nan_mask]
+
+        cur = filled[nan_mask]
+        diff = float(np.max(np.abs(cur - last)))
+        if diff < tol:
+            break
+        last = cur.copy()
+
+    return filled
+
+
+def inpaint_nans_diffusion(
+    img,
+    size=11,
+    max_iter=200,
+    tol=1e-3,
+    init="nearest",
+    n_threads=None,
+):
     """
-    # Store original NaN mask
-    original_nan_mask = np.isnan(data)
-    
-    # If no valid data, return original
-    if np.all(original_nan_mask):
-        return data
-    
-    # Start with original data
-    result = data.copy()
-    
-    # Create a working copy where NaN -> 0
-    work_data = np.where(original_nan_mask, 0, data)
-    
-    # Create weights
-    weights = (~original_nan_mask).astype(float)
-    
-    # Apply Gaussian filter on both data and weights
-    filtered_data = gaussian_filter(work_data * weights, sigma, **kwargs)
-    filtered_weights = gaussian_filter(weights, sigma, **kwargs)
-    
-    # Only update non-NaN locations
-    valid_filter_mask = filtered_weights > 1e-10
-    update_mask = (~original_nan_mask) & valid_filter_mask    
-    result[update_mask] = filtered_data[update_mask] / filtered_weights[update_mask]
-    
-    # Ensure NaN areas stay NaN
-    result[original_nan_mask] = np.nan
-    
-    return result
+    Diffusion-style inpainting for NaN cells in a 2D array.
 
+    Uses Rust implementation when available for speed; otherwise falls back
+    to the original scipy/numpy implementation.
+    """
+    img32 = np.asarray(img, dtype=np.float32)
+    if _rust_inpaint_nans_diffusion is not None:
+        return _rust_inpaint_nans_diffusion(
+            img32,
+            size=int(size),
+            max_iter=int(max_iter),
+            tol=float(tol),
+            init=init,
+            n_threads=n_threads,
+        )
+
+    return _inpaint_nans_diffusion_python(
+        img32,
+        size=size,
+        max_iter=max_iter,
+        tol=tol,
+        init=init,
+    )
+
+
+def make_notch_mask(rows, cols, notch_width=3, center_radius=25, soft=False, sigma=2.0):
+    """Build a cross-notch mask for suppressing row/column grid artifacts."""
+    crow, ccol = rows // 2, cols // 2
+    rr = (np.arange(rows, dtype=np.float32) - crow)[:, None]
+    cc = (np.arange(cols, dtype=np.float32) - ccol)[None, :]
+
+    if not soft:
+        mask = np.ones((rows, cols), dtype=np.float32)
+        mask[crow - notch_width : crow + notch_width + 1, :] = 0.0
+        mask[:, ccol - notch_width : ccol + notch_width + 1] = 0.0
+    else:
+        g_row = np.exp(-(rr ** 2) / (2.0 * sigma ** 2))
+        g_col = np.exp(-(cc ** 2) / (2.0 * sigma ** 2))
+        cross = np.maximum(g_row, g_col)
+        mask = (1.0 - cross).astype(np.float32)
+
+    r2 = rr ** 2 + cc ** 2
+    preserve = (r2 <= float(center_radius) ** 2).astype(np.float32)
+    mask = mask * (1.0 - preserve) + preserve
+
+    return mask.astype(np.float32)
+
+
+def remove_grid_effect(
+    data,
+    notch_width=3,
+    center_radius=25,
+    inpaint_size=11,
+    inpaint_init="nearest",
+    inpaint_max_iter=200,
+    inpaint_tol=1e-3,
+    soft_notch=False,
+    soft_sigma=2.0,
+    n_threads=None,
+):
+    """
+    Remove regular grid artifacts from a 2D array using FFT notch filtering.
+
+    Input must be a 2D array. NaN cells are treated as nodata, inpainted for FFT,
+    and restored to NaN after inverse transform.
+    """
+    img = np.asarray(data)
+    if img.ndim != 2:
+        raise ValueError("remove_grid_effect expects a 2D array.")
+
+    img = img.astype(np.float32, copy=True)
+    nan_mask = np.isnan(img)
+
+    if np.any(nan_mask):
+        img_filled = inpaint_nans_diffusion(
+            img,
+            size=inpaint_size,
+            max_iter=inpaint_max_iter,
+            tol=inpaint_tol,
+            init=inpaint_init,
+            n_threads=n_threads,
+        )
+    else:
+        img_filled = img
+
+    rows, cols = img.shape
+    f_shifted = fftshift(fft2(img_filled))
+    mask = make_notch_mask(
+        rows,
+        cols,
+        notch_width=notch_width,
+        center_radius=center_radius,
+        soft=soft_notch,
+        sigma=soft_sigma,
+    )
+    f_filtered = f_shifted * mask
+    img_back = np.real(ifft2(ifftshift(f_filtered))).astype(np.float32)
+
+    img_back[nan_mask] = np.nan
+    return img_back
+
+
+def smoothing_filter(data, sigma=3, **kwargs):
+    """
+    Backward-compatible wrapper around remove_grid_effect().
+
+    The legacy `sigma` argument now controls notch half-width.
+    """
+    notch_width = kwargs.pop("notch_width", max(int(round(float(sigma))), 1))
+    return remove_grid_effect(data, notch_width=notch_width, **kwargs)

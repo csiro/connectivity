@@ -3,7 +3,7 @@ import geopandas as gpd
 import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
-from .utils import smoothing_filter, fn, crop_array, round_to_pow2
+from .utils import remove_grid_effect, fn, crop_array, round_to_pow2
 
 
 # Connectedness main funciton
@@ -17,7 +17,7 @@ def connectedness(
         window_size: int = 3, 
         outer_window: int = 9,
         levels: list[int] = [2, 4, 8, 16, 32],
-        sigma: float | None = 1,
+        sigma: float | None = 3,
         scale: float | tuple | None = None,
         option: int = 3,
         n_threads: int | None = None,
@@ -26,7 +26,7 @@ def connectedness(
     """Computes a multi-scale habitat and PARC connectedness metrics 
     
     This based on habiat condition using a hierarchical neighborhood-based over multiple resolution
-    levels (raster overviews), and optionally applies Gaussian smoothing. 
+    levels (raster overviews), and optionally applies post-processing to reduce grid artifacts.
 
     This algorithm operates on the overview layers of a GeoTIFF file (including 
     Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated 
@@ -74,8 +74,8 @@ def connectedness(
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
     sigma : float, optional
-        Standard deviation of the Gaussian kernel used for smoothing. 
-        Default is 1. Zero or None for disabling smoothing.
+        Grid-artifact suppression strength, mapped to FFT notch half-width.
+        Default is 3. Zero or None for disabling post-filtering.
     scale : float or tuple, optional
         Scaling factor(s) applied to the condition and PA rasters.
         - If a single float is provided, it is applied only to the condition raster.
@@ -90,7 +90,8 @@ def connectedness(
             - 2: connectedness * condition
             - 3: sqrt(connectedness * condition)
     n_threads : int, optional
-        The number of CPU cores for parallel processing. 
+        The number of CPU cores for parallel processing in Rust components
+        (connectivity and inpainting/post-filtering).
         Default is None (all available cores).
     filename : str, optional
         Path to save the output file. If empty, the result is not written to disk.
@@ -192,9 +193,13 @@ def connectedness(
             n_threads = n_threads,
         )
 
-        # Smooth the output array with Gaussian filtering
+        # Remove grid artifacts with an FFT notch filter
         if sigma is not None and sigma != 0:
-            conn_array = smoothing_filter(conn_array, sigma=max(sigma, 1))
+            conn_array = remove_grid_effect(
+                conn_array,
+                notch_width=max(int(round(float(sigma))), 1),
+                n_threads=n_threads,
+            )
 
         # Calculate the connected-habitat or just return the PARC-connectedness
         if pa_file is None:
@@ -226,7 +231,7 @@ def beri(
         window_size: int = 3, 
         outer_window: int = 9,
         levels: list[int] = [2, 4, 8, 16, 32],
-        sigma: float | None = 1,
+        sigma: float | None = 3,
         scale: float | None = None,
         n_threads: int | None = None,
         filename: str = ""
@@ -282,13 +287,14 @@ def beri(
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
     sigma : float, optional
-        Standard deviation for the Gaussian kernel if smoothing is applied to input layers.
-        Default is 1. Zero or None for disabling smoothing.
+        Grid-artifact suppression strength, mapped to FFT notch half-width.
+        Default is 3. Zero or None for disabling post-filtering.
     scale : float, optional
         Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
         otherwise it is divided by scale.
     n_threads : int, optional
-        The number of CPU cores for parallel processing. 
+        The number of CPU cores for parallel processing in Rust components
+        (connectivity and inpainting/post-filtering).
         Default is None (all available cores).
     filename : str, optional
         Path to save the resulting BERI raster. If empty, the output is not written to disk.
@@ -387,9 +393,13 @@ def beri(
             n_threads = n_threads,
         )
 
-        # Smooth the output array with Gaussian filtering
+        # Remove grid artifacts with an FFT notch filter
         if sigma is not None and sigma != 0:
-            out_array = smoothing_filter(out_array, sigma=max(sigma, 1))
+            out_array = remove_grid_effect(
+                out_array,
+                notch_width=max(int(round(float(sigma))), 1),
+                n_threads=n_threads,
+            )
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask
