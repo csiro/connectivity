@@ -12,6 +12,7 @@ def connectedness(
         pa_file: str | None = None, 
         polygon_mask: gpd.GeoDataFrame | None = None,
         closed_border: bool = False,
+        margin_px: int = 32,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
         window_size: int = 3, 
@@ -54,6 +55,13 @@ def connectedness(
         Specifies how polygon boundaries are handled when `polygon_mask`
         is provided. If True, only cells inside the polygon are included.
         If False, cells outside the polygon within a buffer are considered for the analysis.
+    margin_px : int, optional
+        Extra pixel expansion for the valid analysis mask in non-closed mode.
+        This expands computed (non-masked) context around `polygon_mask` to reduce
+        NaN halo effects before post-filtering. Ignored in closed-border mode.
+        In non-closed mode it must satisfy:
+        `margin_px <= (outer_window + 3) * max(levels)`.
+        Default is 32.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -146,7 +154,8 @@ def connectedness(
         polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
-        expand_px=pad_size
+        expand_px=pad_size,
+        valid_margin_px=margin_px,
     )
 
     # Extra check and return early if condition is all NA; e.g. in a tile
@@ -161,7 +170,8 @@ def connectedness(
                 polygon=polygon_mask, 
                 levels=levels, 
                 scale=s2, 
-                expand_px=pad_size
+                expand_px=pad_size,
+                valid_margin_px=margin_px,
             )
             # Ensure dimension of the arrays the same
             if cond_array.shape != pa_array.shape:
@@ -226,6 +236,7 @@ def beri(
         future_files: list[str] | None = None,
         polygon_mask: gpd.GeoDataFrame | None = None,
         closed_border: bool = False,
+        margin_px: int = 32,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
         window_size: int = 3, 
@@ -267,6 +278,13 @@ def beri(
         Specifies how polygon boundaries are handled when `polygon_mask`
         is provided. If True, only cells inside the polygon are included.
         If False, cells outside the polygon within a buffer are considered for the analysis.
+    margin_px : int, optional
+        Extra pixel expansion for the valid analysis mask in non-closed mode.
+        This expands computed (non-masked) context around `polygon_mask` to reduce
+        NaN halo effects before post-filtering. Ignored in closed-border mode.
+        In non-closed mode it must satisfy:
+        `margin_px <= (outer_window + 3) * max(levels)`.
+        Default is 32.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -353,7 +371,8 @@ def beri(
         polygon=polygon_mask, 
         levels=levels, 
         scale=scale, # only for condition raster
-        expand_px=pad_size
+        expand_px=pad_size,
+        valid_margin_px=margin_px,
     )
 
     # Extra check and return early if condition is all NA; e.g. in a tile
@@ -365,7 +384,13 @@ def beri(
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
         # the scale parameter is not used here
         trans_grids = [
-            read_raster(file_path=i, polygon=polygon_mask, levels=levels, expand_px=pad_size)[0]
+            read_raster(
+                file_path=i,
+                polygon=polygon_mask,
+                levels=levels,
+                expand_px=pad_size,
+                valid_margin_px=margin_px,
+            )[0]
             for i in scenario_files
         ]
         

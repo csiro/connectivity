@@ -18,7 +18,7 @@ def read_raster(
     levels: list[int] | None = None,
     scale: float | None = None,
     expand_px: int = 0,
-    valid_expand_px: int = 32,
+    valid_margin_px: int = 32,
 ):
     """Reads data from a multi-band GeoTIFF (base resolution) and returns NaN-filled array + transforms + masks + offsets.
 
@@ -29,7 +29,7 @@ def read_raster(
         - scale (float or None): Scaling factor. If None, 0, or 1, data returned unchanged; otherwise divided by scale.
         - expand_px (int): Number of pixels to buffer the polygon for read-window context.
           0 means closed boundary (tight crop).
-        - valid_expand_px (int): Extra pixels to buffer the polygon for valid analysis area
+        - valid_margin_px (int): Extra pixels to buffer the polygon for valid analysis area
           in non-closed mode. This reduces NaN halo before filtering while preserving final
           crop to the original polygon.
     
@@ -50,11 +50,22 @@ def read_raster(
 
     if any(l <= 0 for l in levels):
         raise ValueError(f"levels must be positive ints, got: {levels}")
-    if valid_expand_px < 0:
-        raise ValueError(f"valid_expand_px must be >= 0, got: {valid_expand_px}")
+    if valid_margin_px < 0:
+        raise ValueError(f"valid_margin_px must be >= 0, got: {valid_margin_px}")
 
     # ensure levels contain 1
     levels = sorted({1, *levels})
+
+    # In non-closed mode, valid analysis margin must stay within the expanded read window.
+    # Read expansion is computed with (expand_px + 3) * max(levels) base pixels.
+    if expand_px > 0:
+        max_margin_px = int((expand_px + 3) * max(levels))
+        if valid_margin_px > max_margin_px:
+            raise ValueError(
+                "valid_margin_px cannot exceed the non-closed read-buffer limit: "
+                f"{valid_margin_px} > {max_margin_px} "
+                f"(=(expand_px + 3) * max(levels), expand_px={expand_px}, levels={levels})"
+            )
 
     with rasterio.open(file_path) as src:
         try:
@@ -156,10 +167,10 @@ def read_raster(
                 all_touched=True,
             )
 
-            if closed or valid_expand_px == 0:
+            if closed or valid_margin_px == 0:
                 valid_geom_mask = core_geom_mask
             else:
-                valid_pad = float(valid_expand_px) * float(max(base_res_x, base_res_y))
+                valid_pad = float(valid_margin_px) * float(max(base_res_x, base_res_y))
                 valid_geoms = [geom.buffer(valid_pad) for geom in polygon.geometry]
                 valid_geom_mask = geometry_mask(
                     geometries=[mapping(g) for g in valid_geoms],
