@@ -218,7 +218,7 @@ def connectedness(
 def beri(
         condition_file: str,
         current_file: str,
-        future_files: list[str] = [],
+        future_files: list[str] | None = None,
         polygon_mask: gpd.GeoDataFrame | None = None,
         closed_border: bool = False,
         lambdas: list[float] = [2, 20, 200],
@@ -311,6 +311,10 @@ def beri(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
+    # Avoid mutable default/list aliasing across repeated calls (e.g., tiled loops).
+    if future_files is None:
+        future_files = []
+
     # Get only one scale if confused with connectedness function
     if isinstance(scale, tuple):
         scale = scale[0]
@@ -350,13 +354,13 @@ def beri(
     if np.isnan(cond_array).all():
         out_array = cond_array
     else:
-        # Insert current climate as the first element in the list (this is important) before reading
-        future_files.insert(0, current_file)
+        # Build scenario list without mutating caller input.
+        scenario_files = [current_file, *future_files]
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
         # the scale parameter is not used here
         trans_grids = [
             read_raster(file_path=i, polygon=polygon_mask, levels=levels, expand_px=pad_size)[0]
-            for i in future_files
+            for i in scenario_files
         ]
         
         # Ensure rows/cols of the arrays the same
@@ -396,4 +400,3 @@ def beri(
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
 
     return out_array
-

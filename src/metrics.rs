@@ -5,8 +5,9 @@ pub fn connectedness(segment: &[EdgeData], lambda: f32) -> f32 {
     let (sum_numerator, sum_denominator): (f32, f32) = segment
         .iter()
         .map(|edge| {
-            let numerator = (-(edge.adj_dist / lambda)).exp() * edge.condition * edge.num_cells;
-            let denominator = (-(edge.geo_dist / lambda)).exp() * edge.num_cells;
+            let area = edge.num_cells;
+            let numerator = (-(edge.adj_dist / lambda)).exp() * edge.condition * area;
+            let denominator = (-(edge.geo_dist / lambda)).exp() * area;
             (numerator, denominator)
         })
         .fold((0.0, 0.0), |(acc_num, acc_den), (num, den)| {
@@ -67,16 +68,17 @@ pub fn beri_score(segment: &[EdgeData], lambda: f32) -> f32 {
         }
         
         // Calculate numerator weight with edge.adj_dist
+        let area = edge.num_cells;
         let weight_num: f32 = {
             let t = edge.adj_dist * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
-            (-exp_term).exp() * edge.condition * edge.num_cells
+            (-exp_term).exp() * edge.condition * area
         };
         // Calculate denominator weight with dist
         let weight_denom: f32 = {
             let t = edge.geo_dist * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
-            (-exp_term).exp() * edge.num_cells
+            (-exp_term).exp() * area
         };
 
         // Update numerator values with similarity of scenarios
@@ -99,4 +101,3 @@ pub fn beri_score(segment: &[EdgeData], lambda: f32) -> f32 {
         0.0
     }
 }
-

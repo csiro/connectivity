@@ -1,6 +1,7 @@
 from rasterio.features import geometry_window
 from rasterio.mask import mask
 from rasterio.features import geometry_mask
+from rasterio.windows import Window
 from affine import Affine
 from shapely.geometry import box
 from shapely.geometry import mapping
@@ -77,8 +78,8 @@ def read_raster(
                 # pad in map units: expand_px (in base pixels) * max_level scaling * max(res)
                 max_level = max(levels)
                 eps = 0.5 * float(max(base_res_x, base_res_y)) # add half-pixel to avoid missing rows/cols
-                # add 1 to expand_px so it skip any partial edge
-                pad_size = float(expand_px * 2) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
+                # add an offset to expand to ensure all required cells are taken.
+                pad_size = float(expand_px + 3) * float(max_level) * float(max(base_res_x, base_res_y)) + eps
                 extent_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
 
             # Compute exact dataset-pixel offsets for this crop
@@ -89,29 +90,58 @@ def read_raster(
                 pad_y=0,
             ).round_offsets().round_lengths()
 
-            tile_row0 = int(win0.row_off)
-            tile_col0 = int(win0.col_off)
+            if closed:
+                read_win = win0
+            else:
+                # Snap the non-closed read window to the coarsest overview grid so
+                # per-level valid-cell counts are computed from full global blocks.
+                # This keeps habitat-area weights tile-invariant while still reflecting
+                # partial valid area (e.g., coastlines/nodata).
+                snap = int(max(levels))
+                r0 = int(win0.row_off)
+                c0 = int(win0.col_off)
+                r1 = int(win0.row_off + win0.height)
+                c1 = int(win0.col_off + win0.width)
 
-            # Read/crop using mask (keeps nodata/internal masks)
-            out_ma, out_transform = mask(
-                src,
-                [mapping(g) for g in extent_geoms],
-                crop=True,
-                filled=False,
-                all_touched=True,
-            )
+                r0 = (r0 // snap) * snap
+                c0 = (c0 // snap) * snap
+                r1 = ((r1 + snap - 1) // snap) * snap
+                c1 = ((c1 + snap - 1) // snap) * snap
+
+                r0 = max(0, r0)
+                c0 = max(0, c0)
+                r1 = min(src.height, r1)
+                c1 = min(src.width, c1)
+
+                read_win = Window(
+                    col_off=c0,
+                    row_off=r0,
+                    width=max(0, c1 - c0),
+                    height=max(0, r1 - r0),
+                )
+
+            tile_row0 = int(read_win.row_off)
+            tile_col0 = int(read_win.col_off)
+
+            if closed:
+                # Closed mode: crop to polygon and mask outside geometry
+                out_ma, out_transform = mask(
+                    src,
+                    [mapping(g) for g in extent_geoms],
+                    crop=True,
+                    filled=False,
+                    all_touched=True,
+                )
+            else:
+                # Non-closed mode: read snapped window directly; keep all pixels for context
+                out_ma = src.read(window=read_win, masked=True).astype(np.float32)
+                out_transform = src.window_transform(read_win)
 
             out_image_data = np.ma.getdata(out_ma).astype(np.float32)
             data_mask = np.ma.getmaskarray(out_ma)
 
-            if closed:
-                 valid_geoms = [geom for geom in polygon.geometry]
-            else:
-                 pad_size = float(max(base_res_x, base_res_y)) * 10
-                 valid_geoms = [box(*geom.buffer(pad_size).bounds) for geom in polygon.geometry]
-
             geom_mask = geometry_mask(
-                geometries=[mapping(g) for g in valid_geoms],
+                geometries=[mapping(g) for g in polygon.geometry],
                 out_shape=out_image_data.shape[1:],
                 transform=out_transform,
                 invert=True,
@@ -239,4 +269,3 @@ def overview_info(file_path: str, levels: list = None):
                 break
             
             print(f"  Level {level}: {estimated_width} x {estimated_height}")
-

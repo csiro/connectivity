@@ -2,11 +2,15 @@ use anyhow::{bail, Result};
 use ndarray::{Array2, Array3};
 use rayon::prelude::*;
 use std::collections::HashMap;
+use crate::affine::Affine;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Resampling {
     Average,
     Count,
+    Area,
+    #[allow(dead_code)]
+    Sum,
 }
 
 /// Check levels are a power of two with bitwise operation.
@@ -42,6 +46,7 @@ pub fn make_overview(
     levels: &[usize],
     offsets: (usize, usize),
     method: Resampling,
+    base_transform: Option<&Affine>,
 ) -> Result<HashMap<i32, Array2<f32>>> {
     check_levels(levels)?;
 
@@ -57,6 +62,26 @@ pub fn make_overview(
     let tile_c0 = tile_col0;
     let tile_r1 = tile_row0 + base_rows; // exclusive
     let tile_c1 = tile_col0 + base_cols; // exclusive
+
+    // For area-weighted counts, precompute a per-row relative area factor: cos(latitude).
+    // This applies only to geographic grids and requires the base-level transform.
+    let row_area_factor: Option<Vec<f32>> = if matches!(method, Resampling::Area) {
+        let tr = base_transform.ok_or_else(|| {
+            anyhow::anyhow!("Area resampling requires base-level transform information.")
+        })?;
+
+        let mut factors = Vec::with_capacity(base_rows_u);
+        for local_r in 0..base_rows_u {
+            let global_r = tile_row0 + local_r as i32;
+            let (_, lat_deg) = tr.xy(global_r, 0);
+            let w = lat_deg.to_radians().cos().abs() as f32;
+            factors.push(if w.is_finite() { w.max(0.0) } else { 0.0 });
+        }
+        Some(factors)
+    } else {
+        None
+    };
+    let row_area_factor = row_area_factor.as_deref();
 
     let mut result = HashMap::with_capacity(levels.len());
 
@@ -109,14 +134,23 @@ pub fn make_overview(
 
                     let mut valid_count = 0.0_f32;
                     let mut sum_values = 0.0_f32;
+                    let mut area_count = 0.0_f32;
 
                     for r in tile_r_start..tile_r_end {
                         for c in tile_c_start..tile_c_end {
                             let v = base[[r, c]];
                             if v.is_finite() {
                                 valid_count += 1.0;
-                                if let Resampling::Average = method {
-                                    sum_values += v;
+                                match method {
+                                    Resampling::Average | Resampling::Sum => {
+                                        sum_values += v;
+                                    }
+                                    Resampling::Area => {
+                                        if let Some(area_rows) = row_area_factor {
+                                            area_count += area_rows[r];
+                                        }
+                                    }
+                                    Resampling::Count => {}
                                 }
                             }
                         }
@@ -126,6 +160,8 @@ pub fn make_overview(
                         row[local_c] = match method {
                             Resampling::Average => sum_values / valid_count,
                             Resampling::Count => valid_count,
+                            Resampling::Area => area_count,
+                            Resampling::Sum => sum_values,
                         };
                     }
                 }
@@ -152,6 +188,13 @@ pub fn make_overview_3d(
     method: Resampling,
 ) -> Result<HashMap<i32, Array3<f32>>> {
     check_levels(levels)?;
+    if !matches!(method, Resampling::Average | Resampling::Sum) {
+        bail!(
+            "3D overviews support only Average and Sum resampling; got {:?}",
+            method
+        );
+    }
+    let is_average = matches!(method, Resampling::Average);
 
     let (base_rows_u, base_cols_u, n_bands_u) = base.dim();
     let base_rows = base_rows_u as i32;
@@ -225,17 +268,16 @@ pub fn make_overview_3d(
                                 let v = base[[r, c, band_idx]];
                                 if v.is_finite() {
                                     valid_count += 1.0;
-                                    if let Resampling::Average = method {
-                                        sum_values += v;
-                                    }
+                                    sum_values += v;
                                 }
                             }
                         }
 
                         if valid_count > 0.0 {
-                            row[local_c * n_bands + band_idx] = match method {
-                                Resampling::Average => sum_values / valid_count,
-                                Resampling::Count => valid_count,
+                            row[local_c * n_bands + band_idx] = if is_average {
+                                sum_values / valid_count
+                            } else {
+                                sum_values
                             };
                         }
                     }
@@ -250,4 +292,3 @@ pub fn make_overview_3d(
 
     Ok(result)
 }
-

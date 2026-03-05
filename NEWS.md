@@ -1,7 +1,18 @@
-# Version 1.0.1
-* Fixed a subtle misalignment in overview generation when processing tiles independently. Aggregation windows are now globally anchored to the original dataset pixel grid, ensuring that multi-resolution overviews (e.g., 4×4, 8×8, 16×16) align perfectly across adjacent polygon runs and no longer produce seam artifacts.
-* Fixed a missing row when reading tiles by adding half a pixel to the buffer.
-* Modified `overview_info()` to return only the estimated size of overviews for validation, rather than the actual overview. This means it now works for any raster, even if it does not contain a real overview.
+# Version 1.1.0
+## Fixed
+- Fixed seam artifacts caused by swapped row/column arguments in graph distance coordinate conversion (`Affine::xy` now consistently receives `(row, col)`).
+- Fixed overview alignment across independently processed tiles by anchoring aggregation windows to global dataset pixel coordinates via tile offsets.
+- Fixed cross-level edge-neighbour mapping to be offset-aware (global-anchor consistent) when linking a level to its higher level.
+- Fixed occasional missing edge rows/cols in buffered tile reads by adding a half-pixel epsilon to the buffer extent.
+
+## Changed
+- Graph construction now passes tile offsets through the full path (`core -> builder -> graph::fringe`) to keep multi-resolution linking globally aligned.
+- Node IDs are now tile-invariant (`NodeId = u64` from level/global-row/global-col), removing tile-local ID drift between adjacent runs.
+- Core traversal is now deterministic where relevant (sorted overview levels and sorted Dijkstra targets before accumulation).
+- Non-closed tile reads are snapped to the coarsest overview grid, improving consistency of aggregated counts/weights at tile boundaries.
+- Added `Area` resampling for 2D overviews (latitude-weighted by `cos(phi)`), alongside `Average`, `Sum`, and `Count`.
+- 3D overview generation now explicitly supports only `Average` and `Sum` resampling.
+- `overview_info()` now reports estimated overview dimensions and does not require pre-existing file overviews.
 
 # Version 1.0.0
 ## Added

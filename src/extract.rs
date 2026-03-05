@@ -65,4 +65,3 @@ pub fn to_array_3d<'py>(data: &Bound<'py, PyAny>) -> Result<Option<Array3<f32>>>
         Ok(Some(array_owned))
     }
 }
-

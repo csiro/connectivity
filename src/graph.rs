@@ -3,6 +3,8 @@ use std::rc::Rc;
 use crate::affine::Affine;
 use crate::distances;
 
+pub type NodeId = u64;
+
 
 // The data of Graph edge
 #[derive(Debug, Clone)]
@@ -18,8 +20,8 @@ pub struct EdgeData {
 /// struct { HashMap<(source, destination), EdgeData>, source-node }
 #[derive(Debug, Clone)]
 pub struct Graph {
-    pub data: HashMap<(u32, u32), EdgeData>,
-    pub source: u32, // should be separate as data-oriented design principal, but cleaner now;
+    pub data: HashMap<(NodeId, NodeId), EdgeData>,
+    pub source: NodeId, // should be separate as data-oriented design principal, but cleaner now;
 }
 
 impl Graph {
@@ -36,19 +38,19 @@ impl Graph {
     }
 
     /// Insert a new node entry
-    pub fn add_node(&mut self, key: (u32, u32), value: EdgeData) {
+    pub fn add_node(&mut self, key: (NodeId, NodeId), value: EdgeData) {
         self.data.insert(key, value);
     }
 
     /// Get an entry by reference
-    pub fn get(&self, key: &(u32, u32)) -> Option<&EdgeData> {
+    pub fn get(&self, key: &(NodeId, NodeId)) -> Option<&EdgeData> {
         self.data.get(&key)
     }
 
     /// Count how many outgoing edges each `u` node has.
-    pub fn count_edges(&self) -> HashMap<u32, usize> {
+    pub fn count_edges(&self) -> HashMap<NodeId, usize> {
         // Count the source in hashmap to keep the keys unique
-        let mut edge_counts: HashMap<u32, usize> = HashMap::new();
+        let mut edge_counts: HashMap<NodeId, usize> = HashMap::new();
         for &(u, _) in self.data.keys() {
             *edge_counts.entry(u).or_insert(0) += 1;
         }        
@@ -70,11 +72,11 @@ impl Graph {
         &mut self,
         i: i32,
         j: i32,
-        u: u32, // target node id
+        u: NodeId, // target node id
         i_ngb: &[i32],
         j_ngb: &[i32],
         factor: f32,
-        node_mapping: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
         transform: &Affine,
         is_wgs: bool,
     ) -> bool {
@@ -82,7 +84,7 @@ impl Graph {
         let mut is_isolated = u == self.source;
     
         // Coordinates of the current node only need to be computed once
-        let (x1, y1) = transform.xy(j, i);
+        let (x1, y1) = transform.xy(i, j);
     
         // Iterate over queen-case neighbor offsets (8 adjacent neighbours)
         for (&di, &dj) in i_ngb.iter().zip(j_ngb.iter()) {
@@ -92,7 +94,7 @@ impl Graph {
             // Check if neighbor exists in node_mapping
             if let Some(&(v, z, c, ref s)) = node_mapping.get(&(ni, nj)) {
                 // Distance to adjacent node/cell in kilometers
-                let (x2, y2) = transform.xy(nj, ni);
+                let (x2, y2) = transform.xy(ni, nj);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                 // Calcualte the weight using max_cost
                 let w: f32 = (1.0 - factor) * z + factor;
@@ -118,7 +120,7 @@ impl Graph {
         if is_isolated {
             if let Some(&(_, z, c, ref s)) = node_mapping.get(&(i, j)) {
                 // Distance to an adjacent cell in kilometers
-                let (x2, y2) = transform.xy(j, i+1);
+                let (x2, y2) = transform.xy(i + 1, j);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                 // Calcualte the weight using max_cost
                 let w: f32 = (1.0 - factor) * z + factor;
@@ -153,29 +155,30 @@ impl Graph {
         i: i32, j: i32,
         factor: f32,
         level: i32, 
-        node_mapping: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
-        node_mapping_higher: &HashMap<(i32, i32), (u32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping_higher: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
+        offsets: (usize, usize),
     ) {
         if let Some(&(uu, _, _, _)) = node_mapping.get(&(i, j)) {
             let higher_level: i32 = level * 2;
             
             // Get all higher neighbours at once
-            let higher_neighbours = get_edge_neighbours(i, j);
+            let higher_neighbours = get_edge_neighbours(i, j, level, offsets);
 
             // Get the Affines for distance calc
             let transform: &Affine = transforms.get(&level).unwrap();
             let transform_upper: &Affine = transforms.get(&higher_level).unwrap();
             // Get the actual coordinates values for distance calc
-            let (x1, y1) = transform.xy(j, i);
+            let (x1, y1) = transform.xy(i, j);
             
             // Use 'ref' to borrow Vec<f32> rather than moving it
             for &(ni, nj) in &higher_neighbours {
                 // Only if the neghbours are in the higher mapping proceess
                 if let Some(&(v, z, c, ref s)) = node_mapping_higher.get(&(ni, nj)) {
                     // Get the actual coordinates of the higher level
-                    let (x2, y2) = transform_upper.xy(nj, ni);
+                    let (x2, y2) = transform_upper.xy(ni, nj);
                     // Distance in kilometer
                     let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
                     
@@ -201,9 +204,23 @@ impl Graph {
 
 /// Get the 3 possible neighbours of edge cells in the higher level 
 /// i.e. the link between a level edge to its higher level cells
-fn get_edge_neighbours(i: i32, j: i32) -> [(i32, i32); 3] {
+fn get_edge_neighbours(i: i32, j: i32, level: i32, offsets: (usize, usize)) -> [(i32, i32); 3] {
+    let (tile_row0_u, tile_col0_u) = offsets;
+    let tile_row0 = tile_row0_u as i32;
+    let tile_col0 = tile_col0_u as i32;
+
+    #[inline]
+    fn to_higher_local(idx: i32, level: i32, tile0: i32) -> i32 {
+        let curr_origin = tile0.div_euclid(level);
+        let higher_origin = tile0.div_euclid(level * 2);
+        (curr_origin + idx).div_euclid(2) - higher_origin
+    }
+
     // Higher level cell containing the target cell
-    let target_higher = (i >> 1, j >> 1);    
+    let target_higher = (
+        to_higher_local(i, level, tile_row0),
+        to_higher_local(j, level, tile_col0),
+    );
     // 8 neighbor offsets: N, S, W, E, NW, NE, SW, SE
     const OFFSETS: [(i32, i32); 8] = [
         (-1, 0), (1, 0), (0, -1), (0, 1),
@@ -217,7 +234,10 @@ fn get_edge_neighbours(i: i32, j: i32) -> [(i32, i32); 3] {
     for (di, dj) in OFFSETS {
         let ni = i + di;
         let nj = j + dj;
-        let higher = (ni >> 1, nj >> 1);
+        let higher = (
+            to_higher_local(ni, level, tile_row0),
+            to_higher_local(nj, level, tile_col0),
+        );
         
         // Skip if it's the same as target's higher cell
         if higher == target_higher {
@@ -242,4 +262,3 @@ fn get_edge_neighbours(i: i32, j: i32) -> [(i32, i32); 3] {
     
     higher_cells
 }
-

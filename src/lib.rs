@@ -122,4 +122,3 @@ fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction_bound!(connectivity, m)?)?;
     Ok(())
 }
-

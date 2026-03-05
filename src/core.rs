@@ -45,9 +45,19 @@ pub fn conn(
         let num_levels = levels.len();
 
         // Generate overviews
-        let cond_map = overview::make_overview(cond_base, levels, offsets, Resampling::Average).expect("Failed average resampling.");
-        // Calculate the cell counts for including habitat area contribution
-        let cell_weights = overview::make_overview(cond_base, levels, offsets, Resampling::Count).expect("Failed to count cells.");
+        let cond_map = overview::make_overview(cond_base, levels, offsets, Resampling::Average, None)
+            .expect("Failed average resampling.");
+        let weight_method = if is_geo { Resampling::Area } else { Resampling::Count };
+        let base_transform = transform_map
+            .get(&1)
+            .expect("Missing base-level transform (key=1).");
+        let cell_weights = overview::make_overview(
+            cond_base,
+            levels,
+            offsets,
+            weight_method,
+            Some(base_transform),
+        ).expect("Failed to build cell weights.");
         // Ensure cell-counts has the same keys and dimension as condition array map;
         utils::check_dims(&cell_weights, &cond_map)?;
 
@@ -66,6 +76,8 @@ pub fn conn(
 
         // Initialize output with zeros
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
+        let mut sorted_levels: Vec<i32> = cond_map.keys().copied().collect();
+        sorted_levels.sort_unstable();
 
         // Parallel iteration over rows in the thread pool
         let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)
@@ -84,13 +96,14 @@ pub fn conn(
                     // Pre-allocate window hashmap
                     let mut windows: HashMap::<i32, FocalWindow> = HashMap::with_capacity(num_levels);
                     // Build window for each level for the cell ij
-                    for &level in cond_map.keys() {
+                    for &level in &sorted_levels {
                         let win = FocalWindow::from_data(
                             i as i32,
                             j as i32,
                             level,
                             window_size,
                             outer_window,
+                            offsets,
                             &cond_map,
                             &trans_maps,
                             &ij_values,
@@ -106,7 +119,8 @@ pub fn conn(
                         max_cost,
                         &windows, 
                         transform_map,
-                        is_geo
+                        is_geo,
+                        offsets,
                     );
                     // Calculate all reachable paths using weighted distance by conditon; altered condition
                     let nodes_altered  = the_graph.dijkstra(Path::Adjusted);
@@ -115,13 +129,7 @@ pub fn conn(
                     
                     let mut cell_paths: Vec<EdgeData> = Vec::with_capacity(nodes_altered.len());
 
-                    // HashMap iteration order is non-deterministic; sort targets so repeated
-                    // tile runs produce bit-stable accumulation at shared boundaries.
-                    let mut targets: Vec<u32> = nodes_altered.keys().copied().collect();
-                    targets.sort_unstable();
-
-                    // for &k in nodes_altered.keys() {
-                    for k in targets {
+                    for &k in nodes_altered.keys() {
                         // Calcaulate optimal path for each reachable path
                         let optim_path = build_path(&k, &nodes_altered);
                         // Get the intact distance from source; divided by 100 to cancel out from path adjacency
@@ -162,4 +170,3 @@ pub fn conn(
         anyhow::bail!("No base level (key=1) in condition array");
     }  
 }
-
