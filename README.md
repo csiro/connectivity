@@ -79,7 +79,20 @@ To compute connected-habitat (or plain connectedness), you only need a habitat c
 3. `sqrt(connectedness * condition)` — geometric mean (default)
 
 ```python
-from connectivity import connectedness, beri
+from connectivity import connectedness, beri, remove_grid_effect
+```
+
+### Grid Artifact Removal
+
+`remove_grid_effect()` is also available as a standalone post-processing function.
+
+```python
+help(remove_grid_effect)
+```
+
+```python
+# array2d is a 2D numpy array (NaN = nodata)
+clean_array = remove_grid_effect(array2d, n_threads=8)
 ```
 
 ```python
