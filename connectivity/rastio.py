@@ -18,6 +18,7 @@ def read_raster(
     levels: list[int] | None = None,
     scale: float | None = None,
     expand_px: int = 0,
+    valid_expand_px: int = 16,
 ):
     """Reads data from a multi-band GeoTIFF (base resolution) and returns NaN-filled array + transforms + masks + offsets.
 
@@ -26,7 +27,11 @@ def read_raster(
         - polygon (GeoPandas): Optional polygon to mask the raster.
         - levels (list of int): List of overview reduction factors (e.g., [1, 2, 4, 8]).
         - scale (float or None): Scaling factor. If None, 0, or 1, data returned unchanged; otherwise divided by scale.
-        - expand_px (int): Number of pixels to buffer the polygon. 0 means closed boundary (tight crop).
+        - expand_px (int): Number of pixels to buffer the polygon for read-window context.
+          0 means closed boundary (tight crop).
+        - valid_expand_px (int): Extra pixels to buffer the polygon for valid analysis area
+          in non-closed mode. This reduces NaN halo before filtering while preserving final
+          crop to the original polygon.
     
     Modes:
       - closed (expand_px == 0): crop to polygon extent AND mask outside polygon
@@ -34,7 +39,7 @@ def read_raster(
 
     Returns:
       - data_array: (rows, cols) for single-band or (rows, cols, bands) for multi-band, float32 with NaNs
-      - mask_array: 2D bool, True where inside original polygon AND valid (not nodata/NaN) in the returned extent
+      - mask_array: 2D bool, True where cells are invalid for analysis (outside valid mask or nodata/NaN)
       - tran_dict: dict[level] -> GDAL-style 6-tuple transform
       - is_geo: bool
       - tile_row0, tile_col0 -> mask/polygon offsets from raster origin for generating consistent overviews in Rust.
@@ -45,6 +50,8 @@ def read_raster(
 
     if any(l <= 0 for l in levels):
         raise ValueError(f"levels must be positive ints, got: {levels}")
+    if valid_expand_px < 0:
+        raise ValueError(f"valid_expand_px must be >= 0, got: {valid_expand_px}")
 
     # ensure levels contain 1
     levels = sorted({1, *levels})
@@ -63,7 +70,8 @@ def read_raster(
             out_transform = base_transform
             out_image_data = np.ma.getdata(data_ma)
             data_mask = np.ma.getmaskarray(data_ma)
-            geom_mask = None
+            core_geom_mask = None
+            valid_geom_mask = None
             tile_row0, tile_col0 = 0, 0
 
         else:
@@ -140,7 +148,7 @@ def read_raster(
             out_image_data = np.ma.getdata(out_ma).astype(np.float32)
             data_mask = np.ma.getmaskarray(out_ma)
 
-            geom_mask = geometry_mask(
+            core_geom_mask = geometry_mask(
                 geometries=[mapping(g) for g in polygon.geometry],
                 out_shape=out_image_data.shape[1:],
                 transform=out_transform,
@@ -148,11 +156,24 @@ def read_raster(
                 all_touched=True,
             )
 
+            if closed or valid_expand_px == 0:
+                valid_geom_mask = core_geom_mask
+            else:
+                valid_pad = float(valid_expand_px) * float(max(base_res_x, base_res_y))
+                valid_geoms = [geom.buffer(valid_pad) for geom in polygon.geometry]
+                valid_geom_mask = geometry_mask(
+                    geometries=[mapping(g) for g in valid_geoms],
+                    out_shape=out_image_data.shape[1:],
+                    transform=out_transform,
+                    invert=True,
+                    all_touched=True,
+                )
+
             # Add NaNs to data_mask as invalid too (both modes)
             data_mask |= np.isnan(out_image_data)
             # Closed mode: also mask outside original polygon
             if closed:
-                data_mask |= ~geom_mask[np.newaxis, :, :]
+                data_mask |= ~core_geom_mask[np.newaxis, :, :]
 
             # Final masked array
             data_ma = np.ma.masked_array(out_image_data, mask=data_mask)
@@ -168,7 +189,7 @@ def read_raster(
             else:
                 invalid_2d = data_mask.astype(bool)
 
-            valid_inside = geom_mask & ~invalid_2d
+            valid_inside = valid_geom_mask & ~invalid_2d
             mask_array = ~valid_inside
         else:
             if data_mask.ndim == 3:
