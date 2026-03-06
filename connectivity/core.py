@@ -21,8 +21,8 @@ def connectedness(
         scale: float | tuple | None = None,
         option: int = 3,
         n_threads: int | None = None,
+        filter_kwargs: dict | None = {},
         filename: str = "",
-        filter_kwargs: dict | None = {}
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics 
     
@@ -98,9 +98,6 @@ def connectedness(
         The number of CPU cores for parallel processing in Rust components
         (connectivity and inpainting/post-filtering).
         Default is None (all available cores).
-    filename : str, optional
-        Path to save the output file. If empty, the result is not written to disk.
-        Default is "".
     filter_kwargs : dict, optional
         Dictionary of extra keyword arguments forwarded to `remove_grid_effect()`
         (e.g. `center_radius`, `soft_notch`, `inpaint_size`).
@@ -108,6 +105,9 @@ def connectedness(
         by the top-level `n_threads` argument.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
         (`notch_width=3`). Default is `{}`.
+    filename : str, optional
+        Path to save the output file. If empty, the result is not written to disk.
+        Default is "".
 
     Returns
     -------
@@ -250,8 +250,8 @@ def beri(
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | None = None,
         n_threads: int | None = None,
-        filename: str = "",
-        filter_kwargs: dict | None = {}
+        filter_kwargs: dict | None = {},
+        filename: str = ""
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -317,9 +317,6 @@ def beri(
         The number of CPU cores for parallel processing in Rust components
         (connectivity and inpainting/post-filtering).
         Default is None (all available cores).
-    filename : str, optional
-        Path to save the resulting BERI raster. If empty, the output is not written to disk.
-        Default is "".
     filter_kwargs : dict, optional
         Dictionary of extra keyword arguments forwarded to `remove_grid_effect()`
         (e.g. `center_radius`, `soft_notch`, `inpaint_size`).
@@ -327,6 +324,9 @@ def beri(
         by the top-level `n_threads` argument.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
         (`notch_width=3`). Default is `{}`.
+    filename : str, optional
+        Path to save the resulting BERI raster. If empty, the output is not written to disk.
+        Default is "".
 
     Returns
     -------
