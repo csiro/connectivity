@@ -148,6 +148,9 @@ def remove_grid_effect(
     inpaint_tol=1e-3,
     soft_notch=False,
     soft_sigma=2.0,
+    adaptive_quantile=0.75,
+    correction_strength=1.0,
+    fft_pad_px=32,
     n_threads=None,
 ):
     """
@@ -178,6 +181,15 @@ def remove_grid_effect(
         Use Gaussian-tapered notch instead of hard binary notch.
     soft_sigma : float, optional
         Gaussian width for the soft-notch mode.
+    adaptive_quantile : float | None, optional
+        If set (e.g. 0.75), apply most of the correction only where the estimated
+        grid component is strong (top quantile of correction magnitude).
+        Set to `None` to apply full global correction.
+    correction_strength : float, optional
+        Multiplier in [0, 1] for correction amplitude (1 = full, 0 = none).
+    fft_pad_px : int, optional
+        Reflect-padding width applied before FFT to reduce boundary wrap-around
+        artifacts and extent-dependent periodic differences.
     n_threads : int | None, optional
         Number of Rust worker threads for inpainting. `None` uses all cores.
 
@@ -191,11 +203,26 @@ def remove_grid_effect(
         raise ValueError("remove_grid_effect expects a 2D array.")
 
     img = img.astype(np.float32, copy=True)
+    img[~np.isfinite(img)] = np.nan
     nan_mask = np.isnan(img)
+    valid_global = ~nan_mask
+    if not np.any(valid_global):
+        return img
 
-    if np.any(nan_mask):
-        img_filled = inpaint_nans_diffusion(
-            img,
+    # Process only the finite-data bounding box to avoid extent-sized NaN halos
+    # driving FFT behavior.
+    rows_v, cols_v = np.where(valid_global)
+    r0 = int(rows_v.min())
+    r1 = int(rows_v.max()) + 1
+    c0 = int(cols_v.min())
+    c1 = int(cols_v.max()) + 1
+
+    work = img[r0:r1, c0:c1].copy()
+    work_nan = np.isnan(work)
+
+    if np.any(work_nan):
+        work_filled = inpaint_nans_diffusion(
+            work,
             size=inpaint_size,
             max_iter=inpaint_max_iter,
             tol=inpaint_tol,
@@ -203,10 +230,22 @@ def remove_grid_effect(
             n_threads=n_threads,
         )
     else:
-        img_filled = img
+        work_filled = work
 
-    rows, cols = img.shape
-    f_shifted = fftshift(fft2(img_filled))
+    pad = max(0, int(fft_pad_px))
+    if pad > 0:
+        pad_r = min(pad, max(work_filled.shape[0] - 1, 0))
+        pad_c = min(pad, max(work_filled.shape[1] - 1, 0))
+    else:
+        pad_r = pad_c = 0
+
+    if pad_r > 0 or pad_c > 0:
+        fft_input = np.pad(work_filled, ((pad_r, pad_r), (pad_c, pad_c)), mode="reflect")
+    else:
+        fft_input = work_filled
+
+    rows, cols = fft_input.shape
+    f_shifted = fftshift(fft2(fft_input))
     mask = make_notch_mask(
         rows,
         cols,
@@ -216,10 +255,42 @@ def remove_grid_effect(
         sigma=soft_sigma,
     )
     f_filtered = f_shifted * mask
-    img_back = np.real(ifft2(ifftshift(f_filtered))).astype(np.float32)
+    fft_back = np.real(ifft2(ifftshift(f_filtered))).astype(np.float32)
 
-    img_back[nan_mask] = np.nan
-    return img_back
+    if pad_r > 0 or pad_c > 0:
+        img_back = fft_back[pad_r : pad_r + work_filled.shape[0], pad_c : pad_c + work_filled.shape[1]]
+    else:
+        img_back = fft_back
+
+    # Conservative correction: remove the estimated grid component while
+    # preserving broader signal where correction magnitude is low.
+    correction = work_filled - img_back
+    valid = ~work_nan
+
+    strength = float(np.clip(correction_strength, 0.0, 1.0))
+    if adaptive_quantile is None:
+        weight = 1.0
+    else:
+        q = float(np.clip(adaptive_quantile, 0.0, 0.999999))
+        abs_corr = np.abs(correction)
+        if np.any(valid):
+            thr = float(np.quantile(abs_corr[valid], q))
+            maxv = float(np.max(abs_corr[valid]))
+            if maxv > thr:
+                weight = np.clip((abs_corr - thr) / (maxv - thr), 0.0, 1.0).astype(np.float32)
+            else:
+                weight = np.zeros_like(abs_corr, dtype=np.float32)
+        else:
+            weight = np.zeros_like(correction, dtype=np.float32)
+
+    out_work = work_filled - (strength * weight * correction)
+    out_work = out_work.astype(np.float32, copy=False)
+    out_work[work_nan] = np.nan
+
+    out = img.copy()
+    out[r0:r1, c0:c1] = out_work
+    out[nan_mask] = np.nan
+    return out
 
 
 # Get kwargs for filtering
@@ -238,6 +309,9 @@ def _resolve_filter_kwargs(
         "inpaint_tol",
         "soft_notch",
         "soft_sigma",
+        "adaptive_quantile",
+        "correction_strength",
+        "fft_pad_px",
     }
 
     if filter_kwargs is None:
@@ -256,8 +330,21 @@ def _resolve_filter_kwargs(
             "Use only remove_grid_effect parameters."
         )
 
+    # Conservative defaults for stable comparisons across years/extents.
     if "notch_width" not in merged:
         merged["notch_width"] = 3
+    if "soft_notch" not in merged:
+        merged["soft_notch"] = True
+    if "soft_sigma" not in merged:
+        merged["soft_sigma"] = 2.0
+    if "center_radius" not in merged:
+        merged["center_radius"] = 35
+    if "adaptive_quantile" not in merged:
+        merged["adaptive_quantile"] = 0.9
+    if "correction_strength" not in merged:
+        merged["correction_strength"] = 0.6
+    if "fft_pad_px" not in merged:
+        merged["fft_pad_px"] = 32
     # Thread control is taken only from the main function argument.
     merged["n_threads"] = n_threads
 

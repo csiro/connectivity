@@ -1,3 +1,7 @@
+# Version 1.1.1
+## Changed
+- `remove_grid_effect()` now runs FFT on the finite-data bounding box and uses reflect-padding (`fft_pad_px`) to reduce extent-dependent periodic artifacts.
+
 # Version 1.1.0
 ## Added
 - Added `remove_grid_effect()` as a standalone FFT notch-filter post-processing function (also exported from the top-level package import).
