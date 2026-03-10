@@ -148,7 +148,7 @@ def remove_grid_effect(
     inpaint_tol=1e-3,
     soft_notch=False,
     soft_sigma=2.0,
-    adaptive_quantile=0.75,
+    adaptive_quantile=None,
     correction_strength=1.0,
     fft_pad_px=32,
     n_threads=None,
@@ -184,7 +184,7 @@ def remove_grid_effect(
     adaptive_quantile : float | None, optional
         If set (e.g. 0.75), apply most of the correction only where the estimated
         grid component is strong (top quantile of correction magnitude).
-        Set to `None` to apply full global correction.
+        Set to `None` (default) to apply full global correction.
     correction_strength : float, optional
         Multiplier in [0, 1] for correction amplitude (1 = full, 0 = none).
     fft_pad_px : int, optional
@@ -330,19 +330,23 @@ def _resolve_filter_kwargs(
             "Use only remove_grid_effect parameters."
         )
 
-    # Conservative defaults for stable comparisons across years/extents.
+    # Defaults aligned with remove_grid_effect(), plus explicit inpainting defaults.
     if "notch_width" not in merged:
         merged["notch_width"] = 3
+    if "center_radius" not in merged:
+        merged["center_radius"] = 25
+    if "inpaint_size" not in merged:
+        merged["inpaint_size"] = 11
+    if "inpaint_init" not in merged:
+        merged["inpaint_init"] = "nearest"
+    if "inpaint_max_iter" not in merged:
+        merged["inpaint_max_iter"] = 200
+    if "inpaint_tol" not in merged:
+        merged["inpaint_tol"] = 1e-3
     if "soft_notch" not in merged:
-        merged["soft_notch"] = True
+        merged["soft_notch"] = False
     if "soft_sigma" not in merged:
         merged["soft_sigma"] = 2.0
-    if "center_radius" not in merged:
-        merged["center_radius"] = 35
-    if "adaptive_quantile" not in merged:
-        merged["adaptive_quantile"] = 0.9
-    if "correction_strength" not in merged:
-        merged["correction_strength"] = 0.6
     if "fft_pad_px" not in merged:
         merged["fft_pad_px"] = 32
     # Thread control is taken only from the main function argument.
