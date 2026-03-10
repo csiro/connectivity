@@ -1,4 +1,7 @@
 # Version 1.1.1
+## Fixed
+- Filtered bounded outputs from `connectedness()` and `beri()` are now clipped back to the theoretical `[0, 1]` range after FFT notch filtering. This applies to connectedness (`option = 1`), connected habitat (`option = 2`), geometric-mean connected habitat (`option = 3`), PARC-connectedness, and BERI whenever filtering is enabled.
+
 ## Changed
 - `remove_grid_effect()` now runs FFT on the finite-data bounding box and uses reflect-padding (`fft_pad_px`) to reduce extent-dependent periodic artifacts.
 
