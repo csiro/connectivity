@@ -19,6 +19,14 @@ def fn(connectivity, habitat, option=3):
             raise ValueError("option must be one of 1, 2, or 3.")
 
 
+def clip_unit_interval(data):
+    """Clip finite values to [0, 1] while preserving NaNs."""
+    out = np.array(data, copy=True, dtype=np.float32)
+    finite = np.isfinite(out)
+    out[finite] = np.clip(out[finite], 0.0, 1.0)
+    return out
+
+
 def round_to_pow2(n: int) -> int:
     # closest lower power of 2
     lower = 1 << (n.bit_length() - 1)

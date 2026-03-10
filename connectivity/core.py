@@ -3,7 +3,14 @@ import geopandas as gpd
 import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
-from .utils import remove_grid_effect, fn, crop_array, round_to_pow2, _resolve_filter_kwargs
+from .utils import (
+    remove_grid_effect,
+    fn,
+    crop_array,
+    round_to_pow2,
+    _resolve_filter_kwargs,
+    clip_unit_interval,
+)
 
 
 # Connectedness main funciton
@@ -216,6 +223,7 @@ def connectedness(
         # Remove grid artifacts with an FFT notch filter
         if rg_kwargs is not None:
             conn_array = remove_grid_effect(conn_array, **rg_kwargs)
+            conn_array = clip_unit_interval(conn_array)
 
         # Calculate the connected-habitat or just return the PARC-connectedness
         if pa_file is None:
@@ -437,6 +445,7 @@ def beri(
         # Remove grid artifacts with an FFT notch filter
         if rg_kwargs is not None:
             out_array = remove_grid_effect(out_array, **rg_kwargs)
+            out_array = clip_unit_interval(out_array)
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask
