@@ -363,10 +363,6 @@ def beri(
     if isinstance(scale, tuple):
         scale = scale[0]
 
-    # # Check for common levels
-    # if levels is None:
-    #     levels = common_levels(condition_file, current_file)
-
     if levels is None:
         raise ValueError("levels must be provided")
     # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
