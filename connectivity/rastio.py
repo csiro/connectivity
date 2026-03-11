@@ -241,6 +241,13 @@ def write_raster(
         - str: a file to be used as tempalte for getting the meta data for writing
         - tuple: a tuple of transform information for croping the file when writing
     """
+    array = np.asanyarray(in_array)
+    if np.ma.isMaskedArray(in_array):
+        if np.issubdtype(array.dtype, np.floating):
+            array = np.ma.filled(in_array, np.nan).astype(array.dtype, copy=False)
+        else:
+            array = np.ma.filled(in_array)
+
     # Open the template raster to get metadata
     with rasterio.open(template) as src:
         # Get the metadata from the template
@@ -248,11 +255,14 @@ def write_raster(
         
         # Update metadata with new array dimensions and datatype
         meta.update(
-            dtype=in_array.dtype,
-            count=1 if in_array.ndim == 2 else in_array.shape[0],
-            width=in_array.shape[-1],
-            height=in_array.shape[-2]
+            dtype=array.dtype,
+            count=1 if array.ndim == 2 else array.shape[0],
+            width=array.shape[-1],
+            height=array.shape[-2]
         )
+
+        if np.issubdtype(array.dtype, np.floating):
+            meta["nodata"] = np.nan
         
         # Update transform if provided
         if transform is not None:
@@ -263,11 +273,11 @@ def write_raster(
         
         # Write the new raster
         with rasterio.open(outfile, 'w', **meta) as dst:
-            if in_array.ndim == 2:
-                dst.write(in_array, 1)
+            if array.ndim == 2:
+                dst.write(array, 1)
             else:
-                for i in range(in_array.shape[0]):
-                    dst.write(in_array[i], i+1)
+                for i in range(array.shape[0]):
+                    dst.write(array[i], i+1)
 
 
 def overview_info(file_path: str, levels: list = None):
