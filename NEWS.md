@@ -1,5 +1,6 @@
 # Version 1.1.1
 ## Fixed
+- Fixed a PARC-connectedness crash when the protected-area mask leaves no valid cells in the analysis window. Empty windows now return all-`NaN` output instead of failing during filtering/inpainting.
 - Filtered bounded outputs from `connectedness()` and `beri()` are now clipped back to the theoretical `[0, 1]` range after FFT notch filtering. This applies to connectedness (`option = 1`), connected habitat (`option = 2`), geometric-mean connected habitat (`option = 3`), PARC-connectedness, and BERI whenever filtering is enabled.
 - Float32 outputs written by `write_raster()` now set `nodata = NaN` in the GeoTIFF metadata, and masked float arrays are written with `NaN` cells so the raster profile matches the stored data.
 

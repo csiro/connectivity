@@ -156,6 +156,7 @@ def remove_grid_effect(
     inpaint_tol=1e-3,
     soft_notch=False,
     soft_sigma=2.0,
+    clamping=True,
     n_threads=None,
 ):
     """
@@ -186,6 +187,8 @@ def remove_grid_effect(
         Use Gaussian-tapered notch instead of hard binary notch.
     soft_sigma : float, optional
         Gaussian width for the soft-notch mode.
+    clamping : bool, optional
+        Clamp finite output values to the unit interval after filtering.
     n_threads : int | None, optional
         Number of Rust worker threads for inpainting. `None` uses all cores.
 
@@ -201,6 +204,9 @@ def remove_grid_effect(
     img = img.astype(np.float32, copy=True)
     img[~np.isfinite(img)] = np.nan
     nan_mask = np.isnan(img)
+
+    if np.all(nan_mask):
+        return img
 
     if np.any(nan_mask):
         img_filled = inpaint_nans_diffusion(
@@ -227,6 +233,8 @@ def remove_grid_effect(
     f_filtered = f_shifted * mask
     img_back = np.real(ifft2(ifftshift(f_filtered))).astype(np.float32)
     img_back[nan_mask] = np.nan
+    if clamping:
+        img_back = clip_unit_interval(img_back)
     return img_back
 
 
@@ -246,6 +254,7 @@ def _resolve_filter_kwargs(
         "inpaint_tol",
         "soft_notch",
         "soft_sigma",
+        "clamping",
     }
 
     if filter_kwargs is None:
@@ -281,6 +290,8 @@ def _resolve_filter_kwargs(
         merged["soft_notch"] = False
     if "soft_sigma" not in merged:
         merged["soft_sigma"] = 2.0
+    if "clamping" not in merged:
+        merged["clamping"] = True
     # Thread control is taken only from the main function argument.
     merged["n_threads"] = n_threads
 

@@ -9,7 +9,6 @@ from .utils import (
     crop_array,
     round_to_pow2,
     _resolve_filter_kwargs,
-    clip_unit_interval,
 )
 
 
@@ -175,9 +174,9 @@ def connectedness(
         valid_margin_px=margin_px,
     )
 
-    # Extra check and return early if condition is all NA; e.g. in a tile
-    if np.isnan(cond_array).all():
-        out_array = cond_array
+    # Return early if the analysis window has no usable condition cells.
+    if np.isnan(cond_array).all() or np.all(mask_array):
+        out_array = np.full(mask_array.shape, np.nan, dtype=np.float32)
     else:
         # Process PA-array for PARC-connectedness
         if pa_file is not None:
@@ -202,34 +201,37 @@ def connectedness(
             cond_array = np.maximum(cond_array, pa_array)
 
             # Filter for protected areas, prop > 0 or NaN; and any NaN in condition stays NaN;
-            mask_array = np.where((pa_array > 0) & ~np.isnan(cond_array), False, True).astype(np.bool)
+            mask_array = np.where((pa_array > 0) & ~np.isnan(cond_array), False, True).astype(bool)
 
-        # The base Rust connectivity funciton
-        conn_array = connectivity(
-            condition = cond_array,
-            mask = mask_array,
-            transgrid_list = None, 
-            transforms = affine_dict,
-            levels = levels,
-            lambdas = lambdas,
-            is_geo = is_geo,
-            max_cost = max_cost,
-            window_size = window_size,
-            outer_window = outer_window,
-            offsets = (tile_row0, tile_col0),
-            n_threads = n_threads,
-        )
-
-        # Remove grid artifacts with an FFT notch filter
-        if rg_kwargs is not None:
-            conn_array = remove_grid_effect(conn_array, **rg_kwargs)
-            conn_array = clip_unit_interval(conn_array)
-
-        # Calculate the connected-habitat or just return the PARC-connectedness
-        if pa_file is None:
-            out_array = fn(conn_array, cond_array, option=option)
+        # After applying polygon/PA masks, there may be no valid cells left to analyse.
+        if np.all(mask_array):
+            out_array = np.full(mask_array.shape, np.nan, dtype=np.float32)
         else:
-            out_array = conn_array
+            # The base Rust connectivity funciton
+            conn_array = connectivity(
+                condition = cond_array,
+                mask = mask_array,
+                transgrid_list = None, 
+                transforms = affine_dict,
+                levels = levels,
+                lambdas = lambdas,
+                is_geo = is_geo,
+                max_cost = max_cost,
+                window_size = window_size,
+                outer_window = outer_window,
+                offsets = (tile_row0, tile_col0),
+                n_threads = n_threads,
+            )
+
+            # Remove grid artifacts with an FFT notch filter
+            if rg_kwargs is not None and not np.isnan(conn_array).all():
+                conn_array = remove_grid_effect(conn_array, **rg_kwargs)
+
+            # Calculate the connected-habitat or just return the PARC-connectedness
+            if pa_file is None:
+                out_array = fn(conn_array, cond_array, option=option)
+            else:
+                out_array = conn_array
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask
@@ -399,9 +401,9 @@ def beri(
         valid_margin_px=margin_px,
     )
 
-    # Extra check and return early if condition is all NA; e.g. in a tile
-    if np.isnan(cond_array).all():
-        out_array = cond_array
+    # Return early if the analysis window has no usable condition cells.
+    if np.isnan(cond_array).all() or np.all(mask_array):
+        out_array = np.full(mask_array.shape, np.nan, dtype=np.float32)
     else:
         # Build scenario list without mutating caller input.
         scenario_files = [current_file, *future_files]
@@ -443,9 +445,8 @@ def beri(
         )
 
         # Remove grid artifacts with an FFT notch filter
-        if rg_kwargs is not None:
+        if rg_kwargs is not None and not np.isnan(out_array).all():
             out_array = remove_grid_effect(out_array, **rg_kwargs)
-            out_array = clip_unit_interval(out_array)
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask
