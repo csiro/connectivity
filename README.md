@@ -171,6 +171,6 @@ connd = connectedness(
 )
 ```
 
-Increase `margin_px` to `64` if you see edge effects at tile joints. Increase `notch_width` to `5` (larger values produce a blurrier map on grid pattern areas), or tune other filtering arguments, if you still see excessive grid effects.
+Increase `margin_px` to `64` if you see edge effects at tile joints. Increase `notch_width` to `5` (larger values produce a blurrier map on grid pattern areas), or tune other filtering arguments, if you still see excessive grid effects. Another useful solution is increasing tiles overlap.
 
 [Back to top!](#top)
