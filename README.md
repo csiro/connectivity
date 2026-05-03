@@ -71,6 +71,13 @@ distance = outer_window × max_level × resolution
          = 352 km  
 ```    
 
+The default `window_mode="block"` preserves the original snapped multi-resolution
+window construction. To reduce structural grid artifacts at their source, use
+`window_mode="fractional"` for source-centered annuli with fractional
+area/count support at level boundaries. This changes indicator values, so use it
+only when you want the new estimator rather than strict comparability with older
+runs.
+
 ### Connected Habitat (Connectedness) <a name="conn"></a>    
 
 To compute connected-habitat (or plain connectedness), you only need a habitat condition raster. Use `option` argument to generate the connected-habitat from connectedness and input condition with:    

@@ -1,25 +1,24 @@
+use ndarray::{Array2, Array3};
+use numpy::{PyArray2, ToPyArray};
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyList};
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::Bound;
 use std::collections::HashMap;
-use numpy::{PyArray2, ToPyArray};
-use ndarray::{Array3, Array2};
 // local modules
-mod utils;
-mod overview;
-mod extract;
-mod window;
-mod builder;
-mod metrics;
-mod distances;
 mod affine;
-mod graph;
-mod routing;
+mod builder;
 mod core;
+mod distances;
+mod extract;
+mod graph;
 mod inpaint;
+mod metrics;
+mod overview;
+mod routing;
+mod utils;
+mod window;
 use affine::Affine;
-
 
 /// Compute habitat/PARC connectivity and BERI.
 ///
@@ -40,13 +39,15 @@ use affine::Affine;
 ///   (e.g. 3 gives an effective 6×6 current-level window).
 /// * `outer_window` - Odd coarsest-level window width used to set the long-range
 ///   search reach. Must be ≥ `window_size`.
-/// * `offsets` - 
+/// * `offsets` -
+/// * `window_mode` - "block" for the original snapped multi-resolution windows,
+///   or "fractional" for source-centered fractional annuli.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None, window_mode="block"))]
 fn connectivity(
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,
@@ -60,6 +61,7 @@ fn connectivity(
     outer_window: i32,
     offsets: (usize, usize),
     n_threads: Option<usize>,
+    window_mode: &str,
 ) -> PyResult<Py<PyArray2<f32>>> {
     // Get the Numpy array
     let cond_array = extract::to_array(condition)
@@ -75,16 +77,20 @@ fn connectivity(
             .map(|item| extract::to_array_3d(&item).unwrap())
             .filter_map(|opt| opt)
             .collect();
-        
+
         (!arrays.is_empty()).then_some(arrays)
     };
 
     // Convert the tranform of each level for coordinate and distance calcaulations
-    let transform_map: HashMap<i32, Affine> = extract::to_transform_map(transforms)
-        .map_err(|er| PyRuntimeError::new_err(format!("Faild getting transform information: {er}")))?;
+    let transform_map: HashMap<i32, Affine> =
+        extract::to_transform_map(transforms).map_err(|er| {
+            PyRuntimeError::new_err(format!("Faild getting transform information: {er}"))
+        })?;
 
     let mask_array = extract::to_mask(mask)
         .map_err(|er| PyRuntimeError::new_err(format!("Reading mask failed: {er}")))?;
+
+    let window_mode = window::WindowMode::parse(window_mode).map_err(PyValueError::new_err)?;
 
     // Set the number of cores for parallel processing with Rayon
     // Use a local pool to safely control exact number of core
@@ -92,22 +98,25 @@ fn connectivity(
         .num_threads(n_threads.unwrap_or(num_cpus::get()).max(1))
         .build()
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
- 
+
     // Core connectivity function
     let outarray: Array2<f32> = pool
-        .install(|| core::conn(
-            &cond_array,
-            trans_arrays.as_deref(),
-            &transform_map,
-            &mask_array,
-            &levels,
-            &lambdas,
-            is_geo,
-            max_cost,
-            window_size,
-            outer_window,
-            offsets,
-        ))
+        .install(|| {
+            core::conn(
+                &cond_array,
+                trans_arrays.as_deref(),
+                &transform_map,
+                &mask_array,
+                &levels,
+                &lambdas,
+                is_geo,
+                max_cost,
+                window_size,
+                outer_window,
+                offsets,
+                window_mode,
+            )
+        })
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
 
     // Convert the array back to Python with gil
@@ -116,7 +125,6 @@ fn connectivity(
         Ok(pyarray.unbind())
     })
 }
-
 
 #[pyfunction(signature = (img, size=11, max_iter=200, tol=1e-3, init="nearest", n_threads=None))]
 fn inpaint_nans_diffusion(
@@ -156,7 +164,6 @@ fn inpaint_nans_diffusion(
         Ok(pyarray.unbind())
     })
 }
-
 
 #[pymodule]
 fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {

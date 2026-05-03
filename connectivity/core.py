@@ -29,6 +29,7 @@ def connectedness(
         n_threads: int | None = None,
         filter_kwargs: dict | None = {},
         filename: str = "",
+        window_mode: str = "block",
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics 
     
@@ -84,6 +85,11 @@ def connectedness(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
+    window_mode : {"block", "fractional"}, optional
+        Multi-resolution window construction mode. "block" preserves the
+        original snapped block-centered windows. "fractional" uses
+        source-centered annuli and fractional area/count support at annulus
+        boundaries. Default is "block".
     levels : list of int
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
@@ -221,6 +227,7 @@ def connectedness(
                 outer_window = outer_window,
                 offsets = (tile_row0, tile_col0),
                 n_threads = n_threads,
+                window_mode = window_mode,
             )
 
             # Remove grid bias using globally anchored raster phases.
@@ -261,7 +268,8 @@ def beri(
         scale: float | None = None,
         n_threads: int | None = None,
         filter_kwargs: dict | None = {},
-        filename: str = ""
+        filename: str = "",
+        window_mode: str = "block",
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -317,6 +325,11 @@ def beri(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
+    window_mode : {"block", "fractional"}, optional
+        Multi-resolution window construction mode. "block" preserves the
+        original snapped block-centered windows. "fractional" uses
+        source-centered annuli and fractional area/count support at annulus
+        boundaries. Default is "block".
     levels : list of int
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
@@ -438,6 +451,7 @@ def beri(
             outer_window = outer_window,
             offsets = (tile_row0, tile_col0),
             n_threads = n_threads,
+            window_mode = window_mode,
         )
 
         # Remove grid bias using globally anchored raster phases.
