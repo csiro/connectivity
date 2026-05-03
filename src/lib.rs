@@ -36,10 +36,10 @@ use affine::Affine;
 /// * `is_geo` - Whether coordinates are geographic (lat/lon) rather than projected.
 /// * `max_cost` - Relative cost of moving through completely degraded cells
 ///   (condition = 0). Applied as `w = (1.0 - max_cost) * condition + max_cost`.
-/// * `window_size` - Radius of the local neighborhood (in pixels) at the finest
-///   resolution. Must be an odd number (e.g. 3 for a 3×3 window).
-/// * `outer_window` - Radius of the neighborhood at the coarsest resolution level,
-///   capturing broader connectivity context. Must be odd and ≥ `window_size`.
+/// * `window_size` - Odd local window width used for non-coarsest levels
+///   (e.g. 3 gives an effective 6×6 current-level window).
+/// * `outer_window` - Odd coarsest-level window width used to set the long-range
+///   search reach. Must be ≥ `window_size`.
 /// * `offsets` - 
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.

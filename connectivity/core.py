@@ -40,9 +40,8 @@ def connectedness(
     using the `average`, not `nearest` resampling method. Use the `create_overviews()` 
     function to generate the required overview layers correctly.
     
-    The maximum distance/raduis the algorithm searches for cells (in the condition raster) to
-    calculate connectivity is computed as: 
-    max-distance = outer_window * max(levels) * resolution
+    The approximate one-sided search reach in the condition raster is computed as:
+    max-reach = outer_window * max(levels) * resolution
 
     Parameters
     ----------
@@ -77,12 +76,13 @@ def connectedness(
         for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
         Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     window_size : int
-        Radius of the local neighborhood (in pixels). For instance, a radius of 3 produces an effective 6×6 window in 
-        the multi-resolution framework. Must be an odd number.
+        Odd local window width used for non-coarsest levels. For instance,
+        window_size=3 produces an effective 6×6 current-level window in the
+        multi-resolution framework.
         Default is 3.
     outer_window : int, optional
-        Radius of the neighborhood at the coarsest (largest) resolution level, used to capture broader connectivity context.
-        Must be an odd number greater than or equal to window_size.
+        Odd coarsest-level window width used to set the long-range search reach.
+        Must be greater than or equal to window_size.
         Default is 9.
     levels : list of int
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
@@ -272,9 +272,8 @@ def beri(
 
     This algorithm operates on the overview layers of a raster file that are generated on-the-fly.
     
-    The maximum distance/raduis the algorithm searches for cells (in the condition 
-    raster) to calculate connectivity in BERI is computed as:
-    max-distance = outer_window * max(levels) * resolution
+    The approximate one-sided search reach in the condition raster is computed as:
+    max-reach = outer_window * max(levels) * resolution
 
     Parameters
     ----------
@@ -310,12 +309,13 @@ def beri(
         for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
         Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     window_size : int
-        Radius of the local neighborhood (in pixels). For instance, a radius of 3 produces an effective 6×6 window in 
-        the multi-resolution framework. Must be an odd number.
+        Odd local window width used for non-coarsest levels. For instance,
+        window_size=3 produces an effective 6×6 current-level window in the
+        multi-resolution framework.
         Default is 3.
     outer_window : int, optional
-        Radius of the neighborhood at the coarsest (largest) resolution level, used to capture broader connectivity context.
-        Must be an odd number greater than or equal to window_size.
+        Odd coarsest-level window width used to set the long-range search reach.
+        Must be greater than or equal to window_size.
         Default is 9.
     levels : list of int
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
