@@ -248,83 +248,6 @@ def _estimate_phase_bias(
     return row_bias, col_bias, max(row_score, col_score), row_score, col_score
 
 
-def _index_runs(global_index, period):
-    """Return contiguous array slices that share the same global grid block."""
-    block_index = np.floor_divide(global_index, period).astype(np.int64, copy=False)
-    breaks = np.flatnonzero(np.diff(block_index)) + 1
-    starts = np.r_[0, breaks]
-    stops = np.r_[breaks, block_index.size]
-    return starts, stops
-
-
-def _estimate_block_bias(residual, valid, row_index, col_index, period, min_count, smooth_blocks=5):
-    """
-    Estimate spatially local block offsets on globally anchored grid blocks.
-
-    Phase correction handles repeated row/column offsets. Some artefacts are
-    instead block-wise: a whole period-aligned rectangle is slightly high or
-    low relative to its neighbourhood. This estimates that local residual mean
-    after background removal, with shrinkage and zero-centering to avoid adding
-    or removing a global offset.
-
-    To avoid removing genuine ecological gradients that were not fully captured
-    by the pixel-level background, the raw block means are smoothed over
-    `smooth_blocks` neighbouring blocks and only the deviation from that smooth
-    surface is treated as an artifact. Gradients that vary smoothly across
-    blocks cancel in this step; abrupt block-aligned discontinuities do not.
-    """
-    period = int(period)
-    min_count = max(1, int(min_count))
-    smooth_blocks = max(1, int(smooth_blocks))
-    row_starts, row_stops = _index_runs(row_index, period)
-    col_starts, col_stops = _index_runs(col_index, period)
-
-    n_row_blocks = len(row_starts)
-    n_col_blocks = len(col_starts)
-
-    block_counts = np.zeros((n_row_blocks, n_col_blocks), dtype=np.float64)
-    block_raw = np.full((n_row_blocks, n_col_blocks), np.nan, dtype=np.float32)
-
-    for bi, (r0, r1) in enumerate(zip(row_starts, row_stops)):
-        for bj, (c0, c1) in enumerate(zip(col_starts, col_stops)):
-            block_valid = valid[r0:r1, c0:c1]
-            count = int(block_valid.sum())
-            block_counts[bi, bj] = count
-            if count >= min_count:
-                mean = float(residual[r0:r1, c0:c1][block_valid].mean())
-                shrink = count / (count + float(min_count))
-                block_raw[bi, bj] = np.float32(mean * shrink)
-
-    valid_blocks = np.isfinite(block_raw)
-    correction = np.zeros_like(residual, dtype=np.float32)
-    if not np.any(valid_blocks):
-        return correction, 0.0
-
-    # Subtract the smooth spatial trend from block means.  Genuine gradients
-    # are spatially smooth at the block scale, so smooth_block ≈ block_raw
-    # for them and the deviation ≈ 0.  Only abrupt block-aligned jumps
-    # (the actual artifact) survive.
-    smooth_block = _nan_box_mean(block_raw, smooth_blocks)
-    block_artifact = np.full_like(block_raw, np.nan)
-    block_artifact[valid_blocks] = block_raw[valid_blocks] - smooth_block[valid_blocks]
-
-    vb_counts = block_counts[valid_blocks]
-    vb_values = block_artifact[valid_blocks].astype(np.float64)
-    center = float(np.average(vb_values, weights=vb_counts))
-    vb_values -= center
-    block_artifact[valid_blocks] = vb_values.astype(np.float32)
-
-    score = float(np.sqrt(np.average(vb_values ** 2, weights=vb_counts)))
-
-    for bi, (r0, r1) in enumerate(zip(row_starts, row_stops)):
-        for bj, (c0, c1) in enumerate(zip(col_starts, col_stops)):
-            if np.isfinite(block_artifact[bi, bj]):
-                correction[r0:r1, c0:c1] = block_artifact[bi, bj]
-
-    correction[~valid] = 0.0
-    return correction, score
-
-
 def remove_grid_bias(
     data,
     row0=0,
@@ -341,12 +264,6 @@ def remove_grid_bias(
     robust_clip_quantile=0.95,
     iterations=3,
     max_periods=1,
-    block_correction=False,
-    block_min_count=None,
-    block_min_period_repeats=2,
-    block_strength=0.5,
-    max_block_periods=1,
-    block_smooth_window=5,
     clamping=True,
     return_diagnostics=False,
 ):
@@ -409,34 +326,6 @@ def remove_grid_bias(
     max_periods : int | None, optional
         Number of strongest candidate periods to apply. `None` applies all
         candidate periods with non-zero scores.
-    block_correction : bool, optional
-        Also correct locally varying period-aligned block offsets. This handles
-        the non-separable 2-D component of the artifact — rectangular patches
-        that cannot be decomposed into independent row and column offsets. In
-        most cases the row/column phase correction is sufficient; enable this
-        only when residual rectangular block artifacts are still visible after
-        phase correction. Default is False.
-    block_min_count : int, optional
-        Minimum valid-cell count required inside a block before its local
-        residual mean can be used. If omitted, a conservative value based on
-        `min_count` is used.
-    block_min_period_repeats : int, optional
-        Minimum number of times a block period must repeat along at least one
-        axis before local block correction can use it. This is intentionally
-        separate from `min_period_repeats` because large rectangular artefacts
-        can be visible even when a coarse period occurs only a few times.
-    block_strength : float, optional
-        Multiplier for the local block correction before the global `strength`
-        and `max_correction` cap are applied.
-    max_block_periods : int | None, optional
-        Number of strongest block periods to apply. `None` applies all
-        candidate periods with non-zero block scores.
-    block_smooth_window : int, optional
-        Neighbourhood size (in blocks, not pixels) used to smooth block means
-        before extracting the local block artifact. The smooth surface captures
-        genuine ecological gradients at the block scale; only deviations from
-        it are treated as artifacts. Larger values are more conservative (less
-        correction). Default is 5.
     clamping : bool, optional
         Clamp finite output values to the unit interval after correction.
     return_diagnostics : bool, optional
@@ -554,55 +443,6 @@ def remove_grid_bias(
         correction += period_correction
         residual_current = residual_current - period_correction
 
-    block_scored = []
-    selected_blocks = []
-    if block_correction:
-        if block_min_count is None:
-            block_min_count = max(int(min_count) * 5, 1000)
-        block_min_count = max(1, int(block_min_count))
-        block_min_period_repeats = max(1, int(block_min_period_repeats))
-
-        block_candidates = [
-            p for p in periods
-            if (
-                (rows / float(p)) >= block_min_period_repeats
-                or (cols / float(p)) >= block_min_period_repeats
-            )
-        ]
-        for period in block_candidates:
-            _, block_score = _estimate_block_bias(
-                residual_current,
-                valid,
-                row_index,
-                col_index,
-                period,
-                min_count=block_min_count,
-                smooth_blocks=block_smooth_window,
-            )
-            block_scored.append((period, block_score))
-
-        block_scored.sort(key=lambda item: item[1], reverse=True)
-        if max_block_periods is None:
-            selected_blocks = [item for item in block_scored if item[1] > min_score]
-        else:
-            selected_blocks = [
-                item for item in block_scored if item[1] > min_score
-            ][: max(0, int(max_block_periods))]
-
-        for period, _ in selected_blocks:
-            block_bias, _ = _estimate_block_bias(
-                residual_current,
-                valid,
-                row_index,
-                col_index,
-                period,
-                min_count=block_min_count,
-                smooth_blocks=block_smooth_window,
-            )
-            block_bias = (np.float32(block_strength) * block_bias).astype(np.float32)
-            correction += block_bias
-            residual_current = residual_current - block_bias
-
     correction *= np.float32(strength)
     if max_correction is not None:
         cap = max(0.0, float(max_correction))
@@ -627,11 +467,6 @@ def remove_grid_bias(
         "scores": {int(period): float(score) for period, score, *_ in scored},
         "row_scores": {int(period): float(row_score) for period, _, row_score, *_ in scored},
         "col_scores": {int(period): float(col_score) for period, _, _, col_score, *_ in scored},
-        "selected_block_periods": [int(item[0]) for item in selected_blocks],
-        "block_scores": {int(period): float(score) for period, score in block_scored},
-        "block_min_count": int(block_min_count) if block_correction else None,
-        "block_min_period_repeats": int(block_min_period_repeats) if block_correction else None,
-        "block_strength": float(block_strength) if block_correction else 0.0,
         "period_axis_enabled": {
             int(period): {"rows": bool(allow_rows), "cols": bool(allow_cols)}
             for period, _, _, _, allow_rows, allow_cols, _, _ in scored
@@ -667,12 +502,6 @@ def _resolve_filter_kwargs(
         "robust_clip_quantile",
         "iterations",
         "max_periods",
-        "block_correction",
-        "block_min_count",
-        "block_min_period_repeats",
-        "block_strength",
-        "max_block_periods",
-        "block_smooth_window",
         "clamping",
     }
 

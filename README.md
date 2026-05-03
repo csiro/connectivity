@@ -171,6 +171,6 @@ connd = connectedness(
 )
 ```
 
-Increase `margin_px` to `64` if you see edge effects at tile joints. Tune `filter_kwargs` (for example `max_correction`, `periods`, `background_size`, `axis`, `block_strength`, `block_min_period_repeats`, or `max_block_periods`) if you still see excessive grid effects. Another useful solution is increasing tile overlap.
+Increase `margin_px` to `64` if you see edge effects at tile joints. Tune `filter_kwargs` (for example `max_correction`, `periods`, `background_size`, or `axis`) if you still see excessive grid effects. Another useful solution is increasing tile overlap.
 
 [Back to top!](#top)

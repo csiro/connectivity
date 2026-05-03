@@ -105,8 +105,7 @@ def connectedness(
         Default is None (all available cores).
     filter_kwargs : dict, optional
         Dictionary of extra keyword arguments forwarded to `remove_grid_bias()`
-        (e.g. `periods`, `background_size`, `max_correction`, `axis`,
-        `block_strength`, `block_min_period_repeats`, `max_block_periods`).
+        (e.g. `periods`, `background_size`, `max_correction`, `axis`).
         Global raster offsets and model parameters are injected automatically.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
         derived from `levels`, `window_size`, and `outer_window`. Default is `{}`.
@@ -329,8 +328,7 @@ def beri(
         Default is None (all available cores).
     filter_kwargs : dict, optional
         Dictionary of extra keyword arguments forwarded to `remove_grid_bias()`
-        (e.g. `periods`, `background_size`, `max_correction`, `axis`,
-        `block_strength`, `block_min_period_repeats`, `max_block_periods`).
+        (e.g. `periods`, `background_size`, `max_correction`, `axis`).
         Global raster offsets and model parameters are injected automatically.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
         derived from `levels`, `window_size`, and `outer_window`. Default is `{}`.
