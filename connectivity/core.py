@@ -4,7 +4,7 @@ import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
 from .utils import (
-    remove_grid_effect,
+    remove_grid_bias,
     fn,
     crop_array,
     round_to_pow2,
@@ -101,16 +101,15 @@ def connectedness(
             - 2: connectedness * condition
             - 3: sqrt(connectedness * condition)
     n_threads : int, optional
-        The number of CPU cores for parallel processing in Rust components
-        (connectivity and inpainting/post-filtering).
+        The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
     filter_kwargs : dict, optional
-        Dictionary of extra keyword arguments forwarded to `remove_grid_effect()`
-        (e.g. `center_radius`, `soft_notch`, `inpaint_size`).
-        The `n_threads` key is not accepted here; thread count is controlled
-        by the top-level `n_threads` argument.
+        Dictionary of extra keyword arguments forwarded to `remove_grid_bias()`
+        (e.g. `periods`, `background_size`, `max_correction`, `axis`,
+        `block_strength`, `block_min_period_repeats`, `max_block_periods`).
+        Global raster offsets and model parameters are injected automatically.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
-        (`notch_width=3`). Default is `{}`.
+        derived from `levels`, `window_size`, and `outer_window`. Default is `{}`.
     filename : str, optional
         Path to save the output file. If empty, the result is not written to disk.
         Default is "".
@@ -158,12 +157,6 @@ def connectedness(
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
 
-    rg_kwargs = _resolve_filter_kwargs(
-        n_threads=n_threads,
-        filter_kwargs=filter_kwargs,
-        fn_name="connectedness",
-    )
-
     # Read condition raster overviews; this checks levels as well
     cond_array, mask_array, affine_dict, is_geo, tile_row0, tile_col0 = read_raster(
         file_path=condition_file,
@@ -172,6 +165,14 @@ def connectedness(
         scale=s1, # only for condition raster
         expand_px=pad_size,
         valid_margin_px=margin_px,
+    )
+
+    gb_kwargs = _resolve_filter_kwargs(
+        filter_kwargs=filter_kwargs,
+        fn_name="connectedness",
+        row0=tile_row0,
+        col0=tile_col0,
+        levels=levels,
     )
 
     # Return early if the analysis window has no usable condition cells.
@@ -223,9 +224,9 @@ def connectedness(
                 n_threads = n_threads,
             )
 
-            # Remove grid artifacts with an FFT notch filter
-            if rg_kwargs is not None and not np.isnan(conn_array).all():
-                conn_array = remove_grid_effect(conn_array, **rg_kwargs)
+            # Remove grid bias using globally anchored raster phases.
+            if gb_kwargs is not None and not np.isnan(conn_array).all():
+                conn_array = remove_grid_bias(conn_array, **gb_kwargs)
 
             # Calculate the connected-habitat or just return the PARC-connectedness
             if pa_file is None:
@@ -324,16 +325,15 @@ def beri(
         Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
         otherwise it is divided by scale.
     n_threads : int, optional
-        The number of CPU cores for parallel processing in Rust components
-        (connectivity and inpainting/post-filtering).
+        The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
     filter_kwargs : dict, optional
-        Dictionary of extra keyword arguments forwarded to `remove_grid_effect()`
-        (e.g. `center_radius`, `soft_notch`, `inpaint_size`).
-        The `n_threads` key is not accepted here; thread count is controlled
-        by the top-level `n_threads` argument.
+        Dictionary of extra keyword arguments forwarded to `remove_grid_bias()`
+        (e.g. `periods`, `background_size`, `max_correction`, `axis`,
+        `block_strength`, `block_min_period_repeats`, `max_block_periods`).
+        Global raster offsets and model parameters are injected automatically.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
-        (`notch_width=3`). Default is `{}`.
+        derived from `levels`, `window_size`, and `outer_window`. Default is `{}`.
     filename : str, optional
         Path to save the resulting BERI raster. If empty, the output is not written to disk.
         Default is "".
@@ -371,12 +371,6 @@ def beri(
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
 
-    rg_kwargs = _resolve_filter_kwargs(
-        n_threads=n_threads,
-        filter_kwargs=filter_kwargs,
-        fn_name="beri",
-    )
-
     # An early check for the overall shapes of grids.
     if polygon_mask is not None:
         # Only check when no masks; grids could have differnce shape but the masked version could be identical.
@@ -395,6 +389,14 @@ def beri(
         scale=scale, # only for condition raster
         expand_px=pad_size,
         valid_margin_px=margin_px,
+    )
+
+    gb_kwargs = _resolve_filter_kwargs(
+        filter_kwargs=filter_kwargs,
+        fn_name="beri",
+        row0=tile_row0,
+        col0=tile_col0,
+        levels=levels,
     )
 
     # Return early if the analysis window has no usable condition cells.
@@ -440,9 +442,9 @@ def beri(
             n_threads = n_threads,
         )
 
-        # Remove grid artifacts with an FFT notch filter
-        if rg_kwargs is not None and not np.isnan(out_array).all():
-            out_array = remove_grid_effect(out_array, **rg_kwargs)
+        # Remove grid bias using globally anchored raster phases.
+        if gb_kwargs is not None and not np.isnan(out_array).all():
+            out_array = remove_grid_bias(out_array, **gb_kwargs)
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask

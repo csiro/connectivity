@@ -79,7 +79,7 @@ To compute connected-habitat (or plain connectedness), you only need a habitat c
 3. `sqrt(connectedness * condition)` — geometric mean (default)
 
 ```python
-from connectivity import connectedness, beri, remove_grid_effect
+from connectivity import connectedness, beri, remove_grid_bias
 ```
 
 ```python
@@ -165,12 +165,12 @@ connd = connectedness(
     window_size = 5, 
     outer_window = 11,
     levels = [2, 4, 8, 16, 32], 
-    filter_kwargs = {"notch_width": 3},
+    filter_kwargs = {"max_correction": 0.05},
     option = 1,
     filename = f"./results/connected_habitat_tile_{tile_id}.tif"
 )
 ```
 
-Increase `margin_px` to `64` if you see edge effects at tile joints. Increase `notch_width` to `5` (larger values produce a blurrier map on grid pattern areas), or tune other filtering arguments, if you still see excessive grid effects. Another useful solution is increasing tiles overlap.
+Increase `margin_px` to `64` if you see edge effects at tile joints. Tune `filter_kwargs` (for example `max_correction`, `periods`, `background_size`, `axis`, `block_strength`, `block_min_period_repeats`, or `max_block_periods`) if you still see excessive grid effects. Another useful solution is increasing tile overlap.
 
 [Back to top!](#top)
