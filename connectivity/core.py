@@ -23,13 +23,13 @@ def connectedness(
         max_cost: float = 2.0, 
         window_size: int = 3, 
         outer_window: int = 9,
+        window_mode: str = "block",
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | tuple | None = None,
         option: int = 3,
-        n_threads: int | None = None,
         filter_kwargs: dict | None = {},
+        n_threads: int | None = None,
         filename: str = "",
-        window_mode: str = "block",
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics 
     
@@ -264,12 +264,12 @@ def beri(
         max_cost: float = 2.0, 
         window_size: int = 3, 
         outer_window: int = 9,
+        window_mode: str = "block",
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | None = None,
-        n_threads: int | None = None,
         filter_kwargs: dict | None = {},
+        n_threads: int | None = None,
         filename: str = "",
-        window_mode: str = "block",
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 

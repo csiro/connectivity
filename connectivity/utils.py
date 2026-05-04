@@ -263,7 +263,7 @@ def remove_grid_bias(
     axis="both",
     robust_clip_quantile=0.95,
     iterations=3,
-    max_periods=1,
+    max_periods=2,
     clamping=True,
     return_diagnostics=False,
 ):
@@ -288,7 +288,7 @@ def remove_grid_bias(
         from `levels`. The two structurally grounded periods are `max_level`
         and `2 * max_level`; the dominant (most visible) artifact is at
         `2 * max_level` because each level's window is positioned relative to
-        the `2 × current_level` overview block boundary.
+        the `2 x current_level` overview block boundary.
     levels : sequence of int, optional
         Overview levels used in the connectivity run. Used to derive candidate
         periods; only `max(levels)` matters.
