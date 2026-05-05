@@ -71,13 +71,16 @@ distance = outer_window × max_level × resolution
          = 352 km  
 ```    
 
-The default `window_mode="block"` preserves the original snapped multi-resolution
-window construction. To reduce structural grid artifacts at their source, use
-`window_mode="fractional"` for source-centered square annuli or
-`window_mode="circular"` for source-centered circular annuli. Both annulus modes
-use fractional area/count support at level boundaries. These modes change
-indicator values, so use them only when you want the new estimator rather than
-strict comparability with older runs.
+The default `window_mode="circular"` uses source-centered circular annuli with
+fractional area/count support at annulus boundaries. For comparison with older
+runs, `window_mode="block"` preserves the original snapped multi-resolution
+window construction. The intermediate `window_mode="square"` option uses the
+same source-centered fractional construction with square annuli. These modes
+change indicator values, so compare outputs only between runs that use the same
+window mode. Grid-bias filtering is applied by default only for
+`window_mode="block"`; `square` and `circular` default to no filtering. Pass
+`filter_kwargs={}` or specific filter parameters if you want to force filtering
+for an annulus mode.
 
 ### Connected Habitat (Connectedness) <a name="conn"></a>    
 

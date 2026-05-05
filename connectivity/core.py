@@ -12,6 +12,24 @@ from .utils import (
 )
 
 
+_FILTER_AUTO = object()
+
+
+def _normalise_window_mode(window_mode: str) -> str:
+    if not isinstance(window_mode, str):
+        raise TypeError("window_mode must be one of 'block', 'square', or 'circular'.")
+    mode = window_mode.strip().lower()
+    if mode not in {"block", "square", "circular"}:
+        raise ValueError("window_mode must be one of 'block', 'square', or 'circular'.")
+    return mode
+
+
+def _default_filter_kwargs(window_mode: str, filter_kwargs):
+    if filter_kwargs is not _FILTER_AUTO:
+        return filter_kwargs
+    return {} if window_mode == "block" else None
+
+
 # Connectedness main funciton
 def connectedness(
         condition_file: str,
@@ -23,11 +41,11 @@ def connectedness(
         max_cost: float = 2.0, 
         window_size: int = 3, 
         outer_window: int = 9,
-        window_mode: str = "block",
+        window_mode: str = "circular",
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | tuple | None = None,
         option: int = 3,
-        filter_kwargs: dict | None = {},
+        filter_kwargs: dict | None = _FILTER_AUTO,
         n_threads: int | None = None,
         filename: str = "",
     ):
@@ -85,12 +103,12 @@ def connectedness(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
-    window_mode : {"block", "fractional", "circular"}, optional
-        Multi-resolution window construction mode. "block" preserves the
-        original snapped block-centered windows. "fractional" uses
-        source-centered square annuli and "circular" uses source-centered
-        circular annuli. Both annulus modes use fractional area/count support at
-        annulus boundaries. Default is "block".
+    window_mode : {"circular", "square", "block"}, optional
+        Multi-resolution window construction mode. "circular" uses
+        source-centered circular annuli with fractional area/count support at
+        annulus boundaries. "square" uses the same source-centered fractional
+        construction with square annuli. "block" preserves the
+        original snapped block-centered windows. Default is "circular".
     levels : list of int
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
@@ -115,7 +133,9 @@ def connectedness(
         (e.g. `periods`, `background_size`, `max_correction`, `axis`).
         Global raster offsets and model parameters are injected automatically.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
-        derived from `levels`, `window_size`, and `outer_window`. Default is `{}`.
+        derived from `levels`, `window_size`, and `outer_window`. If omitted,
+        filtering defaults to `{}` for `window_mode="block"` and `None` for
+        `window_mode="square"` or `window_mode="circular"`.
     filename : str, optional
         Path to save the output file. If empty, the result is not written to disk.
         Default is "".
@@ -131,6 +151,9 @@ def connectedness(
     - This function is suitable for applications in spatial pattern analysis, texture segmentation,
 
     """
+    window_mode = _normalise_window_mode(window_mode)
+    filter_kwargs = _default_filter_kwargs(window_mode, filter_kwargs)
+
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
@@ -265,10 +288,10 @@ def beri(
         max_cost: float = 2.0, 
         window_size: int = 3, 
         outer_window: int = 9,
-        window_mode: str = "block",
+        window_mode: str = "circular",
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | None = None,
-        filter_kwargs: dict | None = {},
+        filter_kwargs: dict | None = _FILTER_AUTO,
         n_threads: int | None = None,
         filename: str = "",
     ):
@@ -326,12 +349,12 @@ def beri(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
-    window_mode : {"block", "fractional", "circular"}, optional
-        Multi-resolution window construction mode. "block" preserves the
-        original snapped block-centered windows. "fractional" uses
-        source-centered square annuli and "circular" uses source-centered
-        circular annuli. Both annulus modes use fractional area/count support at
-        annulus boundaries. Default is "block".
+    window_mode : {"circular", "square", "block"}, optional
+        Multi-resolution window construction mode. "circular" uses
+        source-centered circular annuli with fractional area/count support at
+        annulus boundaries. "square" uses the same source-centered fractional
+        construction with square annuli. "block" preserves the
+        original snapped block-centered windows. Default is "circular".
     levels : list of int
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
@@ -346,7 +369,9 @@ def beri(
         (e.g. `periods`, `background_size`, `max_correction`, `axis`).
         Global raster offsets and model parameters are injected automatically.
         Set to `None` to disable filtering. Use `{}` to run filtering with defaults
-        derived from `levels`, `window_size`, and `outer_window`. Default is `{}`.
+        derived from `levels`, `window_size`, and `outer_window`. If omitted,
+        filtering defaults to `{}` for `window_mode="block"` and `None` for
+        `window_mode="square"` or `window_mode="circular"`.
     filename : str, optional
         Path to save the resulting BERI raster. If empty, the output is not written to disk.
         Default is "".
@@ -363,6 +388,9 @@ def beri(
     - BERI is derived by aggregating scenario results to capture the capacity of the ecosystem to maintain biodiversity.
 
     """
+    window_mode = _normalise_window_mode(window_mode)
+    filter_kwargs = _default_filter_kwargs(window_mode, filter_kwargs)
+
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")

@@ -40,15 +40,15 @@ use affine::Affine;
 /// * `outer_window` - Odd coarsest-level window width used to set the long-range
 ///   search reach. Must be ≥ `window_size`.
 /// * `offsets` -
-/// * `window_mode` - "block" for the original snapped multi-resolution windows,
-///   "fractional" for source-centered square annuli, or "circular" for
-///   source-centered circular annuli.
+/// * `window_mode` - "circular" for source-centered circular annuli,
+///   "square" for source-centered square annuli, or "block" for the
+///   original snapped multi-resolution windows.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None, window_mode="block"))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None, window_mode="circular"))]
 fn connectivity(
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,

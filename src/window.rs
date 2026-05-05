@@ -5,29 +5,18 @@ use std::iter::zip;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
     Block,
-    Fractional,
+    Square,
     Circular,
 }
 
 impl WindowMode {
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "block" | "legacy" => Ok(Self::Block),
-            "fractional"
-            | "annulus"
-            | "source-centered"
-            | "source_centered"
-            | "source-centred"
-            | "source_centred"
-            | "source-centered-annulus" => Ok(Self::Fractional),
-            "circular"
-            | "circle"
-            | "circular-annulus"
-            | "circular_annulus"
-            | "fractional-circular"
-            | "fractional_circular" => Ok(Self::Circular),
+            "block" => Ok(Self::Block),
+            "square" => Ok(Self::Square),
+            "circular" => Ok(Self::Circular),
             other => Err(format!(
-                "Invalid window_mode '{other}'. Expected 'block', 'fractional', or 'circular'."
+                "Invalid window_mode '{other}'. Expected 'block', 'square', or 'circular'."
             )),
         }
     }
@@ -169,7 +158,7 @@ impl FocalWindow {
                 &mut values,
                 &mut counts,
             ),
-            WindowMode::Fractional | WindowMode::Circular => {
+            WindowMode::Square | WindowMode::Circular => {
                 let base_array = cond_dict.get(&1).expect("Base condition level not found!");
                 let base_height = base_array.shape()[0] as i32;
                 let base_width = base_array.shape()[1] as i32;
