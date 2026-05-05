@@ -73,10 +73,11 @@ distance = outer_window × max_level × resolution
 
 The default `window_mode="block"` preserves the original snapped multi-resolution
 window construction. To reduce structural grid artifacts at their source, use
-`window_mode="fractional"` for source-centered annuli with fractional
-area/count support at level boundaries. This changes indicator values, so use it
-only when you want the new estimator rather than strict comparability with older
-runs.
+`window_mode="fractional"` for source-centered square annuli or
+`window_mode="circular"` for source-centered circular annuli. Both annulus modes
+use fractional area/count support at level boundaries. These modes change
+indicator values, so use them only when you want the new estimator rather than
+strict comparability with older runs.
 
 ### Connected Habitat (Connectedness) <a name="conn"></a>    
 

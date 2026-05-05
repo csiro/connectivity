@@ -6,6 +6,7 @@ use std::iter::zip;
 pub enum WindowMode {
     Block,
     Fractional,
+    Circular,
 }
 
 impl WindowMode {
@@ -19,21 +20,34 @@ impl WindowMode {
             | "source-centred"
             | "source_centred"
             | "source-centered-annulus" => Ok(Self::Fractional),
+            "circular"
+            | "circle"
+            | "circular-annulus"
+            | "circular_annulus"
+            | "fractional-circular"
+            | "fractional_circular" => Ok(Self::Circular),
             other => Err(format!(
-                "Invalid window_mode '{other}'. Expected 'block' or 'fractional'."
+                "Invalid window_mode '{other}'. Expected 'block', 'fractional', or 'circular'."
             )),
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnnulusShape {
+    Square,
+    Circular,
+}
+
 // Window kernel for one resolution
 #[derive(Debug, Clone)]
 pub struct FocalWindow {
-    pub i_array: Vec<i32>,           // i/col array of neighbour cells
-    pub j_array: Vec<i32>,           // j/row array ...
-    pub values: Vec<f32>,            // condition values of the cell
-    pub counts: Vec<f32>,            // cell count contribution to each level (habitat-area)
+    pub i_array: Vec<i32>,                   // i/col array of neighbour cells
+    pub j_array: Vec<i32>,                   // j/row array ...
+    pub values: Vec<f32>,                    // condition values of the cell
+    pub counts: Vec<f32>,                    // cell count contribution to each level (habitat-area)
     pub sims: Vec<Vec<Option<f32>>>, // similiarity with the ij cell in the current climate; scen<cell<sim>>
+    pub edge_cells: Option<Vec<(i32, i32)>>, // geometry-specific outer edge cells for fringe links
 }
 
 /// Get the indices of cells at current_level that fall within the neighborhood
@@ -128,6 +142,11 @@ impl FocalWindow {
         let mut j_array = Vec::with_capacity(estimated_capacity);
         let mut values = Vec::with_capacity(estimated_capacity);
         let mut counts = Vec::with_capacity(estimated_capacity);
+        let mut edge_cells = if window_mode == WindowMode::Circular {
+            Some(Vec::with_capacity(estimated_capacity))
+        } else {
+            None
+        };
 
         match window_mode {
             WindowMode::Block => collect_block_window(
@@ -150,10 +169,15 @@ impl FocalWindow {
                 &mut values,
                 &mut counts,
             ),
-            WindowMode::Fractional => {
+            WindowMode::Fractional | WindowMode::Circular => {
                 let base_array = cond_dict.get(&1).expect("Base condition level not found!");
                 let base_height = base_array.shape()[0] as i32;
                 let base_width = base_array.shape()[1] as i32;
+                let annulus_shape = if window_mode == WindowMode::Circular {
+                    AnnulusShape::Circular
+                } else {
+                    AnnulusShape::Square
+                };
 
                 collect_fractional_annulus_window(
                     base_i,
@@ -161,6 +185,7 @@ impl FocalWindow {
                     current_level,
                     win_size,
                     effective_win_size,
+                    annulus_shape,
                     offsets,
                     current_height,
                     current_width,
@@ -172,6 +197,7 @@ impl FocalWindow {
                     &mut j_array,
                     &mut values,
                     &mut counts,
+                    edge_cells.as_mut(),
                 )
             }
         }
@@ -202,6 +228,7 @@ impl FocalWindow {
             values,
             counts,
             sims,
+            edge_cells,
         }
     }
 }
@@ -296,6 +323,7 @@ fn collect_fractional_annulus_window(
     current_level: i32,
     win_size: i32,
     effective_win_size: i32,
+    annulus_shape: AnnulusShape,
     offsets: (usize, usize),
     current_height: i32,
     current_width: i32,
@@ -307,6 +335,7 @@ fn collect_fractional_annulus_window(
     j_array: &mut Vec<i32>,
     values: &mut Vec<f32>,
     counts: &mut Vec<f32>,
+    mut edge_cells: Option<&mut Vec<(i32, i32)>>,
 ) {
     let (tile_row0_u, tile_col0_u) = offsets;
     let tile_row0 = tile_row0_u as i32;
@@ -365,16 +394,31 @@ fn collect_fractional_annulus_window(
             let footprint_c0 = cell_c0.max(tile_c0);
             let footprint_c1 = cell_c1.min(tile_c1);
 
-            let fraction = square_annulus_overlap_fraction(
-                footprint_r0,
-                footprint_r1,
-                footprint_c0,
-                footprint_c1,
-                source_r,
-                source_c,
-                inner,
-                outer,
-            );
+            let (fraction, is_outer_edge) = match annulus_shape {
+                AnnulusShape::Square => (
+                    square_annulus_overlap_fraction(
+                        footprint_r0,
+                        footprint_r1,
+                        footprint_c0,
+                        footprint_c1,
+                        source_r,
+                        source_c,
+                        inner,
+                        outer,
+                    ),
+                    false,
+                ),
+                AnnulusShape::Circular => circular_annulus_overlap_fraction_and_edge(
+                    footprint_r0,
+                    footprint_r1,
+                    footprint_c0,
+                    footprint_c1,
+                    source_r,
+                    source_c,
+                    inner,
+                    outer,
+                ),
+            };
             if fraction <= 0.0 {
                 continue;
             }
@@ -393,6 +437,11 @@ fn collect_fractional_annulus_window(
             j_array.push(curr_j);
             values.push(condition);
             counts.push(weight * fraction);
+            if is_outer_edge {
+                if let Some(edges) = edge_cells.as_mut() {
+                    edges.push((curr_i, curr_j));
+                }
+            }
         }
     }
 }
@@ -453,6 +502,222 @@ fn rect_square_overlap_area(
     }
 
     rows * cols
+}
+
+#[inline]
+fn circular_annulus_overlap_fraction_and_edge(
+    r0: f64,
+    r1: f64,
+    c0: f64,
+    c1: f64,
+    center_r: f64,
+    center_c: f64,
+    inner: f64,
+    outer: f64,
+) -> (f32, bool) {
+    let footprint_area = (r1 - r0) * (c1 - c0);
+    if footprint_area <= 0.0 {
+        return (0.0, false);
+    }
+
+    let outer_area = rect_circle_overlap_area(r0, r1, c0, c1, center_r, center_c, outer);
+    if outer_area <= 0.0 {
+        return (0.0, false);
+    }
+
+    let inner_area = rect_circle_overlap_area(r0, r1, c0, c1, center_r, center_c, inner);
+    let annulus_area = (outer_area - inner_area).max(0.0);
+    let fraction = (annulus_area / footprint_area).clamp(0.0, 1.0) as f32;
+    let is_outer_edge = annulus_area > 0.0
+        && rect_intersects_circle_boundary(r0, r1, c0, c1, center_r, center_c, outer);
+
+    (fraction, is_outer_edge)
+}
+
+#[inline]
+fn rect_circle_overlap_area(
+    r0: f64,
+    r1: f64,
+    c0: f64,
+    c1: f64,
+    center_r: f64,
+    center_c: f64,
+    radius: f64,
+) -> f64 {
+    let rect_area = (r1 - r0) * (c1 - c0);
+    if rect_area <= 0.0 || radius <= 0.0 {
+        return 0.0;
+    }
+
+    let x0 = c0 - center_c;
+    let x1 = c1 - center_c;
+    let y0 = r0 - center_r;
+    let y1 = r1 - center_r;
+    let radius_sq = radius * radius;
+
+    if rect_min_distance_sq_to_origin(x0, x1, y0, y1) >= radius_sq {
+        return 0.0;
+    }
+    if rect_max_distance_sq_to_origin(x0, x1, y0, y1) <= radius_sq {
+        return rect_area;
+    }
+
+    let x_parts = split_at_zero(x0, x1);
+    let y_parts = split_at_zero(y0, y1);
+    let mut area = 0.0;
+
+    for &(xa, xb) in &x_parts {
+        if xb <= xa {
+            continue;
+        }
+        let (qx0, qx1) = if xb <= 0.0 { (-xb, -xa) } else { (xa, xb) };
+
+        for &(ya, yb) in &y_parts {
+            if yb <= ya {
+                continue;
+            }
+            let (qy0, qy1) = if yb <= 0.0 { (-yb, -ya) } else { (ya, yb) };
+            area += first_quadrant_rect_circle_area(qx0, qx1, qy0, qy1, radius);
+        }
+    }
+
+    area.clamp(0.0, rect_area)
+}
+
+#[inline]
+fn first_quadrant_rect_circle_area(x0: f64, x1: f64, y0: f64, y1: f64, radius: f64) -> f64 {
+    if x1 <= x0 || y1 <= y0 {
+        return 0.0;
+    }
+
+    first_quadrant_circle_area(x1, y1, radius)
+        - first_quadrant_circle_area(x0, y1, radius)
+        - first_quadrant_circle_area(x1, y0, radius)
+        + first_quadrant_circle_area(x0, y0, radius)
+}
+
+#[inline]
+fn first_quadrant_circle_area(x: f64, y: f64, radius: f64) -> f64 {
+    if x <= 0.0 || y <= 0.0 || radius <= 0.0 {
+        return 0.0;
+    }
+
+    let x = x.min(radius);
+    if x <= 0.0 {
+        return 0.0;
+    }
+
+    if y >= radius {
+        return circle_segment_antiderivative(x, radius);
+    }
+
+    let x_flat = (radius * radius - y * y).max(0.0).sqrt();
+    let rect_width = x.min(x_flat);
+    let mut area = rect_width * y;
+    if x > x_flat {
+        area += circle_segment_antiderivative(x, radius)
+            - circle_segment_antiderivative(x_flat, radius);
+    }
+
+    area
+}
+
+#[inline]
+fn circle_segment_antiderivative(x: f64, radius: f64) -> f64 {
+    let x = x.clamp(0.0, radius);
+    let y = (radius * radius - x * x).max(0.0).sqrt();
+    let angle = (x / radius).clamp(-1.0, 1.0).asin();
+    0.5 * (x * y + radius * radius * angle)
+}
+
+#[inline]
+fn split_at_zero(a: f64, b: f64) -> [(f64, f64); 2] {
+    if a < 0.0 && b > 0.0 {
+        [(a, 0.0), (0.0, b)]
+    } else {
+        [(a, b), (0.0, 0.0)]
+    }
+}
+
+#[inline]
+fn rect_intersects_circle_boundary(
+    r0: f64,
+    r1: f64,
+    c0: f64,
+    c1: f64,
+    center_r: f64,
+    center_c: f64,
+    radius: f64,
+) -> bool {
+    if radius <= 0.0 {
+        return false;
+    }
+
+    let x0 = c0 - center_c;
+    let x1 = c1 - center_c;
+    let y0 = r0 - center_r;
+    let y1 = r1 - center_r;
+    let radius_sq = radius * radius;
+    let eps = (radius_sq.abs() + 1.0) * 1.0e-12;
+
+    rect_min_distance_sq_to_origin(x0, x1, y0, y1) <= radius_sq + eps
+        && rect_max_distance_sq_to_origin(x0, x1, y0, y1) >= radius_sq - eps
+}
+
+#[inline]
+fn rect_min_distance_sq_to_origin(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
+    let dx = if x0 > 0.0 {
+        x0
+    } else if x1 < 0.0 {
+        -x1
+    } else {
+        0.0
+    };
+    let dy = if y0 > 0.0 {
+        y0
+    } else if y1 < 0.0 {
+        -y1
+    } else {
+        0.0
+    };
+    dx * dx + dy * dy
+}
+
+#[inline]
+fn rect_max_distance_sq_to_origin(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
+    let dx = x0.abs().max(x1.abs());
+    let dy = y0.abs().max(y1.abs());
+    dx * dx + dy * dy
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn circle_overlap_returns_full_rectangle_inside_disk() {
+        let area = rect_circle_overlap_area(9.0, 11.0, 9.0, 11.0, 10.0, 10.0, 3.0);
+        assert!((area - 4.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn circle_overlap_matches_quarter_circle() {
+        let radius = 3.0;
+        let area = rect_circle_overlap_area(0.0, radius, 0.0, radius, 0.0, 0.0, radius);
+        let expected = std::f64::consts::PI * radius * radius * 0.25;
+        assert!((area - expected).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn circular_annulus_marks_outer_boundary_not_inner_boundary() {
+        let (_, outer_edge) =
+            circular_annulus_overlap_fraction_and_edge(-0.5, 0.5, 2.5, 3.5, 0.0, 0.0, 1.0, 3.0);
+        assert!(outer_edge);
+
+        let (_, inner_edge) =
+            circular_annulus_overlap_fraction_and_edge(-0.5, 0.5, 0.5, 1.5, 0.0, 0.0, 1.0, 3.0);
+        assert!(!inner_edge);
+    }
 }
 
 // Calcualte similarity of the transgrid layers and dealing with NaNs

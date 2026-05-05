@@ -128,6 +128,7 @@ pub fn conn(
                         transform_map,
                         is_geo,
                         offsets,
+                        window_mode,
                     );
                     // Calculate all reachable paths using weighted distance by conditon; altered condition
                     let nodes_altered = the_graph.dijkstra(Path::Adjusted);

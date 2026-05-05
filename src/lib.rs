@@ -41,7 +41,8 @@ use affine::Affine;
 ///   search reach. Must be ≥ `window_size`.
 /// * `offsets` -
 /// * `window_mode` - "block" for the original snapped multi-resolution windows,
-///   or "fractional" for source-centered fractional annuli.
+///   "fractional" for source-centered square annuli, or "circular" for
+///   source-centered circular annuli.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
 ///

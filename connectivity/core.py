@@ -85,11 +85,12 @@ def connectedness(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
-    window_mode : {"block", "fractional"}, optional
+    window_mode : {"block", "fractional", "circular"}, optional
         Multi-resolution window construction mode. "block" preserves the
         original snapped block-centered windows. "fractional" uses
-        source-centered annuli and fractional area/count support at annulus
-        boundaries. Default is "block".
+        source-centered square annuli and "circular" uses source-centered
+        circular annuli. Both annulus modes use fractional area/count support at
+        annulus boundaries. Default is "block".
     levels : list of int
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
@@ -325,11 +326,12 @@ def beri(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
-    window_mode : {"block", "fractional"}, optional
+    window_mode : {"block", "fractional", "circular"}, optional
         Multi-resolution window construction mode. "block" preserves the
         original snapped block-centered windows. "fractional" uses
-        source-centered annuli and fractional area/count support at annulus
-        boundaries. Default is "block".
+        source-centered square annuli and "circular" uses source-centered
+        circular annuli. Both annulus modes use fractional area/count support at
+        annulus boundaries. Default is "block".
     levels : list of int
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
