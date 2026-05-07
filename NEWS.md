@@ -10,7 +10,7 @@
 - Grid-bias filtering is now mode-aware: `block` mode applies `remove_grid_bias()` by default, while `square` and `circular` default to no post-filtering unless `filter_kwargs={}` or explicit filter arguments are supplied.
 - Updated Rust Python bindings to `pyo3` 0.28 and `numpy` 0.28, removing the deprecated `gil-refs` and `py-clone` feature usage and migrating to the current PyO3/numpy APIs.
 - Updated the Python build configuration for current PyO3/maturin extension-module handling.
-- Reduced routing/window-construction overhead by avoiding per-node adjacency vector clones during Dijkstra and hoisting max-level lookup out of per-cell window construction.
+- Reduced routing/window-construction overhead by avoiding per-node adjacency vector clones during Dijkstra, hoisting max-level lookup out of per-cell window construction, and using faster hash maps for internal graph adjacency data.
 
 ## Removed
 - Removed the FFT notch-filter grid-effect path in favour of the deterministic `remove_grid_bias()` correction.

@@ -1,5 +1,6 @@
 use crate::affine::Affine;
 use crate::distances;
+use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -19,17 +20,17 @@ pub struct EdgeData {
 /// struct { HashMap<(source, destination), EdgeData>, source-node }
 #[derive(Debug, Clone)]
 pub struct Graph {
-    pub data: HashMap<(NodeId, NodeId), EdgeData>,
+    pub data: FxHashMap<(NodeId, NodeId), EdgeData>,
     pub source: NodeId, // should be separate as data-oriented design principal, but cleaner now;
 }
 
 impl Graph {
     /// Default constructor (no preallocated capacity)
     pub fn new(cap: Option<usize>) -> Self {
-        let data = match cap {
-            Some(c) => HashMap::with_capacity(c),
-            None => HashMap::new(),
-        };
+        let mut data = FxHashMap::default();
+        if let Some(c) = cap {
+            data.reserve(c);
+        }
         // An initial source
         let source = 0;
 
@@ -47,9 +48,10 @@ impl Graph {
     }
 
     /// Count how many outgoing edges each `u` node has.
-    pub fn count_edges(&self) -> HashMap<NodeId, usize> {
+    pub fn count_edges(&self) -> FxHashMap<NodeId, usize> {
         // Count the source in hashmap to keep the keys unique
-        let mut edge_counts: HashMap<NodeId, usize> = HashMap::new();
+        let mut edge_counts = FxHashMap::default();
+        edge_counts.reserve(self.data.len());
         for &(u, _) in self.data.keys() {
             *edge_counts.entry(u).or_insert(0) += 1;
         }
