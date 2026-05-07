@@ -84,6 +84,7 @@ pub fn conn(
         let mut outarray = Array2::<f32>::zeros((nrows, ncols));
         let mut sorted_levels: Vec<i32> = cond_map.keys().copied().collect();
         sorted_levels.sort_unstable();
+        let max_level = sorted_levels.last().copied().unwrap_or(1);
 
         // Parallel iteration over rows in the thread pool
         let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)
@@ -107,6 +108,7 @@ pub fn conn(
                             i as i32,
                             j as i32,
                             level,
+                            max_level,
                             window_size,
                             outer_window,
                             offsets,

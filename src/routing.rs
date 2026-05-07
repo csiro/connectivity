@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::collections::HashMap;
 use pathfinding::prelude::dijkstra_all;
+use rustc_hash::FxHashMap;
 use crate::graph::{Graph, EdgeData, NodeId};
 
 
@@ -21,12 +22,13 @@ impl Graph {
     fn to_adjacency(
         &self,
         kind: Path,
-    ) -> HashMap<NodeId, Vec<(NodeId, u32)>> {
+    ) -> FxHashMap<NodeId, Vec<(NodeId, u32)>> {
         // First pass: count edges per source node
         let edge_counts = self.count_edges();
     
         // Initialize the adjacency list with pre-allocated space
-        let mut adjacency: HashMap<NodeId, Vec<(NodeId, u32)>> = HashMap::with_capacity(edge_counts.len());
+        let mut adjacency = FxHashMap::default();
+        adjacency.reserve(edge_counts.len());
         for (&node, &count) in &edge_counts {
             adjacency.insert(node, Vec::with_capacity(count));
         }
@@ -58,8 +60,8 @@ impl GraphDijkstraExt for Graph {
     /// Create the reachable path with dijkstra; weighted by condition or not
     fn dijkstra(&self, kind: Path) -> HashMap<NodeId, (NodeId, u32)> {
         let graph_int = self.to_adjacency(kind);
-        let successors = |node: &NodeId| -> Vec<(NodeId, u32)> {
-            graph_int.get(node).cloned().unwrap_or_default()
+        let successors = |node: &NodeId| {
+            graph_int.get(node).into_iter().flatten().copied()
         };
     
         // Calculate all reachable paths; the end nodes/segments
