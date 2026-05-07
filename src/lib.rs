@@ -72,7 +72,7 @@ fn connectivity(
         None
     } else {
         let arrays: Vec<Array3<f32>> = transgrid_list
-            .downcast::<PyList>()?
+            .cast::<PyList>()?
             .iter()
             .map(|item| extract::to_array_3d(&item).unwrap())
             .filter_map(|opt| opt)
@@ -120,14 +120,14 @@ fn connectivity(
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
 
     // Convert the array back to Python with gil
-    Python::with_gil(|py| {
-        let pyarray = outarray.to_pyarray_bound(py);
+    Python::attach(|py| {
+        let pyarray = outarray.to_pyarray(py);
         Ok(pyarray.unbind())
     })
 }
 
-#[pymodule]
+#[pymodule(gil_used = true)]
 fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction_bound!(connectivity, m)?)?;
+    m.add_function(wrap_pyfunction!(connectivity, m)?)?;
     Ok(())
 }
