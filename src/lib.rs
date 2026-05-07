@@ -12,7 +12,6 @@ mod core;
 mod distances;
 mod extract;
 mod graph;
-mod inpaint;
 mod metrics;
 mod overview;
 mod routing;
@@ -127,48 +126,8 @@ fn connectivity(
     })
 }
 
-#[pyfunction(signature = (img, size=11, max_iter=200, tol=1e-3, init="nearest", n_threads=None))]
-fn inpaint_nans_diffusion(
-    img: &Bound<PyAny>,
-    size: usize,
-    max_iter: usize,
-    tol: f32,
-    init: &str,
-    n_threads: Option<usize>,
-) -> PyResult<Py<PyArray2<f32>>> {
-    if init != "nearest" && init != "mean" {
-        return Err(PyValueError::new_err("init must be 'nearest' or 'mean'"));
-    }
-
-    let img_array = extract::to_array(img)
-        .map_err(|er| PyRuntimeError::new_err(format!("Reading image failed: {er}")))?
-        .ok_or_else(|| PyValueError::new_err("img must be a 2D numpy array"))?;
-
-    // Use a local Rayon pool to respect caller-provided thread count.
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(n_threads.unwrap_or(num_cpus::get()).max(1))
-        .build()
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
-    let outarray: Array2<f32> = pool
-        .install(|| inpaint::inpaint_nans_diffusion(&img_array, size, max_iter, tol, init))
-        .map_err(|er| {
-            if er.to_string().contains("All pixels are NaN") {
-                PyValueError::new_err(er.to_string())
-            } else {
-                PyRuntimeError::new_err(format!("Inpainting failed: {er}"))
-            }
-        })?;
-
-    Python::with_gil(|py| {
-        let pyarray = outarray.to_pyarray_bound(py);
-        Ok(pyarray.unbind())
-    })
-}
-
 #[pymodule]
 fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction_bound!(connectivity, m)?)?;
-    m.add_function(wrap_pyfunction_bound!(inpaint_nans_diffusion, m)?)?;
     Ok(())
 }

@@ -2,6 +2,9 @@
 ## Added
 - Added `remove_grid_bias()` as the default deterministic, tile-aware, and NaN-aware post-processing grid-bias correction.
 
+## Removed
+- Removed the obsolete Rust `inpaint_nans_diffusion` Python binding and implementation, which were only used by the previous FFT notch-filter path.
+
 # Version 1.1.1
 ## Fixed
 - Fixed a PARC-connectedness crash when the protected-area mask leaves no valid cells in the analysis window. Empty windows now return all-`NaN` output instead of failing during filtering/inpainting.
