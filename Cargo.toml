@@ -18,7 +18,6 @@ ordered-float = "4.2.0"
 rayon = "1.11"
 num_cpus = "1.16"
 anyhow = "1.0.100"
-rustc-hash = "2.1"
 
 [build-dependencies]
 pyo3-build-config = { version = "0.28", features = ["resolve-config"] }

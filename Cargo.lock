@@ -350,7 +350,6 @@ dependencies = [
  "pyo3-build-config",
  "pyo3-built",
  "rayon",
- "rustc-hash",
 ]
 
 [[package]]
