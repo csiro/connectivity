@@ -1,7 +1,7 @@
 use anyhow::Result;
-use ndarray::{Array1, Array2, Array3};
+use ndarray::parallel::prelude::*;
+use ndarray::{Array1, Array2, Array3, Axis};
 use pathfinding::prelude::build_path;
-use rayon::prelude::*;
 use std::collections::HashMap;
 // local modules
 use crate::affine;
@@ -80,18 +80,18 @@ pub fn conn(
             Vec::new() // Empty vec if None
         };
 
-        // Initialize output with zeros
-        let mut outarray = Array2::<f32>::zeros((nrows, ncols));
+        // Initialize output with NaNs so masked cells keep the previous output semantics.
+        let mut outarray = Array2::<f32>::from_elem((nrows, ncols), f32::NAN);
         let mut sorted_levels: Vec<i32> = cond_map.keys().copied().collect();
         sorted_levels.sort_unstable();
         let max_level = sorted_levels.last().copied().unwrap_or(1);
 
         // Parallel iteration over rows in the thread pool
-        let out_vec: Vec<(usize, Vec<f32>)> = (0..nrows)
+        outarray
+            .axis_iter_mut(Axis(0))
             .into_par_iter()
-            .map(|i| {
-                let mut row_result = vec![f32::NAN; ncols];
-
+            .enumerate()
+            .for_each(|(i, mut row_result)| {
                 for j in 0..ncols {
                     // Skip masked areas
                     if mask_array[[i, j]] {
@@ -171,17 +171,7 @@ pub fn conn(
                         sum / lambdas.len() as f32
                     };
                 }
-
-                (i, row_result)
-            })
-            .collect();
-
-        // Write back results into outarray
-        for (i, row) in out_vec {
-            for (j, val) in row.into_iter().enumerate() {
-                outarray[[i, j]] = val;
-            }
-        }
+            });
 
         Ok(outarray)
     } else {

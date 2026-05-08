@@ -283,6 +283,7 @@ fn get_edge_neighbours(
     (higher_cells, count)
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
