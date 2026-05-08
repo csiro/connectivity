@@ -1,9 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import geopandas as gpd
 import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
 from .utils import (
+    _FILTER_AUTO,
+    _default_filter_kwargs,
+    _normalise_window_mode,
     remove_grid_bias,
     fn,
     crop_array,
@@ -12,22 +17,7 @@ from .utils import (
 )
 
 
-_FILTER_AUTO = object()
-
-
-def _normalise_window_mode(window_mode: str) -> str:
-    if not isinstance(window_mode, str):
-        raise TypeError("window_mode must be one of 'block', 'square', or 'circular'.")
-    mode = window_mode.strip().lower()
-    if mode not in {"block", "square", "circular"}:
-        raise ValueError("window_mode must be one of 'block', 'square', or 'circular'.")
-    return mode
-
-
-def _default_filter_kwargs(window_mode: str, filter_kwargs):
-    if filter_kwargs is not _FILTER_AUTO:
-        return filter_kwargs
-    return {} if window_mode == "block" else None
+_MAX_BERI_READ_WORKERS = 8
 
 
 # Connectedness main funciton
@@ -342,7 +332,7 @@ def beri(
         Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
     window_size : int
         Odd local window width used for non-coarsest levels. For instance,
-        window_size=3 produces an effective 6×6 current-level window in the
+        window_size=3 produces an effective 6x6 current-level window in the
         multi-resolution framework.
         Default is 3.
     outer_window : int, optional
@@ -444,20 +434,25 @@ def beri(
     if np.isnan(cond_array).all() or np.all(mask_array):
         out_array = np.full(mask_array.shape, np.nan, dtype=np.float32)
     else:
-        # Build scenario list without mutating caller input.
+        # Build scenario list without mutating caller input; current always first.
         scenario_files = [current_file, *future_files]
         # Just get the cond_dict for the transgrids; Ignore the affine_dict
         # the scale parameter is not used here
-        trans_grids = [
-            read_raster(
-                file_path=i,
+        def _read_transgrid(file_path):
+            return read_raster(
+                file_path=file_path,
                 polygon=polygon_mask,
                 levels=levels,
                 expand_px=pad_size,
                 valid_margin_px=margin_px,
             )[0]
-            for i in scenario_files
-        ]
+
+        if len(scenario_files) == 1:
+            trans_grids = [_read_transgrid(scenario_files[0])]
+        else:
+            max_workers = min(len(scenario_files), _MAX_BERI_READ_WORKERS)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                trans_grids = list(executor.map(_read_transgrid, scenario_files))
         
         # Ensure rows/cols of the arrays the same
         if cond_array.shape[:2] != trans_grids[0].shape[:2]:

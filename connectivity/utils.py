@@ -4,6 +4,24 @@ from rasterio.transform import Affine
 from rasterio.features import geometry_mask
 
 
+_FILTER_AUTO = object()
+
+
+def _normalise_window_mode(window_mode: str) -> str:
+    if not isinstance(window_mode, str):
+        raise TypeError("window_mode must be one of 'block', 'square', or 'circular'.")
+    mode = window_mode.strip().lower()
+    if mode not in {"block", "square", "circular"}:
+        raise ValueError("window_mode must be one of 'block', 'square', or 'circular'.")
+    return mode
+
+
+def _default_filter_kwargs(window_mode: str, filter_kwargs):
+    if filter_kwargs is not _FILTER_AUTO:
+        return filter_kwargs
+    return {} if window_mode == "block" else None
+
+
 # Calculate connected condition
 def fn(connectivity, habitat, option=3):
     match option:

@@ -190,7 +190,7 @@ def read_raster(
             data_ma = np.ma.masked_array(out_image_data, mask=data_mask)
 
         # masked -> ndarray with NaNs
-        data_array = np.where(data_ma.mask, np.nan, data_ma.data).astype(np.float32)
+        data_array = data_ma.filled(np.nan).astype(np.float32, copy=False)
         data_array = np.squeeze(data_array)
 
         # Build 2D mask_array

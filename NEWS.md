@@ -11,6 +11,7 @@
 - Updated Rust Python bindings to `pyo3` 0.28 and `numpy` 0.28, removing the deprecated `gil-refs` and `py-clone` feature usage and migrating to the current PyO3/numpy APIs.
 - Updated the Python build configuration for current PyO3/maturin extension-module handling.
 - Reduced routing/window-construction overhead by avoiding per-node adjacency vector clones during Dijkstra, hoisting max-level lookup out of per-cell window construction, using faster hash maps for internal graph adjacency data, and writing parallel row results directly into the output array.
+- Reduced Python-side BERI raster-read overhead by reading scenario rasters concurrently and avoiding an extra temporary array when converting masked raster data to `NaN`-filled `float32` arrays.
 
 ## Removed
 - Removed the FFT notch-filter grid-effect path in favour of the deterministic `remove_grid_bias()` correction.
