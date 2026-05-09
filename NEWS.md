@@ -1,3 +1,22 @@
+# Version 2.0.0
+## Added
+- Added a `window_mode` option to `connectedness()`, `beri()`, and the Rust `connectivity()` binding.
+- Added `window_mode="circular"` for source-centered circular annuli with fractional area/count support at annulus boundaries.
+- Added `window_mode="square"` for source-centered square annuli, while keeping `window_mode="block"` as the compatibility mode for the original snapped multi-resolution windows.
+- Added `remove_grid_bias()` as the default deterministic, tile-aware, and NaN-aware post-processing grid-bias correction.
+
+## Changed
+- Changed the default window mode to `window_mode="circular"`.
+- Grid-bias filtering is now mode-aware: `block` mode applies `remove_grid_bias()` by default, while `square` and `circular` default to no post-filtering unless `filter_kwargs={}` or explicit filter arguments are supplied.
+- Updated Rust Python bindings to `pyo3` 0.28 and `numpy` 0.28, removing the deprecated `gil-refs` and `py-clone` feature usage and migrating to the current PyO3/numpy APIs.
+- Updated the Python build configuration for current PyO3/maturin extension-module handling.
+- Reduced routing/window-construction overhead by avoiding per-node adjacency vector clones during Dijkstra, hoisting max-level lookup out of per-cell window construction, using faster hash maps for internal graph adjacency data, and writing parallel row results directly into the output array.
+- Reduced Python-side BERI raster-read overhead by reading scenario rasters concurrently and avoiding an extra temporary array when converting masked raster data to `NaN`-filled `float32` arrays.
+
+## Removed
+- Removed the FFT notch-filter grid-effect path in favour of the deterministic `remove_grid_bias()` correction.
+- Removed the obsolete Rust `inpaint_nans_diffusion` Python binding and implementation, which were only used by the previous FFT notch-filter path.
+
 # Version 1.1.1
 ## Fixed
 - Fixed a PARC-connectedness crash when the protected-area mask leaves no valid cells in the analysis window. Empty windows now return all-`NaN` output instead of failing during filtering/inpainting.

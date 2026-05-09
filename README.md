@@ -62,14 +62,25 @@ pip install target/wheels/connectivity-*.whl
 ```
 
 ## Connectivity Analysis <a name="analysis"></a>     
-To bound the spatial extent of the connectivity calculation, the algorithm limits how far it searches across neighboring cells in the condition raster. The maximum distance the algorithm searches for cells (in the condition raster) to calculate connectivity is computed as:
-`max_distance = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search distance is:
+To bound the spatial extent of the connectivity calculation, the algorithm limits how far it searches across neighboring cells in the condition raster. The approximate one-sided search reach is computed as:
+`max_reach = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search reach is:
       
 ```text
 distance = outer_window × max_level × resolution
          = 11 × 32 × 1 km
          = 352 km  
 ```    
+
+The default `window_mode="circular"` uses source-centered circular annuli with
+fractional area/count support at annulus boundaries. For comparison with older
+runs, `window_mode="block"` preserves the original snapped multi-resolution
+window construction. The intermediate `window_mode="square"` option uses the
+same source-centered fractional construction with square annuli. These modes
+change indicator values, so compare outputs only between runs that use the same
+window mode. Grid-bias filtering is applied by default only for
+`window_mode="block"`; `square` and `circular` default to no filtering. Pass
+`filter_kwargs={}` or specific filter parameters if you want to force filtering
+for an annulus mode.
 
 ### Connected Habitat (Connectedness) <a name="conn"></a>    
 
@@ -79,7 +90,7 @@ To compute connected-habitat (or plain connectedness), you only need a habitat c
 3. `sqrt(connectedness * condition)` — geometric mean (default)
 
 ```python
-from connectivity import connectedness, beri, remove_grid_effect
+from connectivity import connectedness, beri, remove_grid_bias
 ```
 
 ```python
@@ -165,12 +176,12 @@ connd = connectedness(
     window_size = 5, 
     outer_window = 11,
     levels = [2, 4, 8, 16, 32], 
-    filter_kwargs = {"notch_width": 3},
+    filter_kwargs = {"max_correction": 0.05},
     option = 1,
     filename = f"./results/connected_habitat_tile_{tile_id}.tif"
 )
 ```
 
-Increase `margin_px` to `64` if you see edge effects at tile joints. Increase `notch_width` to `5` (larger values produce a blurrier map on grid pattern areas), or tune other filtering arguments, if you still see excessive grid effects. Another useful solution is increasing tiles overlap.
+Increase `margin_px` to `64` if you see edge effects at tile joints. Tune `filter_kwargs` (for example `max_correction`, `periods`, `background_size`, or `axis`) if you still see excessive grid effects. Another useful solution is increasing tile overlap.
 
 [Back to top!](#top)
