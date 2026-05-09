@@ -21,6 +21,16 @@ impl Affine {
         let y = self.y_skew * col_f + self.y_scale * row_f + self.y_origin;
         (x, y)
     }
+
+    /// Convert world (x, y) to continuous (col, row) pixel coordinates.
+    pub fn col_row(&self, x: f64, y: f64) -> (f64, f64) {
+        let det = self.x_scale * self.y_scale - self.x_skew * self.y_skew;
+        let dx = x - self.x_origin;
+        let dy = y - self.y_origin;
+        let col = (self.y_scale * dx - self.x_skew * dy) / det;
+        let row = (-self.y_skew * dx + self.x_scale * dy) / det;
+        (col, row)
+    }
 }
 
 impl From<(f64, f64, f64, f64, f64, f64)> for Affine {

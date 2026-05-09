@@ -155,21 +155,18 @@ def connectedness(
     else:
         s1, s2 = scale, None
 
-    # An early check for the overall shapes of grids.
-    if pa_file is not None:
-        if levels is None:
-            levels = common_levels(condition_file, pa_file)
-
-        if polygon_mask is None:
-            # Only check when no masks; grids could have differnce shape but the masked version could be identical.
-            with rasterio.open(condition_file) as ds1, rasterio.open(pa_file) as ds2:
-                if ds1.shape != ds2.shape:
-                    raise ValueError(
-                        f"Shape mismatch: {condition_file} {ds1.shape} vs {pa_file} {ds2.shape}"
-                    )
-
     if levels is None:
         raise ValueError("levels must be provided")
+
+    # An early check for the overall shapes of grids.
+    if pa_file is not None and polygon_mask is None:
+        # Only check when no masks; grids could have differnce shape but the masked version could be identical.
+        with rasterio.open(condition_file) as ds1, rasterio.open(pa_file) as ds2:
+            if ds1.shape != ds2.shape:
+                raise ValueError(
+                    f"Shape mismatch: {condition_file} {ds1.shape} vs {pa_file} {ds2.shape}"
+                )
+
     # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
     levels = sorted({1, *(round_to_pow2(x) for x in levels)})
 

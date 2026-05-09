@@ -9,6 +9,7 @@ use std::collections::HashMap;
 mod affine;
 mod builder;
 mod core;
+mod coverage;
 mod distances;
 mod extract;
 mod graph;
@@ -126,8 +127,47 @@ fn connectivity(
     })
 }
 
+/// Compute the proportion of each raster pixel covered by a (multi)polygon.
+///
+/// # Arguments
+/// * `polygons` - Python list of `(exterior_xy, [hole_xy, ...])` tuples, where each
+///   ring is an `(N, 2)` float64 numpy array of (x, y) world-coordinate vertices.
+///   Polygons are assumed already-unioned on the Python side.
+/// * `transform` - Affine 6-tuple `(a, b, c, d, e, f)` of the reference raster.
+/// * `shape` - Output raster shape `(nrows, ncols)`.
+/// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
+///   cores are used.
+///
+/// # Returns
+/// A 2D float32 array of shape `shape` with values in [0, 1].
+#[pyfunction(signature = (polygons, transform, shape, n_threads=None))]
+fn pixel_coverage(
+    polygons: &Bound<PyAny>,
+    transform: (f64, f64, f64, f64, f64, f64),
+    shape: (usize, usize),
+    n_threads: Option<usize>,
+) -> PyResult<Py<PyArray2<f32>>> {
+    let rings = extract::to_polygon_rings(polygons)
+        .map_err(|er| PyRuntimeError::new_err(format!("Reading polygons failed: {er}")))?;
+    let tr: Affine = transform.into();
+    let (nrows, ncols) = shape;
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(n_threads.unwrap_or(num_cpus::get()).max(1))
+        .build()
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+
+    let outarray = pool.install(|| coverage::pixel_coverage_array(&rings, &tr, nrows, ncols));
+
+    Python::attach(|py| {
+        let pyarray = outarray.to_pyarray(py);
+        Ok(pyarray.unbind())
+    })
+}
+
 #[pymodule(gil_used = true)]
 fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(connectivity, m)?)?;
+    m.add_function(wrap_pyfunction!(pixel_coverage, m)?)?;
     Ok(())
 }
