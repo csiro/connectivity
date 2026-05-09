@@ -78,9 +78,7 @@ window construction. The intermediate `window_mode="square"` option uses the
 same source-centered fractional construction with square annuli. These modes
 change indicator values, so compare outputs only between runs that use the same
 window mode. Grid-bias filtering is applied by default only for
-`window_mode="block"`; `square` and `circular` default to no filtering. Pass
-`filter_kwargs={}` or specific filter parameters if you want to force filtering
-for an annulus mode.
+`window_mode="block"`; `square` and `circular` default to no filtering.
 
 ### Connected Habitat (Connectedness) <a name="conn"></a>    
 
@@ -90,7 +88,7 @@ To compute connected-habitat (or plain connectedness), you only need a habitat c
 3. `sqrt(connectedness * condition)` — geometric mean (default)
 
 ```python
-from connectivity import connectedness, beri, remove_grid_bias
+from connectivity import connectedness, beri
 ```
 
 ```python
@@ -100,6 +98,7 @@ connd = connectedness(
     max_cost = 2.0, 
     window_size = 5, 
     outer_window = 11,
+    window_mode = "circular",
     levels = [2, 4, 8, 16, 32], 
     option = 3,
     filename = "./results/connected_habitat.tif"
@@ -123,6 +122,7 @@ parcc = connectedness(
     max_cost = 2.0, 
     window_size = 5, 
     outer_window = 11,
+    window_mode = "circular",
     levels = [2, 4, 8, 16, 32], 
     filename = "./results/parc_connectedness.tif"
 )
@@ -145,6 +145,7 @@ beris = beri(
     max_cost = 2.0, 
     window_size = 5, 
     outer_window = 11,
+    window_mode = "circular",
     levels = [2, 4, 8, 16, 32],
     filename = "./results/berri.tif"
 )
@@ -175,13 +176,13 @@ connd = connectedness(
     max_cost = 2.0, 
     window_size = 5, 
     outer_window = 11,
+    window_mode = "circular",
     levels = [2, 4, 8, 16, 32], 
-    filter_kwargs = {"max_correction": 0.05},
     option = 1,
     filename = f"./results/connected_habitat_tile_{tile_id}.tif"
 )
 ```
 
-Increase `margin_px` to `64` if you see edge effects at tile joints. Tune `filter_kwargs` (for example `max_correction`, `periods`, `background_size`, or `axis`) if you still see excessive grid effects. Another useful solution is increasing tile overlap.
+Increase `margin_px` to `64` if you see edge effects at tile joints. Another useful solution is increasing tile overlap.
 
 [Back to top!](#top)
