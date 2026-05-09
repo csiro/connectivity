@@ -5,9 +5,13 @@ from rasterio.windows import Window
 from affine import Affine
 from shapely.geometry import box
 from shapely.geometry import mapping
+from shapely.geometry import MultiPolygon, Polygon
+from shapely.ops import unary_union
+import math
 import numpy as np
 import rasterio
 import geopandas as gpd
+from rust_conn import pixel_coverage as _rust_pixel_coverage
 from .utils import guess_geographic
 
 
@@ -227,6 +231,83 @@ def read_raster(
         return data_array, mask_array, tran_dict, is_geo, tile_row0, tile_col0
 
 
+# fractional pixel coverage by polygons
+def pixel_coverage(
+    polygon: gpd.GeoDataFrame | str,
+    raster_file: str,
+    n_threads: int | None = None,
+):
+    """Compute the proportion of each raster pixel covered by polygon(s).
+
+    For every pixel of `raster_file`, returns the fraction (in [0, 1]) of that
+    pixel's area covered by the union of all polygons in `polygon`. Implemented
+    in Rust with Sutherland-Hodgman per-pixel clipping and Rayon parallelism.
+
+    Parameters
+    ----------
+    polygon : GeoDataFrame or str
+        A GeoPandas GeoDataFrame containing polygon geometries, or a path to a
+        polygon file (Shapefile, GeoJSON, etc.) readable by `geopandas.read_file`.
+        All geometries are unioned before coverage is computed.
+    raster_file : str
+        Path to the reference raster file. The output array matches the raster's
+        shape and transform; the polygon is reprojected to the raster's CRS if needed.
+    n_threads : int, optional
+        Number of CPU threads for the Rust computation. Default is None (all cores).
+
+    Returns
+    -------
+    np.ndarray
+        2D float32 array of shape `(raster.height, raster.width)` with values in
+        [0, 1] giving the fraction of each pixel covered by the polygon(s).
+    """
+    if isinstance(polygon, str):
+        polygon = gpd.read_file(polygon)
+
+    with rasterio.open(raster_file) as src:
+        raster_transform = src.transform
+        raster_shape = (src.height, src.width)
+        raster_crs = src.crs
+
+    if raster_crs is not None and polygon.crs is not None and polygon.crs != raster_crs:
+        polygon = polygon.to_crs(raster_crs)
+
+    geom = unary_union(list(polygon.geometry.values))
+    rings = _polygon_to_rings(geom)
+    if not rings:
+        return np.zeros(raster_shape, dtype=np.float32)
+
+    return _rust_pixel_coverage(
+        rings,
+        tuple(raster_transform)[:6],
+        raster_shape,
+        n_threads,
+    )
+
+
+def _polygon_to_rings(geom):
+    """Flatten a (Multi)Polygon into a list of (exterior, [holes]) coord arrays."""
+    if geom is None or geom.is_empty:
+        return []
+    if isinstance(geom, Polygon):
+        polys = [geom]
+    elif isinstance(geom, MultiPolygon):
+        polys = list(geom.geoms)
+    else:
+        raise TypeError(
+            f"Geometry must be Polygon or MultiPolygon, got {type(geom).__name__}"
+        )
+
+    rings = []
+    for p in polys:
+        if p.is_empty:
+            continue
+        ext = np.asarray(p.exterior.coords, dtype=np.float64)
+        holes = [np.asarray(h.coords, dtype=np.float64) for h in p.interiors]
+        rings.append((ext, holes))
+    return rings
+
+
 def write_raster(
         in_array: str, 
         outfile: str = "output.tif", 
@@ -280,34 +361,153 @@ def write_raster(
                     dst.write(array[i], i+1)
 
 
-def overview_info(file_path: str, levels: list = None):
-    """Display information about possible overview dimensions that could be generated.
-     
-    Parameters:
-    - file_path (str): Path to the TIF/raster file.
-    - levels (list): List of overview levels (powers of 2). Default: [2, 4, 8, 16, 32, 64, 128]
+def _format_compact(value: float) -> str:
+    if value >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.2f}B"
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.2f}M"
+    if value >= 1_000:
+        return f"{value / 1_000:.2f}K"
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.4g}"
+
+
+def _format_resolution(x_res: float, y_res: float, unit: str) -> str:
+    if np.isclose(x_res, y_res):
+        return f"{_format_compact(x_res)} {unit}"
+    return f"{_format_compact(x_res)} x {_format_compact(y_res)} {unit}"
+
+
+def _raster_unit(crs) -> str:
+    if crs is None:
+        return "map units"
+    if crs.is_geographic:
+        return "degrees"
+    return getattr(crs, "linear_units", None) or "map units"
+
+
+def _linear_unit_km_factor(crs):
+    if crs is None or crs.is_geographic:
+        return None
+
+    factor = getattr(crs, "linear_units_factor", None)
+    if factor is not None:
+        try:
+            if isinstance(factor, tuple):
+                return float(factor[-1]) / 1000.0
+            return float(factor) / 1000.0
+        except (TypeError, ValueError):
+            pass
+
+    unit = (_raster_unit(crs) or "").lower()
+    if unit in {"metre", "meter", "metres", "meters", "m"}:
+        return 0.001
+    if unit in {"kilometre", "kilometer", "kilometres", "kilometers", "km"}:
+        return 1.0
+    if unit in {"foot", "feet", "ft", "us survey foot", "us survey feet"}:
+        return 0.0003048
+    return None
+
+
+def _resolution_km(x_res: float, y_res: float, crs, bounds):
+    if crs is None:
+        return None, None, None
+
+    if crs.is_geographic:
+        center_lat = (float(bounds.bottom) + float(bounds.top)) / 2.0
+        lat_km_per_degree = 111.32
+        lon_km_per_degree = lat_km_per_degree * math.cos(math.radians(center_lat))
+        return (
+            abs(x_res) * abs(lon_km_per_degree),
+            abs(y_res) * lat_km_per_degree,
+            f"approximate km values use centre latitude {center_lat:.3f}",
+        )
+
+    factor = _linear_unit_km_factor(crs)
+    if factor is None:
+        return None, None, None
+    return abs(x_res) * factor, abs(y_res) * factor, None
+
+
+def resolution_info(
+    file_path: str,
+    levels: list[int] | None = None,
+    min_dimension: int = 16,
+    outer_window: int = 5,
+):
+    """Display expected dimensions and search reach for candidate raster levels.
+
+    This is a planning helper for choosing levels that are not too coarse for a
+    given input raster. Levels are generated internally by the Rust library; no
+    external GeoTIFF overview layers are required.
     """
     if levels is None:
-        levels = [2, 4, 8, 16, 32, 64, 128]
-    
-    print(f"\nFile: {file_path}")
-    
+        levels = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+    levels = sorted({int(level) for level in levels})
+    if not levels or any(level <= 0 for level in levels):
+        raise ValueError(f"levels must be positive integers, got: {levels}")
+    min_dimension = max(1, int(min_dimension))
+    outer_window = max(1, int(outer_window))
+
     with rasterio.open(file_path) as ds:
         base_width = ds.width
         base_height = ds.height
-        
-        print(f"Base Resolution: {base_width} x {base_height}")
+        base_cells = base_width * base_height
+        x_res, y_res = (abs(v) for v in ds.res)
+        unit = _raster_unit(ds.crs)
+        x_res_km, y_res_km, km_note = _resolution_km(x_res, y_res, ds.crs, ds.bounds)
+
+        print(f"\nFile: {file_path}")
+        print(
+            "Base raster: "
+            f"{base_width} x {base_height} cells "
+            f"({_format_compact(base_cells)} total)"
+        )
+        print(f"Base resolution: {_format_resolution(x_res, y_res, unit)}")
+        print(f"CRS: {ds.crs if ds.crs is not None else 'unknown'}")
         print(f"Bands: {ds.count}")
-        print(f"CRS: {ds.crs}")
-        
-        print(f"\nPossible overview levels:")
-        print("Estimated overview resolutions:")
+        print(f"Data type(s): {', '.join(ds.dtypes)}")
+        print(f"Nodata: {ds.nodata}")
+        print(f"Outer window: {outer_window}")
+        print(f"Small-dimension warning threshold: < {min_dimension} cells")
+        if km_note is not None:
+            print(f"Distance note: {km_note}")
+
+        print("\nCandidate internally generated levels:")
+        print(
+            f"{'Level':>7} {'Width':>8} {'Height':>8} {'Cells':>10} "
+            f"{'% base':>8} {'Resolution':>20} {'Reach':>16} {'Reach km':>12}  Note"
+        )
         for level in levels:
-            # Calculate dimensions using the same logic as Rust make_overview
-            estimated_width = (base_width + level - 1) // level
-            estimated_height = (base_height + level - 1) // level            
-            # Stop if either dimension is lower than 5
-            if estimated_width < 5 or estimated_height < 5:
-                break
-            
-            print(f"  Level {level}: {estimated_width} x {estimated_height}")
+            width = (base_width + level - 1) // level
+            height = (base_height + level - 1) // level
+            cells = width * height
+            pct_base = 100.0 * cells / base_cells if base_cells else 0.0
+            level_res = _format_resolution(x_res * level, y_res * level, unit)
+            reach_native = _format_compact(outer_window * level * max(x_res, y_res))
+            if x_res_km is None or y_res_km is None:
+                reach_km = "-"
+            else:
+                reach_km = f"{_format_compact(outer_window * level * max(x_res_km, y_res_km))} km"
+            note = "small grid; review" if min(width, height) < min_dimension else ""
+            print(
+                f"{level:>7} {width:>8} {height:>8} "
+                f"{_format_compact(cells):>10} {pct_base:>7.3f}% "
+                f"{level_res:>20} {reach_native + ' ' + unit:>16} {reach_km:>12}  {note}"
+            )
+
+
+def overview_info(
+    file_path: str,
+    levels: list[int] | None = None,
+    min_dimension: int = 16,
+    outer_window: int = 5,
+):
+    """Backward-compatible wrapper for resolution_info()."""
+    return resolution_info(
+        file_path=file_path,
+        levels=levels,
+        min_dimension=min_dimension,
+        outer_window=outer_window,
+    )

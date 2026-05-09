@@ -4,12 +4,14 @@
 - Added `window_mode="circular"` for source-centered circular annuli with fractional area/count support at annulus boundaries.
 - Added `window_mode="square"` for source-centered square annuli, while keeping `window_mode="block"` as the compatibility mode for the original snapped multi-resolution windows.
 - Added `remove_grid_bias()` as the default deterministic, tile-aware, and NaN-aware post-processing grid-bias correction.
+- Added `resolution_info()` for previewing internally generated level dimensions, resolutions, cell counts, approximate native/km search reach, and small-grid warnings before choosing `levels`.
 
 ## Changed
 - Changed the default window mode to `window_mode="circular"`.
 - Grid-bias filtering is now mode-aware: `block` mode applies `remove_grid_bias()` by default, while `square` and `circular` default to no post-filtering unless `filter_kwargs={}` or explicit filter arguments are supplied.
 - Updated Rust Python bindings to `pyo3` 0.28 and `numpy` 0.28, removing the deprecated `gil-refs` and `py-clone` feature usage and migrating to the current PyO3/numpy APIs.
 - Updated the Python build configuration for current PyO3/maturin extension-module handling.
+- `overview_info()` is now a backward-compatible wrapper for `resolution_info()`.
 - Reduced routing/window-construction overhead by avoiding per-node adjacency vector clones during Dijkstra, hoisting max-level lookup out of per-cell window construction, using faster hash maps for internal graph adjacency data, and writing parallel row results directly into the output array.
 - Reduced Python-side overhead by reading BERI scenario rasters concurrently, avoiding an extra temporary array when converting masked raster data to `NaN`-filled `float32` arrays, and applying the `option=3` square-root transform in place.
 

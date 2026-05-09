@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use numpy::{PyReadonlyArray2, PyReadonlyArray3};
 use pyo3::Bound;
-use pyo3::types::{PyAny, PyAnyMethods};
+use pyo3::types::{PyAny, PyAnyMethods, PyList, PyListMethods};
 use std::collections::HashMap;
 use ndarray::{Array3, Array2};
 use crate::affine::Affine;
@@ -57,4 +57,51 @@ pub fn to_array_3d<'py>(data: &Bound<'py, PyAny>) -> Result<Option<Array3<f32>>>
         let array_owned = py_array.as_array().to_owned();
         Ok(Some(array_owned))
     }
+}
+
+
+/// Convert a Python list of (exterior, holes) ring pairs into a Rust-native
+/// `Vec<(exterior, holes)>` of (x, y) world-coordinate vertices.
+///
+/// Expected Python structure:
+///   [(exterior_xy: ndarray (N, 2), [hole_xy: ndarray (M, 2), ...]), ...]
+pub fn to_polygon_rings<'py>(
+    data: &Bound<'py, PyAny>,
+) -> Result<Vec<(Vec<(f64, f64)>, Vec<Vec<(f64, f64)>>)>> {
+    let list = data
+        .cast::<PyList>()
+        .map_err(|e| anyhow::anyhow!("Expected a list of polygons: {}", e))?;
+
+    let mut out = Vec::with_capacity(list.len());
+    for item in list.iter() {
+        let (ext_obj, holes_obj) = item
+            .extract::<(Bound<PyAny>, Bound<PyAny>)>()
+            .map_err(|e| anyhow::anyhow!("Each polygon must be (exterior, holes): {}", e))?;
+
+        let exterior = extract_ring(&ext_obj)?;
+
+        let holes_list = holes_obj
+            .cast::<PyList>()
+            .map_err(|e| anyhow::anyhow!("Holes must be a list of arrays: {}", e))?;
+        let mut holes = Vec::with_capacity(holes_list.len());
+        for h in holes_list.iter() {
+            holes.push(extract_ring(&h)?);
+        }
+
+        out.push((exterior, holes));
+    }
+    Ok(out)
+}
+
+
+/// Extract a ring of (x, y) vertices from a numpy (N, 2) f64 array.
+fn extract_ring<'py>(data: &Bound<'py, PyAny>) -> Result<Vec<(f64, f64)>> {
+    let arr = data
+        .extract::<PyReadonlyArray2<'_, f64>>()
+        .map_err(|e| anyhow::anyhow!("Ring must be a 2D float64 array: {}", e))?;
+    let view = arr.as_array();
+    if view.shape()[1] != 2 {
+        bail!("Ring array must have shape (N, 2), got {:?}", view.shape());
+    }
+    Ok(view.outer_iter().map(|row| (row[0], row[1])).collect())
 }

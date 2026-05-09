@@ -71,6 +71,41 @@ distance = outer_window × max_level × resolution
          = 352 km  
 ```    
 
+Use `resolution_info()` to preview how candidate `levels` will change raster
+dimensions and approximate search reach before running the analysis:
+
+```python
+from connectivity import resolution_info
+
+resolution_info("./data/condition_2020.tif", outer_window=9)
+```
+
+```text
+File: ./data/condition_2020.tif
+Base raster: 588 x 516 cells (303.41K total)
+Base resolution: 0.008333 degrees
+CRS: EPSG:4326
+Bands: 1
+Data type(s): float32
+Nodata: -9999.0
+Outer window: 9
+Small-dimension warning threshold: < 16 cells
+Distance note: approximate km values use centre latitude -41.550
+
+Candidate internally generated levels:
+  Level    Width   Height      Cells   % base           Resolution            Reach     Reach km  Note
+      1      588      516    303.41K 100.000%     0.008333 degrees    0.075 degrees     8.349 km
+      2      294      258     75.85K  25.000%      0.01667 degrees     0.15 degrees      16.7 km
+      4      147      129     18.96K   6.250%      0.03333 degrees      0.3 degrees      33.4 km
+      8       74       65      4.81K   1.585%      0.06667 degrees      0.6 degrees     66.79 km
+     16       37       33      1.22K   0.402%       0.1333 degrees      1.2 degrees     133.6 km
+     32       19       17        323   0.106%       0.2667 degrees      2.4 degrees     267.2 km
+     64       10        9         90   0.030%       0.5333 degrees      4.8 degrees     534.3 km  small grid; review
+    128        5        5         25   0.008%        1.067 degrees      9.6 degrees     1.07K km  small grid; review
+    256        3        3          9   0.003%        2.133 degrees     19.2 degrees     2.14K km  small grid; review
+    512        2        2          4   0.001%        4.267 degrees     38.4 degrees     4.27K km  small grid; review
+```
+
 The default `window_mode="circular"` uses source-centered circular annuli with
 fractional area/count support at annulus boundaries. For comparison with older
 runs, `window_mode="block"` preserves the original snapped multi-resolution
