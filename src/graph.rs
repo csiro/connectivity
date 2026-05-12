@@ -24,6 +24,7 @@ pub struct Graph {
     pub source: NodeId, // should be separate as data-oriented design principal, but cleaner now;
 }
 
+
 impl Graph {
     /// Default constructor (no preallocated capacity)
     pub fn new(cap: Option<usize>) -> Self {
@@ -64,6 +65,7 @@ impl Graph {
         self.data.clear();
     }
 }
+
 
 /// Add edges to neighboring cells; if a source is isolated, adds a synthetic edge.
 impl Graph {
@@ -160,14 +162,13 @@ impl Graph {
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
         offsets: (usize, usize),
-        include_containing_higher: bool,
     ) {
         if let Some(&(uu, _, _, _)) = node_mapping.get(&(i, j)) {
             let higher_level: i32 = level * 2;
 
             // Get all higher neighbours at once
             let (higher_neighbours, n_higher_neighbours) =
-                get_edge_neighbours(i, j, level, offsets, include_containing_higher);
+                get_edge_neighbours(i, j, level, offsets);
 
             // Get the Affines for distance calc
             let transform: &Affine = transforms.get(&level).unwrap();
@@ -205,15 +206,13 @@ impl Graph {
 
 /// Get possible higher-level cells for a current-level edge cell.
 ///
-/// Block windows use only the higher-level cells adjacent to the cell containing
-/// the current edge cell. Fractional annulus windows can also overlap that
-/// containing higher-level cell at the rim, so annulus modes include it too.
+/// Fractional annulus windows can overlap the higher-level cell containing the
+/// current edge cell at the rim, so include it alongside adjacent cells.
 fn get_edge_neighbours(
     i: i32,
     j: i32,
     level: i32,
     offsets: (usize, usize),
-    include_containing_higher: bool,
 ) -> ([(i32, i32); 4], usize) {
     let (tile_row0_u, tile_col0_u) = offsets;
     let tile_row0 = tile_row0_u as i32;
@@ -244,12 +243,8 @@ fn get_edge_neighbours(
     ];
 
     let mut higher_cells = [(0, 0); 4];
-    let mut count = 0;
-
-    if include_containing_higher {
-        higher_cells[count] = target_higher;
-        count += 1;
-    }
+    let mut count = 1;
+    higher_cells[0] = target_higher;
 
     for (di, dj) in OFFSETS {
         let ni = i + di;
@@ -289,20 +284,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn edge_neighbours_preserve_block_exclusion_of_containing_cell() {
-        let (cells, count) = get_edge_neighbours(1, 1, 1, (0, 0), false);
-        let cells = &cells[..count];
-
-        assert_eq!(count, 3);
-        assert!(!cells.contains(&(0, 0)));
-        assert!(cells.contains(&(1, 0)));
-        assert!(cells.contains(&(0, 1)));
-        assert!(cells.contains(&(1, 1)));
-    }
-
-    #[test]
     fn edge_neighbours_include_containing_cell_for_annulus_modes() {
-        let (cells, count) = get_edge_neighbours(1, 1, 1, (0, 0), true);
+        let (cells, count) = get_edge_neighbours(1, 1, 1, (0, 0));
         let cells = &cells[..count];
 
         assert_eq!(count, 4);

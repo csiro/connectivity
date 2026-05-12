@@ -107,13 +107,11 @@ Candidate internally generated levels:
 ```
 
 The default `window_mode="circular"` uses source-centered circular annuli with
-fractional area/count support at annulus boundaries. For comparison with older
-runs, `window_mode="block"` preserves the original snapped multi-resolution
-window construction. The intermediate `window_mode="square"` option uses the
-same source-centered fractional construction with square annuli. These modes
-change indicator values, so compare outputs only between runs that use the same
-window mode. Grid-bias filtering is applied by default only for
-`window_mode="block"`; `square` and `circular` default to no filtering.
+fractional area/count support at annulus boundaries. The
+`window_mode="square"` option uses the same source-centered fractional
+construction with square annuli. These modes change indicator values, so
+compare outputs only between runs that use the same window mode. The library
+does not apply grid-effect filtering to `connectedness()` or `beri()` outputs.
 
 ### Connected Habitat (Connectedness) <a name="conn"></a>    
 

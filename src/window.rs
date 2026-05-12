@@ -4,7 +4,6 @@ use std::iter::zip;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
-    Block,
     Square,
     Circular,
 }
@@ -12,11 +11,10 @@ pub enum WindowMode {
 impl WindowMode {
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "block" => Ok(Self::Block),
             "square" => Ok(Self::Square),
             "circular" => Ok(Self::Circular),
             other => Err(format!(
-                "Invalid window_mode '{other}'. Expected 'block', 'square', or 'circular'."
+                "Invalid window_mode '{other}'. Expected 'square' or 'circular'."
             )),
         }
     }
@@ -71,17 +69,6 @@ impl FocalWindow {
         cell_weights: &HashMap<i32, Array2<f32>>,
         window_mode: WindowMode,
     ) -> Self {
-        let agg_factor = 2;
-        let higher_level = current_level * agg_factor;
-
-        let (tile_row0_u, tile_col0_u) = offsets;
-        let tile_row0 = tile_row0_u as i32;
-        let tile_col0 = tile_col0_u as i32;
-
-        let level_index = |base_idx: i32, tile0: i32, level: i32| -> i32 {
-            (tile0 + base_idx).div_euclid(level) - tile0.div_euclid(level)
-        };
-
         let count_array = cell_weights
             .get(&current_level)
             .expect("Weights level not found!");
@@ -90,10 +77,6 @@ impl FocalWindow {
             .expect("Condition level not found!");
         let current_height = current_array.shape()[0] as i32;
         let current_width = current_array.shape()[1] as i32;
-        let higher_center_i: i32 = level_index(base_i, tile_row0, higher_level);
-        let higher_center_j: i32 = level_index(base_j, tile_col0, higher_level);
-        let i: i32 = level_index(base_i, tile_row0, current_level);
-        let j: i32 = level_index(base_j, tile_col0, current_level);
 
         // Ensure neighborhood sizes are odd
         if win_size % 2 == 0 {
@@ -116,10 +99,6 @@ impl FocalWindow {
             win_size
         };
 
-        // Calculate radius based on effective neighborhood size
-        let radius: i32 = effective_win_size / 2;
-        let exclusion_radius: i32 = win_size / 2; // Always use the standard size for exclusion
-
         // Pre-allocate vectors with estimated capacity
         // We can give a conservative estimate to avoid multiple reallocations
         let max_win_size = win_size.max(outer_win);
@@ -135,59 +114,35 @@ impl FocalWindow {
             None
         };
 
-        match window_mode {
-            WindowMode::Block => collect_block_window(
-                higher_center_i,
-                higher_center_j,
-                i,
-                j,
-                current_level,
-                higher_level,
-                agg_factor,
-                radius,
-                exclusion_radius,
-                current_height,
-                current_width,
-                cond_dict,
-                count_array,
-                current_array,
-                &mut i_array,
-                &mut j_array,
-                &mut values,
-                &mut counts,
-            ),
-            WindowMode::Square | WindowMode::Circular => {
-                let base_array = cond_dict.get(&1).expect("Base condition level not found!");
-                let base_height = base_array.shape()[0] as i32;
-                let base_width = base_array.shape()[1] as i32;
-                let annulus_shape = if window_mode == WindowMode::Circular {
-                    AnnulusShape::Circular
-                } else {
-                    AnnulusShape::Square
-                };
+        let base_array = cond_dict.get(&1).expect("Base condition level not found!");
+        let base_height = base_array.shape()[0] as i32;
+        let base_width = base_array.shape()[1] as i32;
+        let annulus_shape = if window_mode == WindowMode::Circular {
+            AnnulusShape::Circular
+        } else {
+            AnnulusShape::Square
+        };
 
-                collect_fractional_annulus_window(
-                    base_i,
-                    base_j,
-                    current_level,
-                    win_size,
-                    effective_win_size,
-                    annulus_shape,
-                    offsets,
-                    current_height,
-                    current_width,
-                    base_height,
-                    base_width,
-                    count_array,
-                    current_array,
-                    &mut i_array,
-                    &mut j_array,
-                    &mut values,
-                    &mut counts,
-                    edge_cells.as_mut(),
-                )
-            }
-        }
+        collect_fractional_annulus_window(
+            base_i,
+            base_j,
+            current_level,
+            win_size,
+            effective_win_size,
+            annulus_shape,
+            offsets,
+            current_height,
+            current_width,
+            base_height,
+            base_width,
+            count_array,
+            current_array,
+            &mut i_array,
+            &mut j_array,
+            &mut values,
+            &mut counts,
+            edge_cells.as_mut(),
+        );
 
         // Now, separately process the transgrids for all scenarios; easier this way
         // Output: Vec_scenario<Vec_indices<sim>>
@@ -216,89 +171,6 @@ impl FocalWindow {
             counts,
             sims,
             edge_cells,
-        }
-    }
-}
-
-#[inline]
-fn collect_block_window(
-    higher_center_i: i32,
-    higher_center_j: i32,
-    i: i32,
-    j: i32,
-    current_level: i32,
-    higher_level: i32,
-    agg_factor: i32,
-    radius: i32,
-    exclusion_radius: i32,
-    current_height: i32,
-    current_width: i32,
-    cond_dict: &HashMap<i32, Array2<f32>>,
-    count_array: &Array2<f32>,
-    current_array: &Array2<f32>,
-    i_array: &mut Vec<i32>,
-    j_array: &mut Vec<i32>,
-    values: &mut Vec<f32>,
-    counts: &mut Vec<f32>,
-) {
-    // Determine higher level dimensions
-    let (higher_height, higher_width) = if cond_dict.contains_key(&higher_level) {
-        let higher_array = cond_dict
-            .get(&higher_level)
-            .expect("Condition level not found!");
-        (
-            higher_array.shape()[0] as i32,
-            higher_array.shape()[1] as i32,
-        )
-    } else {
-        // Virtual 2x aggregation grid for the highest level: use ceil division so
-        // trailing partial blocks are still represented at tile edges.
-        (
-            (current_height + agg_factor - 1) / agg_factor,
-            (current_width + agg_factor - 1) / agg_factor,
-        )
-    };
-
-    // Iterate over the NxN neighborhood (this is in potential higher level)
-    for di in -radius..=radius {
-        for dj in -radius..=radius {
-            let higher_i = higher_center_i + di;
-            let higher_j = higher_center_j + dj;
-
-            if higher_i < 0 || higher_i >= higher_height || higher_j < 0 || higher_j >= higher_width
-            {
-                continue;
-            }
-
-            let start_i = higher_i * agg_factor;
-            let start_j = higher_j * agg_factor;
-            let end_i = ((higher_i + 1) * agg_factor).min(current_height);
-            let end_j = ((higher_j + 1) * agg_factor).min(current_width);
-
-            for curr_i in start_i..end_i {
-                for curr_j in start_j..end_j {
-                    // Skip cells in the exclusion zone (using standard neighborhood size)
-                    if current_level > 1
-                        && (curr_i - i).abs() <= exclusion_radius
-                        && (curr_j - j).abs() <= exclusion_radius
-                    {
-                        continue;
-                    }
-
-                    // Cell weights; num valid cell for habitat-area contribution
-                    let weight: f32 = count_array[[curr_i as usize, curr_j as usize]];
-                    // Skip the cell/segment if habitat condition is nan!
-                    let condition: f32 = current_array[[curr_i as usize, curr_j as usize]];
-                    if condition.is_nan() {
-                        continue;
-                    } else {
-                        i_array.push(curr_i);
-                        j_array.push(curr_j);
-                        values.push(condition);
-                        counts.push(weight);
-                    }
-                }
-            }
         }
     }
 }

@@ -40,9 +40,8 @@ use affine::Affine;
 /// * `outer_window` - Odd coarsest-level window width used to set the long-range
 ///   search reach. Must be ≥ `window_size`.
 /// * `offsets` -
-/// * `window_mode` - "circular" for source-centered circular annuli,
-///   "square" for source-centered square annuli, or "block" for the
-///   original snapped multi-resolution windows.
+/// * `window_mode` - "circular" for source-centered circular annuli or
+///   "square" for source-centered square annuli.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
 ///
@@ -126,6 +125,7 @@ fn connectivity(
         Ok(pyarray.unbind())
     })
 }
+
 
 /// Compute the proportion of each raster pixel covered by a (multi)polygon.
 ///

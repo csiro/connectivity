@@ -117,8 +117,6 @@ impl Graph {
 
                     // Process connections to the next level (e.g. from level 2 to level 4)
                     if level < max_level && edge_indices.contains(&(i, j)) {
-                        let include_containing_higher =
-                            matches!(window_mode, WindowMode::Square | WindowMode::Circular);
                         graph_temp.fringe(
                             i,
                             j,
@@ -129,7 +127,6 @@ impl Graph {
                             &transforms,
                             geographic,
                             offsets,
-                            include_containing_higher,
                         );
                     }
                 }

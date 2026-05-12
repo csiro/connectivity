@@ -6,14 +6,10 @@ import rasterio
 from rust_conn import connectivity
 from .rastio import read_raster, write_raster
 from .utils import (
-    _FILTER_AUTO,
-    _default_filter_kwargs,
     _normalise_window_mode,
-    remove_grid_bias,
     fn,
     crop_array,
     round_to_pow2,
-    _resolve_filter_kwargs,
 )
 
 
@@ -35,14 +31,13 @@ def connectedness(
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | tuple | None = None,
         option: int = 3,
-        filter_kwargs: dict | None = _FILTER_AUTO,
         n_threads: int | None = None,
         filename: str = "",
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics 
     
     This based on habiat condition using a hierarchical neighborhood-based over multiple resolution
-    levels (raster overviews), and optionally applies post-processing to reduce grid artifacts.
+    levels (raster overviews).
 
     This algorithm operates on the overview layers of a GeoTIFF file (including 
     Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated 
@@ -93,12 +88,11 @@ def connectedness(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
-    window_mode : {"circular", "square", "block"}, optional
+    window_mode : {"circular", "square"}, optional
         Multi-resolution window construction mode. "circular" uses
         source-centered circular annuli with fractional area/count support at
         annulus boundaries. "square" uses the same source-centered fractional
-        construction with square annuli. "block" preserves the
-        original snapped block-centered windows. Default is "circular".
+        construction with square annuli. Default is "circular".
     levels : list of int
         List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
@@ -118,14 +112,6 @@ def connectedness(
     n_threads : int, optional
         The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
-    filter_kwargs : dict, optional
-        Dictionary of extra keyword arguments forwarded to `remove_grid_bias()`
-        (e.g. `periods`, `background_size`, `max_correction`, `axis`).
-        Global raster offsets and model parameters are injected automatically.
-        Set to `None` to disable filtering. Use `{}` to run filtering with defaults
-        derived from `levels`, `window_size`, and `outer_window`. If omitted,
-        filtering defaults to `{}` for `window_mode="block"` and `None` for
-        `window_mode="square"` or `window_mode="circular"`.
     filename : str, optional
         Path to save the output file. If empty, the result is not written to disk.
         Default is "".
@@ -142,7 +128,6 @@ def connectedness(
 
     """
     window_mode = _normalise_window_mode(window_mode)
-    filter_kwargs = _default_filter_kwargs(window_mode, filter_kwargs)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -181,14 +166,6 @@ def connectedness(
         scale=s1, # only for condition raster
         expand_px=pad_size,
         valid_margin_px=margin_px,
-    )
-
-    gb_kwargs = _resolve_filter_kwargs(
-        filter_kwargs=filter_kwargs,
-        fn_name="connectedness",
-        row0=tile_row0,
-        col0=tile_col0,
-        levels=levels,
     )
 
     # Return early if the analysis window has no usable condition cells.
@@ -241,10 +218,6 @@ def connectedness(
                 window_mode = window_mode,
             )
 
-            # Remove grid bias using globally anchored raster phases.
-            if gb_kwargs is not None and not np.isnan(conn_array).all():
-                conn_array = remove_grid_bias(conn_array, **gb_kwargs)
-
             # Calculate the connected-habitat or just return the PARC-connectedness
             if pa_file is None:
                 out_array = fn(conn_array, cond_array, option=option)
@@ -278,7 +251,6 @@ def beri(
         window_mode: str = "circular",
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | None = None,
-        filter_kwargs: dict | None = _FILTER_AUTO,
         n_threads: int | None = None,
         filename: str = "",
     ):
@@ -336,12 +308,11 @@ def beri(
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
         Default is 9.
-    window_mode : {"circular", "square", "block"}, optional
+    window_mode : {"circular", "square"}, optional
         Multi-resolution window construction mode. "circular" uses
         source-centered circular annuli with fractional area/count support at
         annulus boundaries. "square" uses the same source-centered fractional
-        construction with square annuli. "block" preserves the
-        original snapped block-centered windows. Default is "circular".
+        construction with square annuli. Default is "circular".
     levels : list of int
         List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
         Default is [2, 4, 8, 16, 32].
@@ -351,14 +322,6 @@ def beri(
     n_threads : int, optional
         The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
-    filter_kwargs : dict, optional
-        Dictionary of extra keyword arguments forwarded to `remove_grid_bias()`
-        (e.g. `periods`, `background_size`, `max_correction`, `axis`).
-        Global raster offsets and model parameters are injected automatically.
-        Set to `None` to disable filtering. Use `{}` to run filtering with defaults
-        derived from `levels`, `window_size`, and `outer_window`. If omitted,
-        filtering defaults to `{}` for `window_mode="block"` and `None` for
-        `window_mode="square"` or `window_mode="circular"`.
     filename : str, optional
         Path to save the resulting BERI raster. If empty, the output is not written to disk.
         Default is "".
@@ -376,7 +339,6 @@ def beri(
 
     """
     window_mode = _normalise_window_mode(window_mode)
-    filter_kwargs = _default_filter_kwargs(window_mode, filter_kwargs)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -417,14 +379,6 @@ def beri(
         scale=scale, # only for condition raster
         expand_px=pad_size,
         valid_margin_px=margin_px,
-    )
-
-    gb_kwargs = _resolve_filter_kwargs(
-        filter_kwargs=filter_kwargs,
-        fn_name="beri",
-        row0=tile_row0,
-        col0=tile_col0,
-        levels=levels,
     )
 
     # Return early if the analysis window has no usable condition cells.
@@ -475,10 +429,6 @@ def beri(
             n_threads = n_threads,
             window_mode = window_mode,
         )
-
-        # Remove grid bias using globally anchored raster phases.
-        if gb_kwargs is not None and not np.isnan(out_array).all():
-            out_array = remove_grid_bias(out_array, **gb_kwargs)
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask

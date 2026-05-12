@@ -174,7 +174,6 @@ pub fn make_overview(
 }
 
 
-
 /// Generate globally-aligned overviews for 3D arrays (rows, cols, bands).
 ///
 /// Fixes the same seam issue as the 2D version by:
@@ -292,3 +291,4 @@ pub fn make_overview_3d(
 
     Ok(result)
 }
+
