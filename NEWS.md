@@ -16,7 +16,7 @@
 ## Removed
 - Removed `window_mode="block"` and the original snapped multi-resolution window construction from the public API and Rust implementation.
 - Removed automatic grid-effect filtering and the `filter_kwargs` arguments from `connectedness()` and `beri()`.
-- Removed `remove_grid_bias()` from the package exports; its full standalone implementation is preserved in `remove_grid_effect.py` outside the shipped package.
+- Removed `remove_grid_bias()` from the package exports;
 - Removed the obsolete Rust `inpaint_nans_diffusion` Python binding and implementation, which were only used by the previous FFT notch-filter path.
 
 # Version 1.1.1

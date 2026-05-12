@@ -4,8 +4,8 @@ use std::iter::zip;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
-    Square,
     Circular,
+    Square,
 }
 
 impl WindowMode {
@@ -18,12 +18,6 @@ impl WindowMode {
             )),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnnulusShape {
-    Square,
-    Circular,
 }
 
 // Window kernel for one resolution
@@ -117,19 +111,13 @@ impl FocalWindow {
         let base_array = cond_dict.get(&1).expect("Base condition level not found!");
         let base_height = base_array.shape()[0] as i32;
         let base_width = base_array.shape()[1] as i32;
-        let annulus_shape = if window_mode == WindowMode::Circular {
-            AnnulusShape::Circular
-        } else {
-            AnnulusShape::Square
-        };
-
         collect_fractional_annulus_window(
             base_i,
             base_j,
             current_level,
             win_size,
             effective_win_size,
-            annulus_shape,
+            window_mode,
             offsets,
             current_height,
             current_width,
@@ -182,7 +170,7 @@ fn collect_fractional_annulus_window(
     current_level: i32,
     win_size: i32,
     effective_win_size: i32,
-    annulus_shape: AnnulusShape,
+    window_mode: WindowMode,
     offsets: (usize, usize),
     current_height: i32,
     current_width: i32,
@@ -253,8 +241,18 @@ fn collect_fractional_annulus_window(
             let footprint_c0 = cell_c0.max(tile_c0);
             let footprint_c1 = cell_c1.min(tile_c1);
 
-            let (fraction, is_outer_edge) = match annulus_shape {
-                AnnulusShape::Square => (
+            let (fraction, is_outer_edge) = match window_mode {
+                WindowMode::Circular => circular_annulus_overlap_fraction_and_edge(
+                    footprint_r0,
+                    footprint_r1,
+                    footprint_c0,
+                    footprint_c1,
+                    source_r,
+                    source_c,
+                    inner,
+                    outer,
+                ),
+                WindowMode::Square => (
                     square_annulus_overlap_fraction(
                         footprint_r0,
                         footprint_r1,
@@ -266,16 +264,6 @@ fn collect_fractional_annulus_window(
                         outer,
                     ),
                     false,
-                ),
-                AnnulusShape::Circular => circular_annulus_overlap_fraction_and_edge(
-                    footprint_r0,
-                    footprint_r1,
-                    footprint_c0,
-                    footprint_c1,
-                    source_r,
-                    source_c,
-                    inner,
-                    outer,
                 ),
             };
             if fraction <= 0.0 {
