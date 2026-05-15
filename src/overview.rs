@@ -86,6 +86,31 @@ pub fn make_overview(
     let mut result = HashMap::with_capacity(levels.len());
 
     for &f_u in levels {
+        if f_u == 1 {
+            let level_one = match method {
+                Resampling::Average | Resampling::Sum => base.clone(),
+                Resampling::Count => Array2::from_shape_fn(base.dim(), |(r, c)| {
+                    if base[[r, c]].is_finite() {
+                        1.0
+                    } else {
+                        f32::NAN
+                    }
+                }),
+                Resampling::Area => {
+                    let area_rows = row_area_factor.expect("Area resampling requires row area factors.");
+                    Array2::from_shape_fn(base.dim(), |(r, c)| {
+                        if base[[r, c]].is_finite() {
+                            area_rows[r]
+                        } else {
+                            f32::NAN
+                        }
+                    })
+                }
+            };
+            result.insert(1, level_one);
+            continue;
+        }
+
         let f = f_u as i32;
 
         let ov_row_start = tile_r0.div_euclid(f);
@@ -212,6 +237,11 @@ pub fn make_overview_3d(
     let mut result = HashMap::with_capacity(levels.len());
 
     for &f_u in levels {
+        if f_u == 1 {
+            result.insert(1, base.clone());
+            continue;
+        }
+
         let f = f_u as i32;
 
         let ov_row_start = tile_r0.div_euclid(f);
