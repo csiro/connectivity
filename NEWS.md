@@ -7,6 +7,7 @@
 
 ## Changed
 - Changed the default window mode to `window_mode="circular"`.
+- `connectedness()` and `beri()` now validate that `levels` form a continuous power-of-two sequence before entering Rust graph construction.
 - Updated Rust Python bindings to `pyo3` 0.28 and `numpy` 0.28, removing the deprecated `gil-refs` and `py-clone` feature usage and migrating to the current PyO3/numpy APIs.
 - Updated the Python build configuration for current PyO3/maturin extension-module handling.
 - `overview_info()` is now a backward-compatible wrapper for `resolution_info()`.

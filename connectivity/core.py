@@ -16,6 +16,16 @@ from .utils import (
 _MAX_BERI_READ_WORKERS = 8
 
 
+def _check_continuous_levels(levels: list[int]) -> None:
+    for current, next_level in zip(levels, levels[1:]):
+        expected = current * 2
+        if next_level != expected:
+            raise ValueError(
+                "levels must form a continuous power-of-two sequence; "
+                f"missing level {expected} between {current} and {next_level}"
+            )
+
+
 # Connectedness main funciton
 def connectedness(
         condition_file: str,
@@ -94,7 +104,8 @@ def connectedness(
         annulus boundaries. "square" uses the same source-centered fractional
         construction with square annuli. Default is "circular".
     levels : list of int
-        List of overview levels used for multi-scale analysis. Must be powers of 2 (1 is ignored).
+        List of overview levels used for multi-scale analysis. Must form a continuous
+        power-of-two sequence (1 is added internally).
         Default is [2, 4, 8, 16, 32].
     scale : float or tuple, optional
         Scaling factor(s) applied to the condition and PA rasters.
@@ -154,6 +165,7 @@ def connectedness(
 
     # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
     levels = sorted({1, *(round_to_pow2(x) for x in levels)})
+    _check_continuous_levels(levels)
 
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
@@ -314,7 +326,8 @@ def beri(
         annulus boundaries. "square" uses the same source-centered fractional
         construction with square annuli. Default is "circular".
     levels : list of int
-        List of overview levels used for multi-scale analysis. Should be powers of 2 (1 is ignored).
+        List of overview levels used for multi-scale analysis. Must form a continuous
+        power-of-two sequence (1 is added internally).
         Default is [2, 4, 8, 16, 32].
     scale : float, optional
         Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
@@ -357,6 +370,7 @@ def beri(
         raise ValueError("levels must be provided")
     # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
     levels = sorted({1, *(round_to_pow2(x) for x in levels)})
+    _check_continuous_levels(levels)
 
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
