@@ -1,3 +1,7 @@
+# Version 2.0.1
+## Fixed
+- Fixed adjusted path distances to use the same `max_cost`-scaled edge distances used by Dijkstra routing, avoiding a second hard-coded inverse-condition transform equivalent to `max_cost = 2`.
+
 # Version 2.0.0
 ## Added
 - Added a `window_mode` option to `connectedness()`, `beri()`, and the Rust `connectivity()` binding.
