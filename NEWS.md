@@ -1,4 +1,7 @@
 # Version 2.0.1
+## Added
+- Added `make_tile()` and `make_tiles()` helpers for creating non-overlapping raster-pixel core tiles whose internal row/column breaks align to a requested aggregation level, e.g. `align_to=max(levels)`, for tiled `connectedness()` and `beri()` runs.
+
 ## Fixed
 - Fixed adjusted path distances to use the same `max_cost`-scaled edge distances used by Dijkstra routing, avoiding a second hard-coded inverse-condition transform equivalent to `max_cost = 2`.
 
