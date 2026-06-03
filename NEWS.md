@@ -1,4 +1,4 @@
-# Version 2.0.1
+# Version 2.1.0
 ## Added
 - Added `make_tile()` and `make_tiles()` helpers for creating non-overlapping raster-pixel core tiles whose internal row/column breaks align to a requested aggregation level, e.g. `align_to=max(levels)`, for tiled `connectedness()` and `beri()` runs.
 
