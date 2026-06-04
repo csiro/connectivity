@@ -72,8 +72,7 @@ pub fn make_overview(
 
         let mut factors = Vec::with_capacity(base_rows_u);
         for local_r in 0..base_rows_u {
-            let global_r = tile_row0 + local_r as i32;
-            let (_, lat_deg) = tr.xy(global_r, 0);
+            let (_, lat_deg) = tr.xy(local_r as i32, 0);
             let w = lat_deg.to_radians().cos().abs() as f32;
             factors.push(if w.is_finite() { w.max(0.0) } else { 0.0 });
         }
@@ -322,3 +321,30 @@ pub fn make_overview_3d(
     Ok(result)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn area_weights_use_tile_local_rows_with_shifted_transform() {
+        let base = Array2::<f32>::ones((2, 1));
+        let transform = Affine {
+            x_scale: 1.0,
+            x_skew: 0.0,
+            x_origin: 0.0,
+            y_skew: 0.0,
+            y_scale: -1.0,
+            y_origin: 80.0,
+        };
+
+        let overview = make_overview(&base, &[1], (10, 0), Resampling::Area, Some(&transform))
+            .expect("area overview should build");
+        let weights = overview.get(&1).expect("level 1 weights should exist");
+
+        let expected_row0 = 79.5_f32.to_radians().cos().abs();
+        let expected_row1 = 78.5_f32.to_radians().cos().abs();
+
+        assert!((weights[[0, 0]] - expected_row0).abs() < 1.0e-6);
+        assert!((weights[[1, 0]] - expected_row1).abs() < 1.0e-6);
+    }
+}

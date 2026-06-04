@@ -4,6 +4,7 @@
 
 ## Fixed
 - Fixed adjusted path distances to use the same `max_cost`-scaled edge distances used by Dijkstra routing, avoiding a second hard-coded inverse-condition transform equivalent to `max_cost = 2`.
+- Fixed geographic area weights in tiled runs to use tile-local rows with the already shifted read-window transform, avoiding a double row-offset that could leave residual horizontal tile seams.
 
 # Version 2.0.0
 ## Added
