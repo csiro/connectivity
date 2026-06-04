@@ -161,6 +161,8 @@ parcc = connectedness(
 )
 ```
 
+<img src="figs/parc.png" width="385" height="300">
+
 Use `pixel_coverage()` when you need the proportion of each raster pixel covered
 by polygon geometry. The calculation is backed by a performant Rust
 implementation:
@@ -170,8 +172,6 @@ from connectivity import pixel_coverage
 
 coverage = pixel_coverage("./data/polygons.gpkg", "./data/condition.tif")
 ```
-
-<img src="figs/parc.png" width="385" height="300">
 
 ### Bioclimatic Ecosystem Resilience Index (BERI) <a name="beri"></a>    
 To compute BERI, you must provide:
