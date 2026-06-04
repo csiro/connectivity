@@ -161,6 +161,16 @@ parcc = connectedness(
 )
 ```
 
+Use `pixel_coverage()` when you need the proportion of each raster pixel covered
+by polygon geometry. The calculation is backed by a performant Rust
+implementation:
+
+```python
+from connectivity import pixel_coverage
+
+coverage = pixel_coverage("./data/polygons.gpkg", "./data/condition.tif")
+```
+
 <img src="figs/parc.png" width="385" height="300">
 
 ### Bioclimatic Ecosystem Resilience Index (BERI) <a name="beri"></a>    
@@ -188,17 +198,30 @@ beris = beri(
 
 ## Running Analysis with Tiles <a name="tiles"></a>    
 
-To run the model using tiles, you can supply a rectangular tile polygon as a GeoDataFrame to the `polygon_mask` argument. This limits data loading to only the portion required for the tile (i.e., the pixels within the tile plus a buffered neighborhood).
+To run the model using tiles, create a rectangular tile polygon as a GeoDataFrame
+and pass it to the `polygon_mask` argument. This limits data loading to only the
+portion required for the tile, i.e. the output core plus the internally buffered
+neighborhood.
 
-Be sure to set `closed_border = False` (the default) so that neighborhood information is included and edge effects are avoided in adjacent tiles. 
+Use `make_tile()` to generate non-overlapping output-core tiles whose internal
+boundaries align with the coarsest aggregation level. This is preferred over
+creating overlap-expanded tile polygons externally. Be sure to set
+`closed_border = False` (the default) so that neighborhood information is
+included around each tile core.
 
 ```python
-import geopandas as gpd 
+from connectivity import connectedness, make_tile
 
-tiles = gpd.read_file(".data/tiles.gpkg")
+levels = [2, 4, 8, 16, 32]
 
 tile_id = 0
-tile_poly = tiles.iloc[[tile_id]]
+tile_poly = make_tile(
+    raster_file = "./data/condition.tif",
+    nrows = 4,
+    ncols = 4,
+    tile_id = tile_id,
+    align_to = max(levels),
+)
 
 connd = connectedness(
     condition_file = "./data/condition.tif",
@@ -210,12 +233,30 @@ connd = connectedness(
     window_size = 5, 
     outer_window = 11,
     window_mode = "circular",
-    levels = [2, 4, 8, 16, 32], 
+    levels = levels, 
     option = 1,
     filename = f"./results/connected_habitat_tile_{tile_id}.tif"
 )
 ```
 
-Increase `margin_px` to `64` if you see edge effects at tile joints. Another useful solution is increasing tile overlap.
+For large, uneven workloads, use balanced tiles:
+
+```python
+tile_poly = make_tile(
+    raster_file = "./data/condition.tif",
+    nrows = 4,
+    ncols = 4,
+    tile_id = tile_id,
+    align_to = max(levels),
+    balanced = True,
+    io_weight = 0.1,
+)
+```
+
+Balanced tiling uses a deterministic raster-mask cost estimate while preserving
+the same `align_to` boundary alignment. It is useful for global rasters where
+some tiles contain mostly ocean or nodata and others contain many valid land
+pixels. Use `balanced = False` (the default) when equal aligned tiles are enough.
+When `balanced = False`, `io_weight` is ignored.
 
 [Back to top!](#top)
