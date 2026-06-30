@@ -9,13 +9,13 @@
   - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
 - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
       
-A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectedness (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
+A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
 
 This algorithm operates on the overview layers of raster files which are now generated on-the-fly.
 
 ## Installation <a name="install"></a>     
 ### Create or Load a Python Environment <a name="env"></a>     
-You need to load the Python module and create an environment if you don't alreay have one. If you alrady have an envirnment with `rasterio`, `scipay` and `geopandas`, ignore this step and just activate your environment.
+You need to load the Python module and create an environment if you don't already have one. If you already have an environment with `numpy`, `rasterio`, `geopandas`, and `shapely`, ignore this step and just activate your environment.
 
 ```bash
 module load python/3.12.3
