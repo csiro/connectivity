@@ -8,6 +8,7 @@
   - [PARC-Connectedness ](#parc-connectedness-)
   - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
 - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+- [Citation](#citation)
       
 A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
 
@@ -258,5 +259,10 @@ the same `align_to` boundary alignment. It is useful for global rasters where
 some tiles contain mostly ocean or nodata and others contain many valid land
 pixels. Use `balanced = False` (the default) when equal aligned tiles are enough.
 When `balanced = False`, `io_weight` is ignored.
+
+## Citation
+To cite `connectivity` library in publications and reports, please use:
+
+Valavi R, Mokany K, Ware C, Vickers M, Giljohann K, Ferrier S. **A scalable multi-resolution framework for least-cost landscape connectivity and biodiversity indicators**. (*to be added*) 2026.
 
 [Back to top!](#top)
