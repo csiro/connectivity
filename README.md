@@ -263,6 +263,6 @@ When `balanced = False`, `io_weight` is ignored.
 ## Citation
 To cite `connectivity` library in publications and reports, please use:
 
-Valavi R, Mokany K, Ware C, Vickers M, Giljohann K, Ferrier S. **A scalable multi-resolution framework for least-cost landscape connectivity and biodiversity indicators**. (*to be added*) 2026.
+Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., & Ferrier, S. (2026). **A scalable multi-resolution framework for connectivity-based biodiversity indicators**. *EcoEvoRxiv*. [https://doi.org/10.32942/X2S68V](https://doi.org/10.32942/X2S68V)
 
 [Back to top!](#top)
