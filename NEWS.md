@@ -1,3 +1,15 @@
+# Version 2.2.0
+## Added
+- Added an optional `resistance_file` argument (and `resistance_scale`) to `connectedness()` and `beri()`, backed by a new `traversal` argument on the Rust `connectivity()` binding. When supplied, the resistance raster is decoupled from condition and used **only** for path traversal — the edge weight becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost` — while condition still drives every indicator value (habitat area and the value multiplier). When omitted, condition is used for traversal as before, so output is unchanged. Resistance values are expected in `[0, 1]` (scaled via `resistance_scale`); cells valid in condition but missing resistance fall back to condition for traversal and emit a warning, so the analysis domain is never changed silently.
+- Added an optional `pa_to_pa` argument to `connectedness()` (PARC edition, requires `pa_file`). When enabled, only graph nodes that fall on a protected area contribute to the connectedness numerator: paths still route through the intervening non-PA landscape (adjusted/intact distances unchanged) and the denominator keeps the full reachable area exactly as when disabled, so only the numerator changes — non-PA destinations contribute nothing and coarse cells straddling a PA boundary contribute only their protected fraction. A protected area that can reach no other scores 0. Defaults to `False` (original PARC behaviour).
+- Added an optional `filename` argument to `pixel_coverage()`; when set, the per-pixel coverage array is also written to a GeoTIFF that inherits `raster_file`'s grid and CRS, producing a raster directly usable as the `pa_file` input to `connectedness()`.
+- Added bundled example datasets and an `example_data_path()` helper (exported from the top-level package) to resolve them by name — `site_condition`, `pa_proportion`, and the `transgrids/*` climate scenarios — so the example notebooks and quick tests run without external downloads.
+- Added an example notebook, `examples/01_tasmania_indicators.ipynb`, demonstrating the connectivity and BERI indicators on the bundled Tasmania data (shipped in the source distribution).
+
+## Changed
+- Raised the minimum supported Python to 3.10 (`requires-python = ">=3.10"`).
+- Updated packaging (`[tool.maturin]`) to ship the example rasters in both wheels and source distributions, and the example notebooks in the source distribution.
+
 # Version 2.1.0
 ## Added
 - Added `make_tile()` and `make_tiles()` helpers for creating non-overlapping raster-pixel core tiles whose internal row/column breaks align to a requested aggregation level, e.g. `align_to=max(levels)`, for tiled `connectedness()` and `beri()` runs. The helpers also support optional deterministic cost-balanced planning with `balanced=True`.

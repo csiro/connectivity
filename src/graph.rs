@@ -12,6 +12,7 @@ pub struct EdgeData {
     pub adj_dist: f32,                      // Condistion-adjusted distance
     pub geo_dist: f32,                      // Geo-distance; no condition adjustment
     pub condition: f32,                     // Raw condition
+    pub pa: f32,                            // Protected fraction of the destination (1.0 when pa_to_pa off); numerator-only
     pub num_cells: f32,                     // Original Cell count/weight for habitat area
     pub similarities: Rc<Vec<Option<f32>>>, // Similarity of the cell; all scenarios
 }
@@ -78,9 +79,10 @@ impl Graph {
         i_ngb: &[i32],
         j_ngb: &[i32],
         factor: f32,
-        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>,
         transform: &Affine,
         is_wgs: bool,
+        pa_to_pa: bool,
     ) -> bool {
         // Start with true if it's the source node
         let mut is_isolated = u == self.source;
@@ -94,12 +96,13 @@ impl Graph {
             let nj = j + dj;
 
             // Check if neighbor exists in node_mapping
-            if let Some(&(v, z, c, ref s)) = node_mapping.get(&(ni, nj)) {
+            if let Some(&(v, z, t, c, pa_v, ref s)) = node_mapping.get(&(ni, nj)) {
                 // Distance to adjacent node/cell in kilometers
                 let (x2, y2) = transform.xy(ni, nj);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
-                // Calcualte the weight using max_cost
-                let w: f32 = (1.0 - factor) * z + factor;
+                // Calcualte the weight from the traversal value `t` (resistance-derived when
+                // supplied, otherwise the condition value) and max_cost.
+                let w: f32 = (1.0 - factor) * t + factor;
 
                 // Store weighted distance + similarities
                 self.add_node(
@@ -108,6 +111,7 @@ impl Graph {
                         adj_dist: w * dist,
                         geo_dist: dist,
                         condition: z,
+                        pa: pa_v,
                         num_cells: c,
                         similarities: s.clone(),
                     },
@@ -120,12 +124,16 @@ impl Graph {
 
         // If the source node is isolated, create a "synthetic" edge so it is connected somewhere
         if is_isolated {
-            if let Some(&(_, z, c, ref s)) = node_mapping.get(&(i, j)) {
+            if pa_to_pa {
+                // PARC target-gating: an isolated PA source can reach no other PA, so it must
+                // score 0. Drop the synthetic self-edge and leave the graph empty.
+                self.clear();
+            } else if let Some(&(_, z, t, c, pa_v, ref s)) = node_mapping.get(&(i, j)) {
                 // Distance to an adjacent cell in kilometers
                 let (x2, y2) = transform.xy(i + 1, j);
                 let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
-                // Calcualte the weight using max_cost
-                let w: f32 = (1.0 - factor) * z + factor;
+                // Calcualte the weight from the traversal value `t` and max_cost
+                let w: f32 = (1.0 - factor) * t + factor;
                 // Make a fake node
                 let fake_v = u + 1;
 
@@ -137,6 +145,7 @@ impl Graph {
                         adj_dist: w * dist,
                         geo_dist: dist,
                         condition: z,
+                        pa: pa_v,
                         num_cells: c,
                         similarities: s.clone(),
                     },
@@ -157,13 +166,13 @@ impl Graph {
         j: i32,
         factor: f32,
         level: i32,
-        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
-        node_mapping_higher: &HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping_higher: &HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>,
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
         offsets: (usize, usize),
     ) {
-        if let Some(&(uu, _, _, _)) = node_mapping.get(&(i, j)) {
+        if let Some(&(uu, _, _, _, _, _)) = node_mapping.get(&(i, j)) {
             let higher_level: i32 = level * 2;
 
             // Get all higher neighbours at once
@@ -179,14 +188,14 @@ impl Graph {
             // Use 'ref' to borrow Vec<f32> rather than moving it
             for &(ni, nj) in higher_neighbours[..n_higher_neighbours].iter() {
                 // Only if the neghbours are in the higher mapping proceess
-                if let Some(&(v, z, c, ref s)) = node_mapping_higher.get(&(ni, nj)) {
+                if let Some(&(v, z, t, c, pa_v, ref s)) = node_mapping_higher.get(&(ni, nj)) {
                     // Get the actual coordinates of the higher level
                     let (x2, y2) = transform_upper.xy(ni, nj);
                     // Distance in kilometer
                     let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
 
-                    // Calcualte the weight using max_cost
-                    let w = (1.0 - factor) * z + factor;
+                    // Calcualte the weight from the traversal value `t` and max_cost
+                    let w = (1.0 - factor) * t + factor;
 
                     self.add_node(
                         (uu, v),
@@ -194,6 +203,7 @@ impl Graph {
                             adj_dist: w * dist,
                             geo_dist: dist,
                             condition: z,
+                            pa: pa_v,
                             num_cells: c,
                             similarities: s.clone(),
                         },

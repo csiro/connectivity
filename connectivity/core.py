@@ -7,29 +7,21 @@ from rust_conn import connectivity
 from .rastio import read_raster, write_raster
 from .utils import (
     _normalise_window_mode,
-    fn,
-    crop_array,
-    round_to_pow2,
+    _make_traversal,
+    _check_continuous_levels,
+    _connected_habitat,
+    _crop_array,
+    _round_to_pow2,
 )
 
-
 _MAX_BERI_READ_WORKERS = 8
-
-
-def _check_continuous_levels(levels: list[int]) -> None:
-    for current, next_level in zip(levels, levels[1:]):
-        expected = current * 2
-        if next_level != expected:
-            raise ValueError(
-                "levels must form a continuous power-of-two sequence; "
-                f"missing level {expected} between {current} and {next_level}"
-            )
 
 
 # Connectedness main funciton
 def connectedness(
         condition_file: str,
-        pa_file: str | None = None, 
+        pa_file: str | None = None,
+        pa_to_pa: bool = False,
         polygon_mask: gpd.GeoDataFrame | None = None,
         closed_border: bool = False,
         margin_px: int = 32,
@@ -40,11 +32,13 @@ def connectedness(
         window_mode: str = "circular",
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | tuple | None = None,
+        resistance_file: str | None = None,
+        resistance_scale: float | None = None,
         option: int = 3,
         n_threads: int | None = None,
         filename: str = "",
     ):
-    """Computes a multi-scale habitat and PARC connectedness metrics 
+    """Computes a multi-scale habitat and PARC connectedness metrics
     
     This based on habiat condition using a hierarchical neighborhood-based over multiple resolution
     levels (raster overviews).
@@ -63,9 +57,19 @@ def connectedness(
         Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
         adjusted using the `scale` parameter.
     pa_file : str, optional
-        Path to the raster file containing protected-area (PA) proportions. This file is required to 
-        calculate PARC-connectedness. If provided, the function will compute PARC-connectedness instead 
+        Path to the raster file containing protected-area (PA) proportions. This file is required to
+        calculate PARC-connectedness. If provided, the function will compute PARC-connectedness instead
         of standard habitat connectedness. If `None`, only habitat connectedness is calculated.
+    pa_to_pa : bool, optional
+        PARC edition only (requires `pa_file`). If True, restrict the source-destination
+        connectivity so that only graph nodes falling on a protected area contribute to the
+        connectedness *numerator*. Paths still route through the intermediate non-PA landscape
+        and their adjusted/intact distances are unchanged; the *denominator* also keeps the full
+        reachable area exactly as when False, so only the numerator changes. A destination cell
+        outside every PA contributes nothing to the numerator, and a coarse cell straddling a PA
+        boundary contributes only its protected fraction. An isolated PA (one that can reach no
+        other PA) scores 0. If False (default), every reachable cell is counted, i.e. the
+        original PARC behaviour. Ignored when `pa_file` is None.
     polygon_mask : gpd.GeoDataFrame, optional
         A GeoDataFrame containing polygon geometry that defines the area of
         interest. If provided, analysis is limited to this area; if None,
@@ -86,9 +90,10 @@ def connectedness(
         which the condition is used in the connectivity as a measure of organism 
         dispersal. Default is [2, 20, 200].
     max_cost : float, optional
-        The cost of moving through a removed site (cell with condition zero). Used in weighting habitat condition
-        for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
-        Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
+        The cost of moving through a fully-degraded site. Used in weighting the path traversal
+        (default = 2, i.e. twice the cost of passing through an intact cell). Applied as
+        `w = (1.0 - max_cost) * t + max_cost`, where `t` is the traversal value: the condition
+        value by default, or `1 - resistance` when `resistance_file` is given (see below).
     window_size : int
         Odd local window width used for non-coarsest levels. For instance,
         window_size=3 produces an effective 6×6 current-level window in the
@@ -113,6 +118,17 @@ def connectedness(
         - If a tuple of two values is provided, the first value scales the condition raster
         and the second value scales the PA raster.
         - Each element may be ``None``, ``0``, or ``1`` to indicate no scaling for that raster.
+    resistance_file : str, optional
+        Path to an optional resistance raster (values in [0, 1], high = harder to cross). When
+        provided it is decoupled from condition and used *only* for path traversal: the weight
+        becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost`. Condition still drives all
+        indicator values (habitat area and the value multiplier). If ``None`` (default), the
+        condition raster is used for traversal too, i.e. the original behaviour (bit-identical).
+        Cells valid in condition but missing in resistance fall back to condition for traversal
+        and emit a warning (no cell is dropped).
+    resistance_scale : float, optional
+        Scaling factor applied to the resistance raster (divides it, like ``scale`` for
+        condition) so its values land in [0, 1]. If ``None``, 0, or 1, it is used unchanged.
     option : int, optional
         Option flag to generate the connected condition from connectedness and input habitat-condition 
         (this is ignored for PARC-connectedness).
@@ -145,6 +161,11 @@ def connectedness(
         print(f"Notice: 'outer_window' was smaller than 'window_size' and has been adjusted to {window_size}.")
         outer_window = window_size
 
+    # PA target-gating only applies to PARC-connectedness (needs a PA file to define targets).
+    if pa_to_pa and pa_file is None:
+        print("Notice: 'pa_to_pa' is ignored because no 'pa_file' was provided.")
+    pa_to_pa = bool(pa_to_pa) and (pa_file is not None)
+
     # Take of care of two scales in case PA has a different scale
     if isinstance(scale, tuple):
         s1, s2 = (scale + (None,))[:2]   # pad with None and take first 2
@@ -164,7 +185,7 @@ def connectedness(
                 )
 
     # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
-    levels = sorted({1, *(round_to_pow2(x) for x in levels)})
+    levels = sorted({1, *(_round_to_pow2(x) for x in levels)})
     _check_continuous_levels(levels)
 
     # For closed border there'll be no padding
@@ -213,11 +234,30 @@ def connectedness(
         if np.all(mask_array):
             out_array = np.full(mask_array.shape, np.nan, dtype=np.float32)
         else:
+            # Optional resistance raster -> traversal values (decoupled from condition; used
+            # only for path weighting). None keeps the resistance-free behaviour unchanged.
+            res_array = None
+            if resistance_file is not None:
+                res_array, *_ = read_raster(
+                    file_path=resistance_file,
+                    polygon=polygon_mask,
+                    levels=levels,
+                    scale=resistance_scale,
+                    expand_px=pad_size,
+                    valid_margin_px=margin_px,
+                )
+                if cond_array.shape != res_array.shape:
+                    raise ValueError(
+                        f"Shape mismatch: condition {cond_array.shape} vs "
+                        f"resistance {res_array.shape}"
+                    )
+            traversal = _make_traversal(cond_array, res_array)
+
             # The base Rust connectivity funciton
             conn_array = connectivity(
                 condition = cond_array,
                 mask = mask_array,
-                transgrid_list = None, 
+                transgrid_list = None,
                 transforms = affine_dict,
                 levels = levels,
                 lambdas = lambdas,
@@ -226,20 +266,22 @@ def connectedness(
                 window_size = window_size,
                 outer_window = outer_window,
                 offsets = (tile_row0, tile_col0),
+                traversal = traversal,
                 n_threads = n_threads,
                 window_mode = window_mode,
+                pa_to_pa = pa_to_pa,
             )
 
             # Calculate the connected-habitat or just return the PARC-connectedness
             if pa_file is None:
-                out_array = fn(conn_array, cond_array, option=option)
+                out_array = _connected_habitat(conn_array, cond_array, option=option)
             else:
                 out_array = conn_array
 
     tr = affine_dict[1]
     # Crop array back to the polygon mask
     if not closed_border and polygon_mask is not None:
-        out_array, tr = crop_array(out_array, affine_dict[1], polygon_mask)
+        out_array, tr = _crop_array(out_array, affine_dict[1], polygon_mask)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
@@ -263,6 +305,8 @@ def beri(
         window_mode: str = "circular",
         levels: list[int] = [2, 4, 8, 16, 32],
         scale: float | None = None,
+        resistance_file: str | None = None,
+        resistance_scale: float | None = None,
         n_threads: int | None = None,
         filename: str = "",
     ):
@@ -308,9 +352,10 @@ def beri(
         which the condition is used in the connectivity as a measure of organism 
         dispersal. Default is [2, 20, 200].
     max_cost : float, optional
-        The cost of moving through a removed site (cell with condition zero). Used in weighting habitat condition
-        for connectivity computation (default = 2, i.e. twice the cost of passing through intact cells). 
-        Applied as: `w = (1.0 - max_cost) * condition + max_cost`.
+        The cost of moving through a fully-degraded site. Used in weighting the path traversal
+        (default = 2, i.e. twice the cost of passing through an intact cell). Applied as
+        `w = (1.0 - max_cost) * t + max_cost`, where `t` is the traversal value: the condition
+        value by default, or `1 - resistance` when `resistance_file` is given (see below).
     window_size : int
         Odd local window width used for non-coarsest levels. For instance,
         window_size=3 produces an effective 6x6 current-level window in the
@@ -330,8 +375,18 @@ def beri(
         power-of-two sequence (1 is added internally).
         Default is [2, 4, 8, 16, 32].
     scale : float, optional
-        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged; 
+        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged;
         otherwise it is divided by scale.
+    resistance_file : str, optional
+        Path to an optional resistance raster (values in [0, 1], high = harder to cross). When
+        provided it is decoupled from condition and used *only* for path traversal: the weight
+        becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost`. Condition still drives all
+        indicator values. If ``None`` (default), condition is used for traversal too, i.e. the
+        original behaviour (bit-identical). Cells valid in condition but missing in resistance
+        fall back to condition for traversal and emit a warning (no cell is dropped).
+    resistance_scale : float, optional
+        Scaling factor applied to the resistance raster (divides it, like ``scale``) so its
+        values land in [0, 1]. If ``None``, 0, or 1, it is used unchanged.
     n_threads : int, optional
         The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
@@ -369,7 +424,7 @@ def beri(
     if levels is None:
         raise ValueError("levels must be provided")
     # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
-    levels = sorted({1, *(round_to_pow2(x) for x in levels)})
+    levels = sorted({1, *(_round_to_pow2(x) for x in levels)})
     _check_continuous_levels(levels)
 
     # For closed border there'll be no padding
@@ -427,19 +482,39 @@ def beri(
                 f"trans_grids[0] shape: {trans_grids[0].shape}"
             )
 
+        # Optional resistance raster -> traversal values (decoupled from condition; used only
+        # for path weighting). None keeps the resistance-free behaviour unchanged.
+        res_array = None
+        if resistance_file is not None:
+            res_array, *_ = read_raster(
+                file_path=resistance_file,
+                polygon=polygon_mask,
+                levels=levels,
+                scale=resistance_scale,
+                expand_px=pad_size,
+                valid_margin_px=margin_px,
+            )
+            if cond_array.shape[:2] != res_array.shape[:2]:
+                raise ValueError(
+                    f"Shape mismatch: condition {cond_array.shape[:2]} vs "
+                    f"resistance {res_array.shape[:2]}"
+                )
+        traversal = _make_traversal(cond_array, res_array)
+
         # The base Rust connectivity funciton
         out_array = connectivity(
             condition = cond_array,
             mask = mask_array,
             transgrid_list = trans_grids,
             transforms = affine_dict,
-            levels = levels, 
-            lambdas = lambdas, 
+            levels = levels,
+            lambdas = lambdas,
             is_geo = is_geo,
             max_cost = max_cost,
             window_size = window_size,
             outer_window = outer_window,
             offsets = (tile_row0, tile_col0),
+            traversal = traversal,
             n_threads = n_threads,
             window_mode = window_mode,
         )
@@ -447,7 +522,7 @@ def beri(
     tr = affine_dict[1]
     # Crop array back to the polygon mask
     if not closed_border and polygon_mask is not None:
-        out_array, tr = crop_array(out_array, affine_dict[1], polygon_mask)
+        out_array, tr = _crop_array(out_array, affine_dict[1], polygon_mask)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)

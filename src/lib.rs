@@ -25,16 +25,18 @@ use affine::Affine;
 /// # Arguments
 /// * `condition` - 2D array of habitat-condition values in [0, 1]. Values are
 ///   pre-scaled (Python-side); higher values represent better condition.
-/// * `pa_array` - Optional 2D array of protected-area (PA) proportions. If not `None`,
-///   PARC-connectedness is computed; if `None`, only habitat connectedness is returned.
+/// * `mask` - 2D boolean array. `true` marks cells excluded from analysis (skipped as
+///   focal sources); in the PARC edition `false` marks protected-area cells.
 /// * `transgrid_list` - List of transition / cost grids (one per resolution level) used
 ///   for multi-scale connectivity calculations.
 /// * `transforms` - List of spatial transforms corresponding to `transgrid_list`.
 /// * `lambdas` - Bandwidth values for the connectivity kernels, controlling the
 ///   effective dispersal distance (e.g. [2.0, 20.0, 200.0]).
 /// * `is_geo` - Whether coordinates are geographic (lat/lon) rather than projected.
-/// * `max_cost` - Relative cost of moving through completely degraded cells
-///   (condition = 0). Applied as `w = (1.0 - max_cost) * condition + max_cost`.
+/// * `max_cost` - Relative cost of moving through a fully-degraded cell (traversal value 0).
+///   The path weight is `w = (1.0 - max_cost) * t + max_cost`, where `t` is the traversal
+///   value: the `condition` value by default, or the (pre-inverted) `traversal` raster when
+///   supplied. `t = 1` gives `w = 1` (cheapest), `t = 0` gives `w = max_cost` (costliest).
 /// * `window_size` - Odd local window width used for non-coarsest levels
 ///   (e.g. 3 gives an effective 6×6 current-level window).
 /// * `outer_window` - Odd coarsest-level window width used to set the long-range
@@ -42,12 +44,19 @@ use affine::Affine;
 /// * `offsets` -
 /// * `window_mode` - "circular" for source-centered circular annuli or
 ///   "square" for source-centered square annuli.
+/// * `traversal` - Optional 2D array (same shape as `condition`) of pre-inverted, [0, 1]
+///   traversal values (high = easy passage, i.e. `1 - resistance`) used only for the path
+///   weight `w`. `None` falls back to `condition`, giving bit-identical output. Indicator
+///   values (habitat area and the condition multiplier) always use `condition`, not this.
+/// * `pa_to_pa` - PARC edition only. When `true`, only nodes on a protected area are
+///   counted as destinations (weighted by their protected fraction); paths still route through
+///   the non-PA landscape. An isolated PA scores 0. When `false`, all reachable nodes count.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, n_threads=None, window_mode="circular"))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false))]
 fn connectivity(
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,
@@ -60,8 +69,10 @@ fn connectivity(
     window_size: i32,
     outer_window: i32,
     offsets: (usize, usize),
+    traversal: Option<Bound<PyAny>>,
     n_threads: Option<usize>,
     window_mode: &str,
+    pa_to_pa: bool,
 ) -> PyResult<Py<PyArray2<f32>>> {
     // Get the Numpy array
     let cond_array = extract::to_array(condition)
@@ -90,6 +101,14 @@ fn connectivity(
     let mask_array = extract::to_mask(mask)
         .map_err(|er| PyRuntimeError::new_err(format!("Reading mask failed: {er}")))?;
 
+    // Optional traversal raster (resistance-derived; pre-inverted Python-side). `None` when
+    // absent, in which case the graph weight falls back to condition.
+    let trav_array: Option<Array2<f32>> = match traversal {
+        Some(obj) => extract::to_array(&obj)
+            .map_err(|er| PyRuntimeError::new_err(format!("Reading traversal failed: {er}")))?,
+        None => None,
+    };
+
     let window_mode = window::WindowMode::parse(window_mode).map_err(PyValueError::new_err)?;
 
     // Set the number of cores for parallel processing with Rayon
@@ -104,6 +123,7 @@ fn connectivity(
         .install(|| {
             core::conn(
                 &cond_array,
+                trav_array.as_ref(),
                 trans_arrays.as_deref(),
                 &transform_map,
                 &mask_array,
@@ -115,6 +135,7 @@ fn connectivity(
                 outer_window,
                 offsets,
                 window_mode,
+                pa_to_pa,
             )
         })
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;

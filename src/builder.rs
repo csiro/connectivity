@@ -16,6 +16,7 @@ impl Graph {
         geographic: bool,
         offsets: (usize, usize),
         window_mode: WindowMode,
+        pa_to_pa: bool,
     ) -> Self {
         // Pre-compute queen-case neighbour indices
         const COLS: [i32; 8] = [0, 1, 0, -1, 1, 1, -1, -1];
@@ -68,7 +69,7 @@ impl Graph {
                     // First level node mapping
                     let nm = create_node_mapping(levelwin, level, offsets);
                     // Find the base node index only once
-                    if let Some((_, (u, _, _, _))) = nm.get_key_value(&(i_base, j_base)) {
+                    if let Some((_, (u, _, _, _, _, _))) = nm.get_key_value(&(i_base, j_base)) {
                         graph_temp.source = *u;
                     }
 
@@ -107,6 +108,7 @@ impl Graph {
                         &node_mapping,
                         &level_affine,
                         geographic,
+                        pa_to_pa,
                     );
 
                     // For source nodes with no neighbours (isolated pixel, e.g tiny islands), add duplicated values
@@ -139,12 +141,12 @@ impl Graph {
 
 /// Create node mapping (the unique ID of each node/pixel)
 /// This is done per level/resolution in a window;
-/// (i, j) (id, cond, count, sims)
+/// (i, j) (id, cond, trav, count, pa, sims)
 fn create_node_mapping(
     win: &FocalWindow,
     level: i32,
     offsets: (usize, usize),
-) -> HashMap<(i32, i32), (NodeId, f32, f32, Rc<Vec<Option<f32>>>)> {
+) -> HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)> {
     let num_sims = win.sims.len();
     let (tile_row0_u, tile_col0_u) = offsets;
     let level_origin_i = (tile_row0_u as i32).div_euclid(level);
@@ -163,9 +165,17 @@ fn create_node_mapping(
         let global_j = level_origin_j + j_val;
         let node_id = make_node_id(level, global_i, global_j);
 
+        // Traversal value drives the path weight `w`: the resistance-derived value when a
+        // resistance raster was supplied, otherwise the condition value (so the weight is
+        // bit-identical to a resistance-free run).
+        let trav = match &win.trav_values {
+            Some(tv) => tv[idx],
+            None => win.values[idx],
+        };
+
         mapping.insert(
             (i_val, j_val),
-            (node_id, win.values[idx], win.counts[idx], sim_vals),
+            (node_id, win.values[idx], trav, win.counts[idx], win.pa_values[idx], sim_vals),
         );
     }
 

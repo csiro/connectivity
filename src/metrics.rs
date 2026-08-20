@@ -6,7 +6,9 @@ pub fn connectedness(segment: &[EdgeData], lambda: f32) -> f32 {
         .iter()
         .map(|edge| {
             let area = edge.num_cells;
-            let numerator = (-(edge.adj_dist / lambda)).exp() * edge.condition * area;
+            // `pa` is the destination's protected fraction (1.0 when pa_to_pa is off), applied to
+            // the numerator only so the denominator keeps the full reachable area in both cases.
+            let numerator = (-(edge.adj_dist / lambda)).exp() * edge.condition * edge.pa * area;
             let denominator = (-(edge.geo_dist / lambda)).exp() * area;
             (numerator, denominator)
         })

@@ -12,7 +12,29 @@ import numpy as np
 import rasterio
 import geopandas as gpd
 from rust_conn import pixel_coverage as _rust_pixel_coverage
-from .utils import guess_geographic
+
+
+def _guess_geographic(src):
+    """Guess CRS type from transform and bounds when CRS is missing."""
+    transform = src.transform
+    xres = abs(transform.a)
+    yres = abs(transform.e)
+    bounds = src.bounds
+
+    # Heuristic 1: resolution
+    if xres < 1 and yres < 1:
+        return True  # likely geographic (degrees)
+    if xres > 1 and yres > 1:
+        return False  # likely projected (metres)
+
+    # Heuristic 2: extent ranges
+    if (-180 <= bounds.left <= 180 and
+        -180 <= bounds.right <= 180 and
+        -90 <= bounds.bottom <= 90 and
+        -90 <= bounds.top <= 90):
+        return True
+
+    return False  # default to projected if unsure
 
 
 # reading full or masked raster
@@ -73,7 +95,7 @@ def read_raster(
 
     with rasterio.open(file_path) as src:
         try:
-            is_geo = guess_geographic(src) if src.crs is None else bool(src.crs.is_geographic)
+            is_geo = _guess_geographic(src) if src.crs is None else bool(src.crs.is_geographic)
         except Exception as e:
             raise RuntimeError(f"Error reading CRS info: {e}")
 
@@ -236,6 +258,7 @@ def pixel_coverage(
     polygon: gpd.GeoDataFrame | str,
     raster_file: str,
     n_threads: int | None = None,
+    filename: str = "",
 ):
     """Compute the proportion of each raster pixel covered by polygon(s).
 
@@ -254,12 +277,18 @@ def pixel_coverage(
         shape and transform; the polygon is reprojected to the raster's CRS if needed.
     n_threads : int, optional
         Number of CPU threads for the Rust computation. Default is None (all cores).
+    filename : str, optional
+        If a path is given (length > 3), the coverage array is also written to disk
+        as a GeoTIFF using `raster_file` as the metadata/CRS template, so the output
+        shares `raster_file`'s grid exactly. This makes it directly usable as the
+        `pa_file` argument to `connectedness()`. Default is "" (no file written).
 
     Returns
     -------
     np.ndarray
         2D float32 array of shape `(raster.height, raster.width)` with values in
-        [0, 1] giving the fraction of each pixel covered by the polygon(s).
+        [0, 1] giving the fraction of each pixel covered by the polygon(s). When
+        `filename` is set, the same array is also written to that path.
     """
     if isinstance(polygon, str):
         polygon = gpd.read_file(polygon)
@@ -275,14 +304,22 @@ def pixel_coverage(
     geom = unary_union(list(polygon.geometry.values))
     rings = _polygon_to_rings(geom)
     if not rings:
-        return np.zeros(raster_shape, dtype=np.float32)
+        coverage = np.zeros(raster_shape, dtype=np.float32)
+    else:
+        coverage = _rust_pixel_coverage(
+            rings,
+            tuple(raster_transform)[:6],
+            raster_shape,
+            n_threads,
+        )
 
-    return _rust_pixel_coverage(
-        rings,
-        tuple(raster_transform)[:6],
-        raster_shape,
-        n_threads,
-    )
+    # Optionally persist to a GeoTIFF that inherits raster_file's grid/CRS, so the
+    # result is directly usable as `pa_file` in connectedness(). Mirrors the
+    # `filename` writing convention used by connectedness().
+    if len(filename) > 3:
+        write_raster(coverage, outfile=filename, template=raster_file)
+
+    return coverage
 
 
 def _polygon_to_rings(geom):

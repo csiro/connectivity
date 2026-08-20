@@ -2,6 +2,7 @@
 /tools
 
 *.ipynb
+!examples/*.ipynb
 single_mod.rs
 
 src/testing.rs

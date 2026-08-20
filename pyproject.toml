@@ -6,8 +6,10 @@ build-backend = "maturin"
 name = "connectivity"
 description = "A multi-resolution landscape connectivity algorithm written in Rust"
 authors = [{ name = "Roozbeh Valavi", email = "roozbeh.valavi@csiro.au" }]
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.23",
     "rasterio>=1.2",
@@ -21,8 +23,16 @@ classifiers = [
 ]
 dynamic = ["version"]
 [tool.maturin]
-# Include all .py files in the package directory
-include = ["connectivity/*.py"]
+include = [
+    # All .py files in the package directory, including subpackages
+    { path = "connectivity/**/*.py", format = ["sdist", "wheel"] },
+    # Example rasters used by the notebooks in examples/
+    { path = "connectivity/data/*.tif", format = ["sdist", "wheel"] },
+    { path = "connectivity/data/transgrids/*.tif", format = ["sdist", "wheel"] },
+    { path = "connectivity/data/README.md", format = ["sdist", "wheel"] },
+    # Notebooks ship in the source distribution only, not in the wheels
+    { path = "examples/*.ipynb", format = ["sdist"] },
+]
 
 [project.urls]
 Homepage = "https://github.com/csiro-internal/connectivity"

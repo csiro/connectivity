@@ -1,4 +1,5 @@
 import numpy as np
+import warnings
 from rasterio.windows import from_bounds
 from rasterio.transform import Affine
 from rasterio.features import geometry_mask
@@ -14,7 +15,7 @@ def _normalise_window_mode(window_mode: str) -> str:
 
 
 # Calculate connected condition
-def fn(connectivity, habitat, option=3):
+def _connected_habitat(connectivity, habitat, option=3):
     match option:
         case 1:
             return connectivity
@@ -28,7 +29,7 @@ def fn(connectivity, habitat, option=3):
             raise ValueError("option must be one of 1, 2, or 3.")
 
 
-def round_to_pow2(n: int) -> int:
+def _round_to_pow2(n: int) -> int:
     # closest lower power of 2
     lower = 1 << (n.bit_length() - 1)
     # closest upper power of 2
@@ -37,30 +38,17 @@ def round_to_pow2(n: int) -> int:
     return lower if n - lower <= upper - n else upper
 
 
-def guess_geographic(src):
-    """Guess CRS type from transform and bounds when CRS is missing."""
-    transform = src.transform
-    xres = abs(transform.a)
-    yres = abs(transform.e)
-    bounds = src.bounds
-
-    # Heuristic 1: resolution
-    if xres < 1 and yres < 1:
-        return True  # likely geographic (degrees)
-    if xres > 1 and yres > 1:
-        return False  # likely projected (metres)
-
-    # Heuristic 2: extent ranges
-    if (-180 <= bounds.left <= 180 and
-        -180 <= bounds.right <= 180 and
-        -90 <= bounds.bottom <= 90 and
-        -90 <= bounds.top <= 90):
-        return True
-
-    return False  # default to projected if unsure
+def _check_continuous_levels(levels: list[int]) -> None:
+    for current, next_level in zip(levels, levels[1:]):
+        expected = current * 2
+        if next_level != expected:
+            raise ValueError(
+                "levels must form a continuous power-of-two sequence; "
+                f"missing level {expected} between {current} and {next_level}"
+            )
 
 
-def crop_array(array, transform, polygon):
+def _crop_array(array, transform, polygon):
     """
     Crop a numpy array to the polygon bounding box AND mask to polygon geometry.
     """
@@ -121,3 +109,48 @@ def crop_array(array, transform, polygon):
         masked = np.ma.array(cropped, mask=mask_outside)
 
     return masked, cropped_transform
+
+
+def _make_traversal(cond_array: np.ndarray, res_array: np.ndarray | None) -> np.ndarray | None:
+    """Build the per-cell traversal value fed to the Rust path weight `w`.
+
+    The resistance raster is decoupled from condition: it drives only path traversal, while
+    condition still drives the indicator values (habitat area and the value multiplier).
+
+    Returns
+    -------
+    np.ndarray or None
+        ``None`` when no resistance raster is supplied, so Rust falls back to condition for
+        path weighting (bit-identical to a resistance-free run). Otherwise a float32 array of
+        ``1 - resistance`` (high resistance -> high traversal cost) confined to the condition
+        domain (NaN where condition is NaN, since only condition-valid cells are graph nodes).
+
+    Notes
+    -----
+    Cells that are valid in condition but have no resistance value fall back to condition for
+    traversal and raise a ``UserWarning`` reporting the count; their result is unchanged from a
+    resistance-free run (no cell is dropped, so the valid domain never changes silently).
+    """
+    if res_array is None:
+        return None
+
+    res_nan = np.isnan(res_array)
+    # Inverted resistance in [0, 1]: high resistance -> low traversal value -> high weight.
+    tval = np.clip(1.0 - res_array, 0.0, 1.0)
+
+    # Only the condition-valid ∩ resistance-NaN direction changes anything; warn on its count.
+    gap = res_nan & ~np.isnan(cond_array)
+    n_gap = int(np.count_nonzero(gap))
+    if n_gap:
+        warnings.warn(
+            f"{n_gap} cell(s) have valid condition but missing resistance; using condition "
+            "for path traversal there (unchanged from a resistance-free run).",
+            UserWarning,
+            stacklevel=3,
+        )
+        tval = np.where(res_nan, cond_array, tval)
+
+    # Confine traversal to the condition domain: non-condition cells are not graph nodes.
+    tval = np.where(np.isnan(cond_array), np.nan, tval)
+    return tval.astype(np.float32, copy=False)
+

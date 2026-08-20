@@ -63,6 +63,21 @@ pip install target/wheels/connectivity-*.whl
 ```
 
 ## Connectivity Analysis <a name="analysis"></a>     
+Resolve the bundled example paths once so they can be reused throughout the
+analysis:
+
+```python
+from connectivity import beri, connectedness, example_data_path, resolution_info
+
+condition_file = example_data_path("site_condition")
+pa_file = example_data_path("pa_proportion")
+current_file = example_data_path("transgrids/1990")
+future_files = [
+    example_data_path("transgrids/IPS50_45"),
+    example_data_path("transgrids/GFD50_85"),
+]
+```
+
 To bound the spatial extent of the connectivity calculation, the algorithm limits how far it searches across neighboring cells in the condition raster. The approximate one-sided search reach is computed as:
 `max_reach = outer_window * max(levels) * resolution`. For example, with a 1 km resolution raster, a max-level of 32, and an `outer_window` of 11, the resulting search reach is:
       
@@ -76,13 +91,11 @@ Use `resolution_info()` to preview how candidate `levels` will change raster
 dimensions and approximate search reach before running the analysis:
 
 ```python
-from connectivity import resolution_info
-
-resolution_info("./data/condition_2020.tif", outer_window=9)
+resolution_info(condition_file, outer_window=9)
 ```
 
 ```text
-File: ./data/condition_2020.tif
+File: .../connectivity/data/site_condition.tif
 Base raster: 588 x 516 cells (303.41K total)
 Base resolution: 0.008333 degrees
 CRS: EPSG:4326
@@ -111,8 +124,16 @@ The default `window_mode="circular"` uses source-centered circular annuli with
 fractional area/count support at annulus boundaries. The
 `window_mode="square"` option uses the same source-centered fractional
 construction with square annuli. These modes change indicator values, so
-compare outputs only between runs that use the same window mode. The library
-does not apply grid-effect filtering to `connectedness()` or `beri()` outputs.
+compare outputs only between runs that use the same window mode.
+
+<img src="figs/circular_multires_windows.png" alt="Circular multi-resolution windows" width="900">
+
+Each coloured neighbourhood represents a different raster aggregation level.
+Fine levels capture nearby cells at higher resolution, while coarser levels
+extend the search over larger distances. Their contributions are combined into
+a single graph, in which the least-cost path from the focal cell is calculated
+for each aggregated cell.
+See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
 ### Connected Habitat (Connectedness) <a name="conn"></a>    
 
@@ -122,12 +143,8 @@ To compute connected-habitat (or plain connectedness), you only need a habitat c
 3. `sqrt(connectedness * condition)` — geometric mean (default)
 
 ```python
-from connectivity import connectedness, beri
-```
-
-```python
 connd = connectedness(
-    condition_file = "./data/condition.tif",
+    condition_file = condition_file,
     lambdas = [2, 20, 200],
     max_cost = 2.0, 
     window_size = 5, 
@@ -141,6 +158,32 @@ connd = connectedness(
 
 ![](figs/condition.png)
 
+#### Optional resistance surface
+
+By default the habitat condition raster does double duty: it weights how costly each cell is to
+move through **and** supplies the habitat value used in the indicator. Pass an optional
+`resistance_file` to **decouple** these two roles. The resistance raster (values in `[0, 1]`,
+higher = harder to cross, scaled with `resistance_scale`) then drives **only** the least-cost path
+traversal, while condition still supplies the habitat value:
+
+```python
+connd = connectedness(
+    condition_file = condition_file,
+    resistance_file = resistance_file,   # optional; decoupled movement-cost surface
+    resistance_scale = None,             # divide resistance into [0, 1] if needed
+    max_cost = 2.0,
+    window_mode = "circular",
+    levels = [2, 4, 8, 16, 32],
+)
+```
+
+The edge weight becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost`, so `resistance = 0`
+is free (`w = 1`) and `resistance = 1` is the most costly (`w = max_cost`). When `resistance_file`
+is omitted, condition is used for traversal as before, and the output is unchanged. Cells valid in
+condition but missing a resistance value fall back to condition for traversal and raise a warning,
+so the analysis domain is never changed silently. The same `resistance_file` / `resistance_scale`
+arguments are available on `beri()`.
+
 ### PARC-Connectedness <a name="parc"></a>     
 To compute PARC-connectedness, provide both:
 * a habitat condition raster, and
@@ -150,8 +193,8 @@ When `pa_file` (proportion of protected-areas in each cell) is supplied, the fun
 
 ```python
 parcc = connectedness(
-    condition_file = "./data/condition.tif",
-    pa_file = "./data/pa_proportion.tif",
+    condition_file = condition_file,
+    pa_file = pa_file,
     lambdas = [2, 20, 200],
     max_cost = 2.0, 
     window_size = 5, 
@@ -171,7 +214,10 @@ implementation:
 ```python
 from connectivity import pixel_coverage
 
-coverage = pixel_coverage("./data/polygons.gpkg", "./data/condition.tif")
+coverage = pixel_coverage(
+    "./data/polygons.gpkg",
+    condition_file,
+)
 ```
 
 ### Bioclimatic Ecosystem Resilience Index (BERI) <a name="beri"></a>    
@@ -182,9 +228,9 @@ To compute BERI, you must provide:
 
 ```python
 beris = beri(
-    condition_file = "./data/condition.tif",
-    current_file = "./data/transgrids/1990.tif",
-    future_files = ["./data/transgrids/IPS50_45.tif", "./data/transgrids/GFD50_85.tif"],
+    condition_file = condition_file,
+    current_file = current_file,
+    future_files = future_files,
     lambdas = [2, 20, 200], 
     max_cost = 2.0, 
     window_size = 5, 
@@ -217,7 +263,7 @@ levels = [2, 4, 8, 16, 32]
 
 tile_id = 0
 tile_poly = make_tile(
-    raster_file = "./data/condition.tif",
+    raster_file = condition_file,
     nrows = 4,
     ncols = 4,
     tile_id = tile_id,
@@ -225,7 +271,7 @@ tile_poly = make_tile(
 )
 
 connd = connectedness(
-    condition_file = "./data/condition.tif",
+    condition_file = condition_file,
     polygon_mask = tile_poly,
     closed_border = False,
     margin_px = 32,
@@ -244,7 +290,7 @@ For large, uneven workloads, use balanced tiles:
 
 ```python
 tile_poly = make_tile(
-    raster_file = "./data/condition.tif",
+    raster_file = condition_file,
     nrows = 4,
     ncols = 4,
     tile_id = tile_id,

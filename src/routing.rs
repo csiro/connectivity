@@ -65,6 +65,7 @@ impl GraphDijkstraExt for Graph {
 pub fn path_distance(graph: &Graph, path: &[NodeId], dist_intact: f32) -> EdgeData {
     let mut dist_adjusted = 0.0;
     let mut last_condition = 0.0;
+    let mut last_pa = 1.0;
     let mut last_num_cells = 0.0;
     let mut last_sims = Rc::new(Vec::new());
 
@@ -73,6 +74,7 @@ pub fn path_distance(graph: &Graph, path: &[NodeId], dist_intact: f32) -> EdgeDa
         if let Some(edge) = graph.get(&(from, to)) {
             dist_adjusted += edge.adj_dist;
             last_condition = edge.condition;
+            last_pa = edge.pa;
             last_num_cells = edge.num_cells;
             last_sims = Rc::clone(&edge.similarities);
         }
@@ -82,6 +84,7 @@ pub fn path_distance(graph: &Graph, path: &[NodeId], dist_intact: f32) -> EdgeDa
         adj_dist: dist_adjusted,
         geo_dist: dist_intact,
         condition: last_condition,
+        pa: last_pa,
         num_cells: last_num_cells,
         similarities: last_sims,
     }
@@ -101,6 +104,7 @@ mod tests {
                 adj_dist: 3.0,
                 geo_dist: 2.0,
                 condition: 0.5,
+                pa: 1.0,
                 num_cells: 4.0,
                 similarities: sims.clone(),
             },
@@ -111,6 +115,7 @@ mod tests {
                 adj_dist: 5.0,
                 geo_dist: 4.0,
                 condition: 0.25,
+                pa: 0.5,
                 num_cells: 7.0,
                 similarities: sims,
             },
@@ -121,6 +126,7 @@ mod tests {
         assert!((edge.adj_dist - 8.0).abs() < 1.0e-6);
         assert!((edge.geo_dist - 6.0).abs() < 1.0e-6);
         assert!((edge.condition - 0.25).abs() < 1.0e-6);
+        assert!((edge.pa - 0.5).abs() < 1.0e-6);
         assert!((edge.num_cells - 7.0).abs() < 1.0e-6);
         assert_eq!(edge.similarities.as_ref(), &[Some(1.0)]);
     }

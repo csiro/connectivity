@@ -22,6 +22,7 @@ use window::{FocalWindow, WindowMode};
 /// A 2D array of connectivity values for each cell at the native resolution.
 pub fn conn(
     cond_array: &Option<Array2<f32>>,
+    trav_array: Option<&Array2<f32>>,
     trans_arrays: Option<&[Array3<f32>]>,
     transform_map: &HashMap<i32, Affine>,
     mask_array: &Array2<bool>,
@@ -33,6 +34,7 @@ pub fn conn(
     outer_window: i32,
     offsets: (usize, usize),
     window_mode: WindowMode,
+    pa_to_pa: bool,
 ) -> Result<Array2<f32>> {
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = trans_arrays
@@ -66,6 +68,49 @@ pub fn conn(
         .expect("Failed to build cell weights.");
         // Ensure cell-counts has the same keys and dimension as condition array map;
         utils::check_dims(&cell_weights, &cond_map)?;
+
+        // PARC target-gating: build a PA-membership overview from the mask. Each cell holds the
+        // fraction of its condition-valid sub-cells that fall on a protected area. The base
+        // indicator is NaN where condition is NaN so the average shares the cell-weights valid
+        // set, making `num_cells * pa` equal the protected area at every level. When disabled,
+        // no gating is applied and the output is bit-identical to the original PARC path.
+        let pa_map: Option<HashMap<i32, Array2<f32>>> = if pa_to_pa {
+            let pa_indicator = Array2::<f32>::from_shape_fn((nrows, ncols), |(i, j)| {
+                if cond_base[[i, j]].is_nan() {
+                    f32::NAN
+                } else if !mask_array[[i, j]] {
+                    1.0
+                } else {
+                    0.0
+                }
+            });
+            let map = overview::make_overview(
+                &pa_indicator, 
+                levels, 
+                offsets, 
+                Resampling::Average, 
+                None
+            )
+            .expect("Failed to build PA-membership overview.");
+            utils::check_dims(&map, &cond_map)?;
+            Some(map)
+        } else {
+            None
+        };
+
+        // Optional traversal overview (resistance-derived, averaged like condition). Built
+        // only when a resistance raster is supplied; when None the graph weight falls back to
+        // condition, so the output is bit-identical to a resistance-free run.
+        let trav_map: Option<HashMap<i32, Array2<f32>>> = match trav_array {
+            Some(arr) => {
+                let map =
+                    overview::make_overview(arr, levels, offsets, Resampling::Average, None)
+                        .expect("Failed average resampling for traversal.");
+                utils::check_dims(&map, &cond_map)?;
+                Some(map)
+            }
+            None => None,
+        };
 
         // Generate overviews for all scenarios
         let trans_maps: Vec<HashMap<i32, Array3<f32>>> = if let Some(arrays) = trans_arrays {
@@ -116,6 +161,8 @@ pub fn conn(
                             &trans_maps,
                             &ij_values,
                             &cell_weights,
+                            pa_map.as_ref(),
+                            trav_map.as_ref(),
                             window_mode,
                         );
                         windows.insert(level, win);
@@ -131,6 +178,7 @@ pub fn conn(
                         is_geo,
                         offsets,
                         window_mode,
+                        pa_to_pa,
                     );
                     // Calculate all reachable paths using weighted distance by conditon; altered condition
                     let nodes_altered = the_graph.dijkstra(Path::Adjusted);

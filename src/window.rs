@@ -26,7 +26,9 @@ pub struct FocalWindow {
     pub i_array: Vec<i32>,                   // i/col array of neighbour cells
     pub j_array: Vec<i32>,                   // j/row array ...
     pub values: Vec<f32>,                    // condition values of the cell
+    pub trav_values: Option<Vec<f32>>,       // traversal (resistance-derived) values; None => use condition
     pub counts: Vec<f32>,                    // cell count contribution to each level (habitat-area)
+    pub pa_values: Vec<f32>,                 // protected fraction of each cell (1.0 when pa_to_pa off); numerator-only
     pub sims: Vec<Vec<Option<f32>>>, // similiarity with the ij cell in the current climate; scen<cell<sim>>
     pub edge_cells: Option<Vec<(i32, i32)>>, // geometry-specific outer edge cells for fringe links
 }
@@ -61,6 +63,8 @@ impl FocalWindow {
         trans_vect: &[HashMap<i32, Array3<f32>>],
         trans_ij: &Array1<f32>,
         cell_weights: &HashMap<i32, Array2<f32>>,
+        pa_dict: Option<&HashMap<i32, Array2<f32>>>,
+        trav_dict: Option<&HashMap<i32, Array2<f32>>>,
         window_mode: WindowMode,
     ) -> Self {
         let count_array = cell_weights
@@ -69,6 +73,17 @@ impl FocalWindow {
         let current_array = cond_dict
             .get(&current_level)
             .expect("Condition level not found!");
+        // Optional PA-membership array for this level (Some only under target-gating).
+        let pa_array = pa_dict.map(|dict| {
+            dict.get(&current_level)
+                .expect("PA-membership level not found!")
+        });
+        // Optional traversal-value array for this level (Some only when a resistance raster
+        // was supplied). Drives the path weight `w`; condition is used when absent.
+        let trav_array = trav_dict.map(|dict| {
+            dict.get(&current_level)
+                .expect("Traversal level not found!")
+        });
         let current_height = current_array.shape()[0] as i32;
         let current_width = current_array.shape()[1] as i32;
 
@@ -102,6 +117,10 @@ impl FocalWindow {
         let mut j_array = Vec::with_capacity(estimated_capacity);
         let mut values = Vec::with_capacity(estimated_capacity);
         let mut counts = Vec::with_capacity(estimated_capacity);
+        let mut pa_values = Vec::with_capacity(estimated_capacity);
+        // Only allocate the traversal vector when a resistance raster was supplied.
+        let mut trav_values: Option<Vec<f32>> =
+            trav_array.map(|_| Vec::with_capacity(estimated_capacity));
         let mut edge_cells = if window_mode == WindowMode::Circular {
             Some(Vec::with_capacity(estimated_capacity))
         } else {
@@ -125,10 +144,14 @@ impl FocalWindow {
             base_width,
             count_array,
             current_array,
+            pa_array,
+            trav_array,
             &mut i_array,
             &mut j_array,
             &mut values,
             &mut counts,
+            &mut pa_values,
+            trav_values.as_mut(),
             edge_cells.as_mut(),
         );
 
@@ -156,7 +179,9 @@ impl FocalWindow {
             i_array,
             j_array,
             values,
+            trav_values,
             counts,
+            pa_values,
             sims,
             edge_cells,
         }
@@ -178,10 +203,14 @@ fn collect_fractional_annulus_window(
     base_width: i32,
     count_array: &Array2<f32>,
     current_array: &Array2<f32>,
+    pa_array: Option<&Array2<f32>>,
+    trav_array: Option<&Array2<f32>>,
     i_array: &mut Vec<i32>,
     j_array: &mut Vec<i32>,
     values: &mut Vec<f32>,
     counts: &mut Vec<f32>,
+    pa: &mut Vec<f32>,
+    mut trav_values: Option<&mut Vec<f32>>,
     mut edge_cells: Option<&mut Vec<(i32, i32)>>,
 ) {
     let (tile_row0_u, tile_col0_u) = offsets;
@@ -280,10 +309,38 @@ fn collect_fractional_annulus_window(
                 continue;
             }
 
+            // PARC target-gating: protected fraction of this destination cell (1.0 when gating is
+            // off). Applied to the connectedness numerator only (see metrics.rs), so the
+            // denominator keeps the full reachable area in both gated and ungated runs. Non-PA
+            // cells -> 0 drop from the numerator but remain routable; a straddle cell contributes
+            // its protected fraction.
+            let pa_value = match pa_array {
+                Some(pa_arr) => {
+                    let f = pa_arr[[curr_i as usize, curr_j as usize]];
+                    if f.is_finite() {
+                        f
+                    } else {
+                        0.0
+                    }
+                }
+                None => 1.0,
+            };
+
             i_array.push(curr_i);
             j_array.push(curr_j);
             values.push(condition);
             counts.push(weight * fraction);
+            pa.push(pa_value);
+            // Traversal value for this cell, index-aligned with `values`. Falls back to the
+            // condition value if resistance is missing/non-finite here (kept in the condition
+            // domain, so admitted cells always have a finite traversal value).
+            if let Some(tv) = trav_values.as_deref_mut() {
+                let t = trav_array
+                    .map(|arr| arr[[curr_i as usize, curr_j as usize]])
+                    .filter(|v| v.is_finite())
+                    .unwrap_or(condition);
+                tv.push(t);
+            }
             if is_outer_edge {
                 if let Some(edges) = edge_cells.as_mut() {
                     edges.push((curr_i, curr_j));
