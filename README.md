@@ -1,5 +1,7 @@
 <h1><a name="top"></a>connectivity: a multi-resolution landscape connectivity algorithm</h1>
 
+[![CI](https://github.com/csiro/connectivity/actions/workflows/CI.yml/badge.svg)](https://github.com/csiro/connectivity/actions/workflows/CI.yml)
+
 - [Installation ](#installation-)
   - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
   - [Compile and Install the Rust Library ](#compile-and-install-the-rust-library-)
