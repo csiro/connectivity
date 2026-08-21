@@ -1,6 +1,7 @@
 <h1><a name="top"></a>connectivity: a multi-resolution landscape connectivity algorithm</h1>
 
-[![CI](https://github.com/csiro/connectivity/actions/workflows/CI.yml/badge.svg)](https://github.com/csiro/connectivity/actions/workflows/CI.yml)
+[![CodeQL](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql)
+[![Latest release](https://img.shields.io/github/v/release/csiro/connectivity?label=version)](https://github.com/csiro/connectivity/releases/latest)
 
 - [Installation ](#installation-)
   - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
