@@ -2,6 +2,11 @@
 
 [![CodeQL](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql)
 [![Latest release](https://img.shields.io/github/v/release/csiro/connectivity?label=version)](https://github.com/csiro/connectivity/releases/latest)
+[![PyPI version](https://img.shields.io/pypi/v/eco-connectivity)](https://pypi.org/project/eco-connectivity/)
+[![Python versions](https://img.shields.io/badge/python-%E2%89%A53.10-blue)](https://pypi.org/project/eco-connectivity/)
+[![Build](https://github.com/csiro/connectivity/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/csiro/connectivity/actions/workflows/publish.yml)
+[![Downloads](https://img.shields.io/pypi/dm/eco-connectivity)](https://pypistats.org/packages/eco-connectivity)
+[![DOI](https://img.shields.io/badge/DOI-10.32942%2FX2S68V-blue)](https://doi.org/10.32942/X2S68V)
 
 - [connectivity: a multi-resolution landscape connectivity algorithm](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
   - [Installation ](#installation-)
