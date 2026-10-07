@@ -9,6 +9,7 @@
 ## Changed
 - Raised the minimum supported Python to 3.10 (`requires-python = ">=3.10"`).
 - Updated packaging (`[tool.maturin]`) to ship the example rasters in both wheels and source distributions, and the example notebooks in the source distribution.
+- Published the package on PyPI as `eco-connectivity` (`pip install eco-connectivity`), since the name `connectivity` is taken there; it is still imported as `connectivity`. Prebuilt wheels for Linux (x86_64, aarch64), macOS (Intel and Apple Silicon) and Windows (x64) mean installing no longer requires Rust. If you installed an earlier version from a locally built wheel, run `pip uninstall connectivity` first.
 
 # Version 2.1.0
 ## Added
