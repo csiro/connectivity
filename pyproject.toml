@@ -37,7 +37,10 @@ include = [
 [tool.cibuildwheel]
 # The abi3 wheel built for the first Python is reused, and tested, on later versions
 archs = ["native"]
-skip = ["*-musllinux_*"]  # rasterio has no musllinux wheels
+skip = [
+    "*-musllinux_*",  # rasterio has no musllinux wheels
+    "cp3??t-*",  # free-threaded Python: the module re-enables the GIL (gil_used = true)
+]
 test-command = '''python -c "import numpy as np; from connectivity import connectedness, example_data_path; r = connectedness(condition_file=example_data_path('site_condition')); assert r.shape == (516, 588) and 0 < np.nanmax(r) <= 1"'''
 test-skip = ["cp315-*"]  # shapely has no Python 3.15 wheels yet
 
