@@ -1,5 +1,4 @@
 /target
-/tools
 
 *.ipynb
 !examples/*.ipynb

@@ -3,7 +3,7 @@ requires = ["maturin>=1.9.4,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "connectivity"
+name = "eco-connectivity"
 description = "A multi-resolution landscape connectivity algorithm written in Rust"
 authors = [{ name = "Roozbeh Valavi", email = "roozbeh.valavi@csiro.au" }]
 license = "MIT"
@@ -33,6 +33,23 @@ include = [
     # Notebooks ship in the source distribution only, not in the wheels
     { path = "examples/*.ipynb", format = ["sdist"] },
 ]
+
+[tool.cibuildwheel]
+# The abi3 wheel built for the first Python is reused, and tested, on later versions
+archs = ["native"]
+skip = ["*-musllinux_*"]  # rasterio has no musllinux wheels
+test-command = '''python -c "import numpy as np; from connectivity import connectedness, example_data_path; r = connectedness(condition_file=example_data_path('site_condition')); assert r.shape == (516, 588) and 0 < np.nanmax(r) <= 1"'''
+test-skip = ["cp315-*"]  # shapely has no Python 3.15 wheels yet
+
+[tool.cibuildwheel.linux]
+# The manylinux build containers don't include Rust
+before-all = "curl -sSf https://sh.rustup.rs | sh -s -- -y"
+environment = { PATH = "$HOME/.cargo/bin:$PATH" }
+
+[tool.cibuildwheel.macos]
+archs = ["universal2"]  # one wheel for Intel and Apple Silicon
+before-all = "rustup target add aarch64-apple-darwin x86_64-apple-darwin"
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.12" }  # Rust's minimum macOS version
 
 [project.urls]
 Homepage = "https://github.com/csiro/connectivity"

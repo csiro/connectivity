@@ -3,8 +3,8 @@
 The rasters here back the notebooks in ``examples/``. They cover Tasmania,
 Australia at roughly 1 km resolution (588 x 516 cells, EPSG:4326, 30 arc-second
 grid) and are small enough to ship with the library so the examples run
-straight after ``pip install connectivity``. Every layer shares the same grid,
-so they can be combined without resampling.
+straight after ``pip install eco-connectivity``. Every layer shares the same
+grid, so they can be combined without resampling.
 
 See ``connectivity/data/README.md`` for the source and licence of each layer.
 

@@ -25,7 +25,8 @@ rustc-hash = "2.1"
 pyo3-build-config = { version = "0.28", features = ["resolve-config"] }
 
 [profile.release]
-strip = true
+# Stripped builds fail to load on recent macOS (dyld: "mis-aligned LINKEDIT string pool")
+strip = false
 lto = true
 codegen-units = 1
 opt-level = 3 

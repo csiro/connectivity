@@ -1,68 +1,46 @@
-<h1><a name="top"></a>connectivity: a multi-resolution landscape connectivity algorithm</h1>
+# connectivity: a multi-resolution landscape connectivity algorithm
 
 [![CodeQL](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql)
 [![Latest release](https://img.shields.io/github/v/release/csiro/connectivity?label=version)](https://github.com/csiro/connectivity/releases/latest)
 
-- [Installation ](#installation-)
-  - [Create or Load a Python Environment ](#create-or-load-a-python-environment-)
-  - [Compile and Install the Rust Library ](#compile-and-install-the-rust-library-)
-- [Connectivity Analysis ](#connectivity-analysis-)
-  - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
-  - [PARC-Connectedness ](#parc-connectedness-)
-  - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
-- [Running Analysis with Tiles ](#running-analysis-with-tiles-)
-- [Citation](#citation)
+- [connectivity: a multi-resolution landscape connectivity algorithm](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
+  - [Installation ](#installation-)
+    - [Install from PyPI ](#install-from-pypi-)
+    - [Install from Source ](#install-from-source-)
+  - [Connectivity Analysis ](#connectivity-analysis-)
+    - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
+      - [Optional resistance surface](#optional-resistance-surface)
+    - [PARC-Connectedness ](#parc-connectedness-)
+    - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
+  - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+  - [Citation](#citation)
       
 A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
 
 This algorithm operates on the overview layers of raster files which are now generated on-the-fly.
 
 ## Installation <a name="install"></a>     
-### Create or Load a Python Environment <a name="env"></a>     
-You need to load the Python module and create an environment if you don't already have one. If you already have an environment with `numpy`, `rasterio`, `geopandas`, and `shapely`, ignore this step and just activate your environment.
+### Install from PyPI <a name="pypi"></a>     
+The package is published on PyPI as `eco-connectivity` (NOTE: `pip install connectivity` installs an unrelated package):
 
 ```bash
-module load python/3.12.3
+pip install eco-connectivity
 ```
 
-```bash
-python -m venv ~/myenv
-```
-Installing the library into the environent:
+The import name is still `connectivity`:
 
-```bash
-source ~/myenv/bin/activate
-
-# To make the virtual environment explicitly include system site packages, use:
-python -m venv ~/myenv --system-site-packages
+```python
+from connectivity import connectedness, beri
 ```
 
-### Compile and Install the Rust Library <a name="rust"></a>     
+### Install from Source <a name="source"></a>     
 
-1- Navigate to the repo:
-```bash
-cd ~/connectivity
-```
-
-2- Load the Rust module on HPC:
+To build the latest development version from the [GitHub repository](https://github.com/csiro/connectivity), install [Rust](https://www.rust-lang.org/tools/install) first, then run:
 
 ```bash
-module load rust/1.92.0
-```
-For local installation, you need to install Rust on your system.
-
-3- Complie and install the library:
-
-Use the following to build a wheel:
-
-```bash
-maturin build --release
-```
-
-4- Install the wheel with `pip`:
-
-```bash
-pip install target/wheels/connectivity-*.whl
+git clone https://github.com/csiro/connectivity.git
+cd connectivity
+pip install .
 ```
 
 ## Connectivity Analysis <a name="analysis"></a>     
@@ -129,7 +107,7 @@ fractional area/count support at annulus boundaries. The
 construction with square annuli. These modes change indicator values, so
 compare outputs only between runs that use the same window mode.
 
-<img src="figs/circular_multires_windows.png" alt="Circular multi-resolution windows" width="900">
+<img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/circular_multires_windows.png" alt="Circular multi-resolution windows" width="900">
 
 Each coloured neighbourhood represents a different raster aggregation level.
 Fine levels capture nearby cells at higher resolution, while coarser levels
@@ -159,7 +137,7 @@ connd = connectedness(
 )
 ```
 
-![](figs/condition.png)
+![](https://raw.githubusercontent.com/csiro/connectivity/main/figs/condition.png)
 
 #### Optional resistance surface
 
@@ -208,7 +186,7 @@ parcc = connectedness(
 )
 ```
 
-<img src="figs/parc.png" width="385" height="300">
+<img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/parc.png" width="385" height="300">
 
 Use `pixel_coverage()` when you need the proportion of each raster pixel covered
 by polygon geometry. The calculation is backed by a performant Rust
@@ -243,7 +221,7 @@ beris = beri(
     filename = "./results/berri.tif"
 )
 ```
-<img src="figs/beri.png" width="385" height="300">
+<img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/beri.png" width="385" height="300">
 
 
 ## Running Analysis with Tiles <a name="tiles"></a>    
@@ -314,4 +292,4 @@ To cite `connectivity` library in publications and reports, please use:
 
 Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., & Ferrier, S. (2026). **A scalable multi-resolution framework for connectivity-based biodiversity indicators**. *EcoEvoRxiv*. [https://doi.org/10.32942/X2S68V](https://doi.org/10.32942/X2S68V)
 
-[Back to top!](#top)
+[Back to top!](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
