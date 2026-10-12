@@ -2,7 +2,6 @@
 
 [![Build](https://github.com/csiro/connectivity/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/csiro/connectivity/actions/workflows/publish.yml)
 [![CodeQL](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql)
-[![Latest release](https://img.shields.io/github/v/release/csiro/connectivity?label=version)](https://github.com/csiro/connectivity/releases/latest)
 [![PyPI version](https://img.shields.io/pypi/v/eco-connectivity)](https://pypi.org/project/eco-connectivity/)
 [![Python versions](https://img.shields.io/badge/python-%E2%89%A53.10-blue)](https://pypi.org/project/eco-connectivity/)
 [![Downloads](https://api.pepy.tech/badge/eco-connectivity)](https://pepy.tech/projects/eco-connectivity)

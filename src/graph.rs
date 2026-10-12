@@ -294,7 +294,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn edge_neighbours_include_containing_cell_for_annulus_modes() {
+    fn includes_parent_cell() {
         let (cells, count) = get_edge_neighbours(1, 1, 1, (0, 0));
         let cells = &cells[..count];
 

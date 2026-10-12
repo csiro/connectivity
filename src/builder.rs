@@ -44,9 +44,9 @@ impl Graph {
         // Pre-compute edge indices for all levels
         for (&level, win) in windows {
             let edge_indices = if window_mode == WindowMode::Circular {
-                get_circular_edge_indices(win)
+                circular_edge_indices(win)
             } else {
-                get_edge_indices(&win.i_array, &win.j_array)
+                square_edge_indices(&win.i_array, &win.j_array)
             };
             all_edge_indices.insert(level, edge_indices);
         }
@@ -212,7 +212,7 @@ fn make_node_id(level: i32, global_i: i32, global_j: i32) -> NodeId {
 }
 
 /// Efficiently get edge cells in a level neighbourhood using HashSet
-fn get_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
+fn square_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
     let i_min = *i_arr.iter().min().unwrap_or(&0);
     let i_max = *i_arr.iter().max().unwrap_or(&0);
     let j_min = *j_arr.iter().min().unwrap_or(&0);
@@ -237,7 +237,7 @@ fn get_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
 /// Circular windows need the full curved outer perimeter, not just min/max
 /// rows/columns. The window builder computes these cells geometrically from
 /// rectangle-circle overlap so cross-level links are placed around the ring.
-fn get_circular_edge_indices(win: &FocalWindow) -> HashSet<(i32, i32)> {
+fn circular_edge_indices(win: &FocalWindow) -> HashSet<(i32, i32)> {
     win.edge_cells
         .as_ref()
         .map(|edges| edges.iter().copied().collect())

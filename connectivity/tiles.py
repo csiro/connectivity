@@ -43,7 +43,7 @@ def _aligned_breaks(size, parts, align_to):
     return breaks
 
 
-def _check_non_negative_number(value, name):
+def _check_non_negative(value, name):
     if not isinstance(value, (int, float)) or not math.isfinite(value):
         raise TypeError(f"{name} must be a finite number")
     if value < 0:
@@ -104,7 +104,7 @@ def _balanced_breaks(costs, parts, align_to, size):
 
 
 def _block_costs(src, align_to, io_weight):
-    _check_non_negative_number(io_weight, "io_weight")
+    _check_non_negative(io_weight, "io_weight")
 
     block_rows = math.ceil(src.height / align_to)
     block_cols = math.ceil(src.width / align_to)

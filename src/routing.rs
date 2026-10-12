@@ -95,7 +95,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn path_distance_sums_stored_adjusted_edges_without_rescaling() {
+    fn sums_raw_adj_dist() {
         let sims = Rc::new(vec![Some(1.0)]);
         let mut graph = Graph::new(None);
         graph.add_node(

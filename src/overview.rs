@@ -326,7 +326,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn area_weights_use_tile_local_rows_with_shifted_transform() {
+    fn area_uses_local_rows() {
         let base = Array2::<f32>::ones((2, 1));
         let transform = Affine {
             x_scale: 1.0,

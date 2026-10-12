@@ -130,7 +130,7 @@ impl FocalWindow {
         let base_array = cond_dict.get(&1).expect("Base condition level not found!");
         let base_height = base_array.shape()[0] as i32;
         let base_width = base_array.shape()[1] as i32;
-        collect_fractional_annulus_window(
+        collect_annulus(
             base_i,
             base_j,
             current_level,
@@ -189,7 +189,7 @@ impl FocalWindow {
 }
 
 #[inline]
-fn collect_fractional_annulus_window(
+fn collect_annulus(
     base_i: i32,
     base_j: i32,
     current_level: i32,
@@ -271,7 +271,7 @@ fn collect_fractional_annulus_window(
             let footprint_c1 = cell_c1.min(tile_c1);
 
             let (fraction, is_outer_edge) = match window_mode {
-                WindowMode::Circular => circular_annulus_overlap_fraction_and_edge(
+                WindowMode::Circular => circle_frac(
                     footprint_r0,
                     footprint_r1,
                     footprint_c0,
@@ -282,7 +282,7 @@ fn collect_fractional_annulus_window(
                     outer,
                 ),
                 WindowMode::Square => (
-                    square_annulus_overlap_fraction(
+                    square_frac(
                         footprint_r0,
                         footprint_r1,
                         footprint_c0,
@@ -351,7 +351,7 @@ fn collect_fractional_annulus_window(
 }
 
 #[inline]
-fn square_annulus_overlap_fraction(
+fn square_frac(
     r0: f64,
     r1: f64,
     c0: f64,
@@ -366,18 +366,18 @@ fn square_annulus_overlap_fraction(
         return 0.0;
     }
 
-    let outer_area = rect_square_overlap_area(r0, r1, c0, c1, center_r, center_c, outer);
+    let outer_area = square_overlap(r0, r1, c0, c1, center_r, center_c, outer);
     if outer_area <= 0.0 {
         return 0.0;
     }
 
-    let inner_area = rect_square_overlap_area(r0, r1, c0, c1, center_r, center_c, inner);
+    let inner_area = square_overlap(r0, r1, c0, c1, center_r, center_c, inner);
     let annulus_area = (outer_area - inner_area).max(0.0);
     (annulus_area / footprint_area).clamp(0.0, 1.0) as f32
 }
 
 #[inline]
-fn rect_square_overlap_area(
+fn square_overlap(
     r0: f64,
     r1: f64,
     c0: f64,
@@ -409,7 +409,7 @@ fn rect_square_overlap_area(
 }
 
 #[inline]
-fn circular_annulus_overlap_fraction_and_edge(
+fn circle_frac(
     r0: f64,
     r1: f64,
     c0: f64,
@@ -424,22 +424,22 @@ fn circular_annulus_overlap_fraction_and_edge(
         return (0.0, false);
     }
 
-    let outer_area = rect_circle_overlap_area(r0, r1, c0, c1, center_r, center_c, outer);
+    let outer_area = circle_overlap(r0, r1, c0, c1, center_r, center_c, outer);
     if outer_area <= 0.0 {
         return (0.0, false);
     }
 
-    let inner_area = rect_circle_overlap_area(r0, r1, c0, c1, center_r, center_c, inner);
+    let inner_area = circle_overlap(r0, r1, c0, c1, center_r, center_c, inner);
     let annulus_area = (outer_area - inner_area).max(0.0);
     let fraction = (annulus_area / footprint_area).clamp(0.0, 1.0) as f32;
-    let is_outer_edge = annulus_area > 0.0
-        && rect_intersects_circle_boundary(r0, r1, c0, c1, center_r, center_c, outer);
+    let is_outer_edge =
+        annulus_area > 0.0 && crosses_circle(r0, r1, c0, c1, center_r, center_c, outer);
 
     (fraction, is_outer_edge)
 }
 
 #[inline]
-fn rect_circle_overlap_area(
+fn circle_overlap(
     r0: f64,
     r1: f64,
     c0: f64,
@@ -459,10 +459,10 @@ fn rect_circle_overlap_area(
     let y1 = r1 - center_r;
     let radius_sq = radius * radius;
 
-    if rect_min_distance_sq_to_origin(x0, x1, y0, y1) >= radius_sq {
+    if min_dist_sq(x0, x1, y0, y1) >= radius_sq {
         return 0.0;
     }
-    if rect_max_distance_sq_to_origin(x0, x1, y0, y1) <= radius_sq {
+    if max_dist_sq(x0, x1, y0, y1) <= radius_sq {
         return rect_area;
     }
 
@@ -481,7 +481,7 @@ fn rect_circle_overlap_area(
                 continue;
             }
             let (qy0, qy1) = if yb <= 0.0 { (-yb, -ya) } else { (ya, yb) };
-            area += first_quadrant_rect_circle_area(qx0, qx1, qy0, qy1, radius);
+            area += q1_rect_area(qx0, qx1, qy0, qy1, radius);
         }
     }
 
@@ -489,19 +489,17 @@ fn rect_circle_overlap_area(
 }
 
 #[inline]
-fn first_quadrant_rect_circle_area(x0: f64, x1: f64, y0: f64, y1: f64, radius: f64) -> f64 {
+fn q1_rect_area(x0: f64, x1: f64, y0: f64, y1: f64, radius: f64) -> f64 {
     if x1 <= x0 || y1 <= y0 {
         return 0.0;
     }
 
-    first_quadrant_circle_area(x1, y1, radius)
-        - first_quadrant_circle_area(x0, y1, radius)
-        - first_quadrant_circle_area(x1, y0, radius)
-        + first_quadrant_circle_area(x0, y0, radius)
+    q1_corner_area(x1, y1, radius) - q1_corner_area(x0, y1, radius) - q1_corner_area(x1, y0, radius)
+        + q1_corner_area(x0, y0, radius)
 }
 
 #[inline]
-fn first_quadrant_circle_area(x: f64, y: f64, radius: f64) -> f64 {
+fn q1_corner_area(x: f64, y: f64, radius: f64) -> f64 {
     if x <= 0.0 || y <= 0.0 || radius <= 0.0 {
         return 0.0;
     }
@@ -512,22 +510,21 @@ fn first_quadrant_circle_area(x: f64, y: f64, radius: f64) -> f64 {
     }
 
     if y >= radius {
-        return circle_segment_antiderivative(x, radius);
+        return arc_integral(x, radius);
     }
 
     let x_flat = (radius * radius - y * y).max(0.0).sqrt();
     let rect_width = x.min(x_flat);
     let mut area = rect_width * y;
     if x > x_flat {
-        area += circle_segment_antiderivative(x, radius)
-            - circle_segment_antiderivative(x_flat, radius);
+        area += arc_integral(x, radius) - arc_integral(x_flat, radius);
     }
 
     area
 }
 
 #[inline]
-fn circle_segment_antiderivative(x: f64, radius: f64) -> f64 {
+fn arc_integral(x: f64, radius: f64) -> f64 {
     let x = x.clamp(0.0, radius);
     let y = (radius * radius - x * x).max(0.0).sqrt();
     let angle = (x / radius).clamp(-1.0, 1.0).asin();
@@ -544,7 +541,7 @@ fn split_at_zero(a: f64, b: f64) -> [(f64, f64); 2] {
 }
 
 #[inline]
-fn rect_intersects_circle_boundary(
+fn crosses_circle(
     r0: f64,
     r1: f64,
     c0: f64,
@@ -564,12 +561,11 @@ fn rect_intersects_circle_boundary(
     let radius_sq = radius * radius;
     let eps = (radius_sq.abs() + 1.0) * 1.0e-12;
 
-    rect_min_distance_sq_to_origin(x0, x1, y0, y1) <= radius_sq + eps
-        && rect_max_distance_sq_to_origin(x0, x1, y0, y1) >= radius_sq - eps
+    min_dist_sq(x0, x1, y0, y1) <= radius_sq + eps && max_dist_sq(x0, x1, y0, y1) >= radius_sq - eps
 }
 
 #[inline]
-fn rect_min_distance_sq_to_origin(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
+fn min_dist_sq(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
     let dx = if x0 > 0.0 {
         x0
     } else if x1 < 0.0 {
@@ -588,7 +584,7 @@ fn rect_min_distance_sq_to_origin(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
 }
 
 #[inline]
-fn rect_max_distance_sq_to_origin(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
+fn max_dist_sq(x0: f64, x1: f64, y0: f64, y1: f64) -> f64 {
     let dx = x0.abs().max(x1.abs());
     let dy = y0.abs().max(y1.abs());
     dx * dx + dy * dy
@@ -599,27 +595,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn circle_overlap_returns_full_rectangle_inside_disk() {
-        let area = rect_circle_overlap_area(9.0, 11.0, 9.0, 11.0, 10.0, 10.0, 3.0);
+    fn rect_inside_disk() {
+        let area = circle_overlap(9.0, 11.0, 9.0, 11.0, 10.0, 10.0, 3.0);
         assert!((area - 4.0).abs() < 1.0e-12);
     }
 
     #[test]
-    fn circle_overlap_matches_quarter_circle() {
+    fn quarter_disk() {
         let radius = 3.0;
-        let area = rect_circle_overlap_area(0.0, radius, 0.0, radius, 0.0, 0.0, radius);
+        let area = circle_overlap(0.0, radius, 0.0, radius, 0.0, 0.0, radius);
         let expected = std::f64::consts::PI * radius * radius * 0.25;
         assert!((area - expected).abs() < 1.0e-12);
     }
 
     #[test]
-    fn circular_annulus_marks_outer_boundary_not_inner_boundary() {
-        let (_, outer_edge) =
-            circular_annulus_overlap_fraction_and_edge(-0.5, 0.5, 2.5, 3.5, 0.0, 0.0, 1.0, 3.0);
+    fn flags_outer_rim_only() {
+        let (_, outer_edge) = circle_frac(-0.5, 0.5, 2.5, 3.5, 0.0, 0.0, 1.0, 3.0);
         assert!(outer_edge);
 
-        let (_, inner_edge) =
-            circular_annulus_overlap_fraction_and_edge(-0.5, 0.5, 0.5, 1.5, 0.0, 0.0, 1.0, 3.0);
+        let (_, inner_edge) = circle_frac(-0.5, 0.5, 0.5, 1.5, 0.0, 0.0, 1.0, 3.0);
         assert!(!inner_edge);
     }
 }
