@@ -19,9 +19,7 @@
   - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
   - [Citation](#citation)
       
-A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***.
-
-This algorithm operates on the overview layers of raster files which are now generated on-the-fly.
+A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across different dispersal scales. The algorithm retains fine spatial detail near each focal cell and represents more distant areas at progressively coarser resolutions, using raster overview layers generated on the fly to make large-landscape analyses efficient. PARC Connectedness additionally incorporates protected-area coverage, while BERI incorporates current and future climate-related compositional similarity to assess ecosystem resilience under climate change. Implemented in Rust with a Python interface, the framework supports biodiversity monitoring and conservation planning. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
 ## Installation <a name="install"></a>     
 ### Install from PyPI <a name="pypi"></a>     
