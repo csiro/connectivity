@@ -1,3 +1,10 @@
+# Version 2.3.0
+## Changed
+- Reduced routing overhead by building one adjacency list for both adjusted and intact searches, caching raw adjusted-distance sums along the selected paths, and avoiding repeated path back-tracing and attribute copying. Integer cost scaling and shortest-path tie handling are unchanged.
+
+## Fixed
+- Made indicator summation deterministic by retaining the adjusted search visitation order instead of iterating over a randomized hash map. Repeated runs on the same build and platform now use a fixed summation order without sorting targets for every focal cell. Final scores may differ in the last few bits from earlier versions because floating-point addition depends on order.
+
 # Version 2.2.0
 ## Added
 - Added an optional `resistance_file` argument (and `resistance_scale`) to `connectedness()` and `beri()`, backed by a new `traversal` argument on the Rust `connectivity()` binding. When supplied, the resistance raster is decoupled from condition and used **only** for path traversal — the edge weight becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost` — while condition still drives every indicator value (habitat area and the value multiplier). When omitted, condition is used for traversal as before, so output is unchanged. Resistance values are expected in `[0, 1]` (scaled via `resistance_scale`); cells valid in condition but missing resistance fall back to condition for traversal and emit a warning, so the analysis domain is never changed silently.

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use ndarray::parallel::prelude::*;
 use ndarray::{Array1, Array2, Array3, Axis};
-use pathfinding::prelude::build_path;
 use std::collections::HashMap;
 // local modules
 use crate::affine;
@@ -12,9 +11,9 @@ use crate::routing;
 use crate::utils;
 use crate::window;
 use affine::Affine;
-use graph::{EdgeData, Graph};
+use graph::Graph;
 use overview::Resampling;
-use routing::{GraphDijkstraExt, Path};
+use routing::GraphDijkstraExt;
 use window::{FocalWindow, WindowMode};
 
 /// Core connectivity function
@@ -180,26 +179,7 @@ pub fn conn(
                         window_mode,
                         pa_to_pa,
                     );
-                    // Calculate all reachable paths using weighted distance by conditon; altered condition
-                    let nodes_altered = the_graph.dijkstra(Path::Adjusted);
-                    // Using unweighted distance, i.e. intact condition case for the denominator
-                    let nodes_intact = the_graph.dijkstra(Path::Intact);
-
-                    let mut cell_paths: Vec<EdgeData> = Vec::with_capacity(nodes_altered.len());
-
-                    for &k in nodes_altered.keys() {
-                        // Calcaulate optimal path for each reachable path
-                        let optim_path = build_path(&k, &nodes_altered);
-                        // Get the intact distance from source; divided by 100 to cancel out from path adjacency
-                        let dist_intact: f32 =
-                            nodes_intact.get(&k).expect("Node not found!").1 as f32 / 100.0;
-                        // Get the path info for each target segment/node
-                        cell_paths.push(routing::path_distance(
-                            &the_graph,
-                            &optim_path,
-                            dist_intact,
-                        ));
-                    }
+                    let cell_paths = the_graph.paths();
 
                     // Calculate BERI or Connectedness
                     row_result[j] = if lambdas.is_empty() {
