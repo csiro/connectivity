@@ -1,6 +1,6 @@
 [package]
 name = "rust_conn"
-version = "2.2.0"
+version = "2.3.0"
 edition = "2021"
 license = "MIT"
 
@@ -14,12 +14,15 @@ pyo3 = {version = "0.28", default-features = false, features = ["macros", "abi3-
 pyo3-built = "0.5"
 numpy = "0.28"
 ndarray = { version = "0.16", features = ["rayon"] }
-pathfinding = "4.14.0"
 ordered-float = "4.2.0"
 rayon = "1.11"
 num_cpus = "1.16"
 anyhow = "1.0.100"
 rustc-hash = "2.1"
+
+[dev-dependencies]
+# Reference Dijkstra for routing tests
+pathfinding = "4.14.0"
 
 [build-dependencies]
 pyo3-build-config = { version = "0.28", features = ["resolve-config"] }

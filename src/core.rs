@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ndarray::parallel::prelude::*;
 use ndarray::{Array1, Array2, Array3, Axis};
-use pathfinding::prelude::build_path;
+use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 // local modules
 use crate::affine;
@@ -12,9 +12,9 @@ use crate::routing;
 use crate::utils;
 use crate::window;
 use affine::Affine;
-use graph::{EdgeData, Graph};
+use graph::Graph;
 use overview::Resampling;
-use routing::{GraphDijkstraExt, Path};
+use routing::GraphDijkstraExt;
 use window::{FocalWindow, WindowMode};
 
 /// Core connectivity function
@@ -146,7 +146,8 @@ pub fn conn(
                     // Get the transgrid values for ij cell for the current climate
                     let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
                     // Pre-allocate window hashmap
-                    let mut windows: HashMap<i32, FocalWindow> = HashMap::with_capacity(num_levels);
+                    let mut windows: FxHashMap<i32, FocalWindow> = FxHashMap::default();
+                    windows.reserve(num_levels);
                     // Build window for each level for the cell ij
                     for &level in &sorted_levels {
                         let win = FocalWindow::from_data(
@@ -180,26 +181,7 @@ pub fn conn(
                         window_mode,
                         pa_to_pa,
                     );
-                    // Calculate all reachable paths using weighted distance by conditon; altered condition
-                    let nodes_altered = the_graph.dijkstra(Path::Adjusted);
-                    // Using unweighted distance, i.e. intact condition case for the denominator
-                    let nodes_intact = the_graph.dijkstra(Path::Intact);
-
-                    let mut cell_paths: Vec<EdgeData> = Vec::with_capacity(nodes_altered.len());
-
-                    for &k in nodes_altered.keys() {
-                        // Calcaulate optimal path for each reachable path
-                        let optim_path = build_path(&k, &nodes_altered);
-                        // Get the intact distance from source; divided by 100 to cancel out from path adjacency
-                        let dist_intact: f32 =
-                            nodes_intact.get(&k).expect("Node not found!").1 as f32 / 100.0;
-                        // Get the path info for each target segment/node
-                        cell_paths.push(routing::path_distance(
-                            &the_graph,
-                            &optim_path,
-                            dist_intact,
-                        ));
-                    }
+                    let cell_paths = the_graph.paths();
 
                     // Calculate BERI or Connectedness
                     row_result[j] = if lambdas.is_empty() {
@@ -224,5 +206,41 @@ pub fn conn(
         Ok(outarray)
     } else {
         anyhow::bail!("No base level (key=1) in condition array");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Repeated runs must give bit-identical output.
+    #[test]
+    fn repeats_exactly() {
+        let cond = Some(Array2::from_shape_fn((32, 32), |(i, j)| {
+            ((i * 7 + j * 13) % 10 + 1) as f32 / 10.0
+        }));
+        let mask = Array2::from_elem((32, 32), false);
+        let levels = vec![1, 2, 4];
+        let transforms: HashMap<i32, Affine> = levels
+            .iter()
+            .map(|&l| {
+                let s = 1000.0 * l as f64;
+                (l as i32, Affine::from((s, 0.0, 0.0, 0.0, -s, 32_000.0)))
+            })
+            .collect();
+        let run = || {
+            conn(
+                &cond, None, None, &transforms, &mask, &levels, &[2.0, 20.0], false, 2.0, 3, 5,
+                (0, 0), WindowMode::Circular, false,
+            )
+            .unwrap()
+        };
+
+        let first = run();
+        assert!(first.iter().any(|&v| v > 0.0));
+        for _ in 0..3 {
+            let next = run();
+            assert!(first.iter().zip(&next).all(|(a, b)| a.to_bits() == b.to_bits()));
+        }
     }
 }

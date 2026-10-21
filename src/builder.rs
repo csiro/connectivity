@@ -1,7 +1,8 @@
 use crate::affine::Affine;
-use crate::graph::{Graph, NodeId};
+use crate::graph::{Graph, NodeId, NodeMap};
 use crate::window::{FocalWindow, WindowMode};
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Build a graph strcut from a multi-level window data
@@ -11,7 +12,7 @@ impl Graph {
         i_base: i32,
         j_base: i32,
         factor: f32,
-        windows: &HashMap<i32, FocalWindow>,
+        windows: &FxHashMap<i32, FocalWindow>,
         transforms: &HashMap<i32, Affine>,
         geographic: bool,
         offsets: (usize, usize),
@@ -37,10 +38,11 @@ impl Graph {
 
         // Node mappings of the next level; get level 2 as it's the first higher level
         let size_i = windows.get(&2).map(|win| win.i_array.len()).unwrap_or(36);
-        let mut node_mapping_higher = HashMap::with_capacity(size_i);
+        let mut node_mapping_higher = NodeMap::default();
+        node_mapping_higher.reserve(size_i);
 
         // Edge indices as HashSet for faster lookups
-        let mut all_edge_indices: HashMap<i32, HashSet<(i32, i32)>> = HashMap::new();
+        let mut all_edge_indices: FxHashMap<i32, FxHashSet<(i32, i32)>> = FxHashMap::default();
         // Pre-compute edge indices for all levels
         for (&level, win) in windows {
             let edge_indices = if window_mode == WindowMode::Circular {
@@ -146,13 +148,14 @@ fn create_node_mapping(
     win: &FocalWindow,
     level: i32,
     offsets: (usize, usize),
-) -> HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)> {
+) -> NodeMap {
     let num_sims = win.sims.len();
     let (tile_row0_u, tile_col0_u) = offsets;
     let level_origin_i = (tile_row0_u as i32).div_euclid(level);
     let level_origin_j = (tile_col0_u as i32).div_euclid(level);
 
-    let mut mapping = HashMap::with_capacity(win.i_array.len());
+    let mut mapping = NodeMap::default();
+    mapping.reserve(win.i_array.len());
 
     for (idx, (&i_val, &j_val)) in win.i_array.iter().zip(win.j_array.iter()).enumerate() {
         // Collect this cell's similarity across all scenarios
@@ -212,7 +215,7 @@ fn make_node_id(level: i32, global_i: i32, global_j: i32) -> NodeId {
 }
 
 /// Efficiently get edge cells in a level neighbourhood using HashSet
-fn square_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
+fn square_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> FxHashSet<(i32, i32)> {
     let i_min = *i_arr.iter().min().unwrap_or(&0);
     let i_max = *i_arr.iter().max().unwrap_or(&0);
     let j_min = *j_arr.iter().min().unwrap_or(&0);
@@ -220,7 +223,8 @@ fn square_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
 
     // Pre-allocate approximately the right size
     let perimeter = 2 * (i_max - i_min + j_max - j_min);
-    let mut edge_set = HashSet::with_capacity(perimeter as usize);
+    let mut edge_set = FxHashSet::default();
+    edge_set.reserve(perimeter as usize);
 
     // Use iterator for better cache locality
     i_arr
@@ -237,7 +241,7 @@ fn square_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> HashSet<(i32, i32)> {
 /// Circular windows need the full curved outer perimeter, not just min/max
 /// rows/columns. The window builder computes these cells geometrically from
 /// rectangle-circle overlap so cross-level links are placed around the ring.
-fn circular_edge_indices(win: &FocalWindow) -> HashSet<(i32, i32)> {
+fn circular_edge_indices(win: &FocalWindow) -> FxHashSet<(i32, i32)> {
     win.edge_cells
         .as_ref()
         .map(|edges| edges.iter().copied().collect())
