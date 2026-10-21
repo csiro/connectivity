@@ -1,7 +1,6 @@
 use anyhow::Result;
 use ndarray::parallel::prelude::*;
 use ndarray::{Array1, Array2, Array3, Axis};
-use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 // local modules
 use crate::affine;
@@ -145,9 +144,8 @@ pub fn conn(
 
                     // Get the transgrid values for ij cell for the current climate
                     let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
-                    // Pre-allocate window hashmap
-                    let mut windows: FxHashMap<i32, FocalWindow> = FxHashMap::default();
-                    windows.reserve(num_levels);
+                    // Keep windows indexed in ascending level order
+                    let mut windows = Vec::with_capacity(num_levels);
                     // Build window for each level for the cell ij
                     for &level in &sorted_levels {
                         let win = FocalWindow::from_data(
@@ -166,7 +164,7 @@ pub fn conn(
                             trav_map.as_ref(),
                             window_mode,
                         );
-                        windows.insert(level, win);
+                        windows.push((level, win));
                     }
 
                     // Build a Graph for the cell ij using multi-res windows
@@ -241,6 +239,146 @@ mod tests {
         for _ in 0..3 {
             let next = run();
             assert!(first.iter().zip(&next).all(|(a, b)| a.to_bits() == b.to_bits()));
+        }
+    }
+
+    #[test]
+    fn multilevel_regression() {
+        let cond = Some(Array2::from_shape_fn((13, 14), |(i, j)| {
+            if (i * 7 + j * 11) % 29 == 0 {
+                f32::NAN
+            } else {
+                ((i * 7 + j * 13) % 10 + 1) as f32 / 10.0
+            }
+        }));
+        let condition = cond.as_ref().unwrap();
+        let mask = Array2::from_shape_fn((13, 14), |(i, j)| {
+            !condition[[i, j]].is_finite() || (i * 3 + j * 5) % 7 == 0
+        });
+        let traversal = Array2::from_shape_fn((13, 14), |(i, j)| {
+            if (i + j * 3) % 13 == 0 {
+                f32::NAN
+            } else {
+                ((i * 5 + j * 3) % 11) as f32 / 10.0
+            }
+        });
+        let transitions: Vec<Array3<f32>> = (0..2)
+            .map(|scenario| {
+                Array3::from_shape_fn((13, 14, 2), |(i, j, k)| {
+                    if (i * 3 + j * 5 + scenario + k) % 31 == 0 {
+                        f32::NAN
+                    } else {
+                        ((i * 7 + j * 3 + scenario * 11 + k * 2) % 23) as f32 / 23.0
+                    }
+                })
+            })
+            .collect();
+        let levels = vec![1, 2, 4];
+        let offsets = (3, 5);
+        let transforms: HashMap<i32, Affine> = levels
+            .iter()
+            .map(|&level| {
+                let scale = 1000.0 * level as f64;
+                let row0 = offsets.0 / level * level;
+                let col0 = offsets.1 / level * level;
+                (
+                    level as i32,
+                    Affine::from((
+                        scale,
+                        0.0,
+                        500_000.0 + col0 as f64 * 1000.0,
+                        0.0,
+                        -scale,
+                        6_000_000.0 - row0 as f64 * 1000.0,
+                    )),
+                )
+            })
+            .collect();
+        let sample_cells = [(0, 1), (3, 5), (6, 8), (12, 13)];
+
+        // Frozen CPU outputs from before the dense-array rewrite, including fringe links,
+        // traversal fallback and missing similarities. Allow platform float-math variation.
+        for (mode, beri, pa_to_pa, expected) in [
+            (
+                WindowMode::Circular,
+                false,
+                false,
+                [0.035036724, 0.060928639, 0.057472181, 0.023413222],
+            ),
+            (
+                WindowMode::Circular,
+                false,
+                true,
+                [0.031013189, 0.051940750, 0.050136760, 0.017623197],
+            ),
+            (
+                WindowMode::Circular,
+                true,
+                false,
+                [0.287769228, 0.330879152, 0.336351663, 0.270322204],
+            ),
+            (
+                WindowMode::Circular,
+                true,
+                true,
+                [0.287769228, 0.330879152, 0.336351663, 0.270322204],
+            ),
+            (
+                WindowMode::Square,
+                false,
+                false,
+                [0.036365397, 0.062699854, 0.057887629, 0.023465034],
+            ),
+            (
+                WindowMode::Square,
+                false,
+                true,
+                [0.032288730, 0.053552385, 0.050358951, 0.017685590],
+            ),
+            (
+                WindowMode::Square,
+                true,
+                false,
+                [0.288273066, 0.334522188, 0.339534730, 0.269480884],
+            ),
+            (
+                WindowMode::Square,
+                true,
+                true,
+                [0.288273066, 0.334522188, 0.339534730, 0.269480884],
+            ),
+        ] {
+            let output = conn(
+                &cond,
+                Some(&traversal),
+                beri.then_some(transitions.as_slice()),
+                &transforms,
+                &mask,
+                &levels,
+                &[2.0, 20.0],
+                false,
+                20.0,
+                3,
+                5,
+                offsets,
+                mode,
+                pa_to_pa,
+            )
+            .unwrap();
+
+            for (cell, expected) in sample_cells.iter().zip(expected) {
+                let actual = output[*cell];
+                assert!(actual.is_finite());
+                assert!(
+                    (actual - expected).abs() <= 1.0e-6,
+                    "{mode:?}, beri={beri}, pa_to_pa={pa_to_pa}, cell={cell:?}: {actual} != {expected}"
+                );
+            }
+            for ((i, j), &masked) in mask.indexed_iter() {
+                if masked {
+                    assert!(output[[i, j]].is_nan());
+                }
+            }
         }
     }
 }

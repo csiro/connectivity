@@ -1,18 +1,17 @@
 use crate::affine::Affine;
 use crate::graph::{Graph, NodeId, NodeMap};
 use crate::window::{FocalWindow, WindowMode};
-use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// Build a graph strcut from a multi-level window data
+/// Build a graph from multi-level windows in ascending level order.
 impl Graph {
     #[inline]
     pub fn from_data(
         i_base: i32,
         j_base: i32,
         factor: f32,
-        windows: &FxHashMap<i32, FocalWindow>,
+        windows: &[(i32, FocalWindow)],
         transforms: &HashMap<i32, Affine>,
         geographic: bool,
         offsets: (usize, usize),
@@ -23,116 +22,108 @@ impl Graph {
         const COLS: [i32; 8] = [0, 1, 0, -1, 1, 1, -1, -1];
         const ROWS: [i32; 8] = [1, 0, -1, 0, 1, -1, 1, -1];
 
-        // Get and sort levels
-        let mut levels: Vec<i32> = windows.keys().cloned().collect();
-        levels.sort_unstable(); // faster than sort()
-
-        let max_level = *levels.last().unwrap_or(&1);
-
         // Pre-allocate with capacity for better performance
         let guess_size = windows
-            .values()
-            .map(|win| win.i_array.len() * 8)
+            .iter()
+            .map(|(_, win)| win.i_array.len() * 8)
             .sum::<usize>();
         let mut graph_temp = Graph::new(Some(guess_size));
 
-        // Node mappings of the next level; get level 2 as it's the first higher level
-        let size_i = windows.get(&2).map(|win| win.i_array.len()).unwrap_or(36);
+        // Node mapping of the next level, reused in the following iteration
         let mut node_mapping_higher = NodeMap::default();
-        node_mapping_higher.reserve(size_i);
 
-        // Edge indices as HashSet for faster lookups
-        let mut all_edge_indices: FxHashMap<i32, FxHashSet<(i32, i32)>> = FxHashMap::default();
-        // Pre-compute edge indices for all levels
-        for (&level, win) in windows {
-            let edge_indices = if window_mode == WindowMode::Circular {
-                circular_edge_indices(win)
-            } else {
-                square_edge_indices(&win.i_array, &win.j_array)
-            };
-            all_edge_indices.insert(level, edge_indices);
-        }
+        // Process windows in ascending level order
+        'outer: for (iter_level, (level, levelwin)) in windows.iter().enumerate() {
+            let level = *level;
+            let num_cell = levelwin.i_array.len();
 
-        // Process each level
-        'outer: for (iter_level, &level) in levels.iter().enumerate() {
-            // Only proceed if level is there..
-            if let Some(levelwin) = windows.get(&level) {
-                let num_cell = levelwin.i_array.len();
-                let edge_indices = all_edge_indices
-                    .get(&level)
-                    .expect("Level not found in edge indices.");
+            let level_affine: &Affine = transforms
+                .get(&level)
+                .expect("Missing level in Affine set.");
 
-                let level_affine: &Affine = transforms
-                    .get(&level)
-                    .expect("Missing level in Affine set.");
-
-                // Generate or update node mappings
-                let node_mapping = if iter_level == 0 {
-                    // First level node mapping
-                    let nm = create_node_mapping(levelwin, level, offsets);
-                    // Find the base node index only once
-                    if let Some((_, (u, _, _, _, _, _))) = nm.get_key_value(&(i_base, j_base)) {
-                        graph_temp.source = *u;
-                    }
-
-                    nm
-                } else {
-                    // Reuse mapping already calculated for the higher level in previous round
-                    std::mem::take(&mut node_mapping_higher)
-                };
-
-                // Pre-compute higher level node mapping if needed
-                if level < max_level {
-                    let higher_level = level * 2;
-                    if let Some(higherwin) = windows.get(&higher_level) {
-                        node_mapping_higher = create_node_mapping(higherwin, higher_level, offsets);
-                    }
+            // Generate or update node mappings
+            let node_mapping = if iter_level == 0 {
+                // First level node mapping
+                let nm = create_node_mapping(levelwin, level, offsets);
+                // Find the base node index only once
+                if let Some((u, _, _, _, _, _)) = nm.get(&(i_base, j_base)) {
+                    graph_temp.source = *u;
                 }
 
-                // Process all cells in a level and the higher neighbours of the edge
-                for cell_idx in 0..num_cell {
-                    let i = levelwin.i_array[cell_idx];
-                    let j = levelwin.j_array[cell_idx];
-                    let u = node_mapping
-                        .get(&(i, j))
-                        .expect("Node not found in node mapping.")
-                        .0;
+                nm
+            } else {
+                // Reuse mapping already calculated for the higher level in previous round
+                std::mem::take(&mut node_mapping_higher)
+            };
 
-                    // Process neighbors at the current level
-                    // Modify the graph, and return true if cell is isolated
-                    let was_isolated = graph_temp.neighbours(
+            // Pre-compute higher level node mapping if needed
+            let higher_window = windows
+                .get(iter_level + 1)
+                .filter(|(higher_level, _)| *higher_level == level * 2);
+            if let Some((higher_level, higherwin)) = higher_window {
+                node_mapping_higher = create_node_mapping(higherwin, *higher_level, offsets);
+            }
+
+            // Mark fringe cells by their compact window index
+            let mut edge_indices = vec![false; num_cell];
+            if window_mode == WindowMode::Circular {
+                if let Some(edges) = &levelwin.edge_cells {
+                    for &(i, j) in edges {
+                        let row = (i - node_mapping.origin.0) as usize;
+                        let col = (j - node_mapping.origin.1) as usize;
+                        let idx = node_mapping.index[row * node_mapping.shape.1 + col];
+                        edge_indices[idx] = true;
+                    }
+                }
+            } else {
+                let (i_min, j_min) = node_mapping.origin;
+                let i_max = i_min + node_mapping.shape.0 as i32 - 1;
+                let j_max = j_min + node_mapping.shape.1 as i32 - 1;
+                for (idx, (&i, &j)) in levelwin.i_array.iter().zip(&levelwin.j_array).enumerate() {
+                    edge_indices[idx] = i == i_min || i == i_max || j == j_min || j == j_max;
+                }
+            }
+
+            // Process all cells in a level and the higher neighbours of the edge
+            for cell_idx in 0..num_cell {
+                let i = levelwin.i_array[cell_idx];
+                let j = levelwin.j_array[cell_idx];
+                let u = node_mapping.data[cell_idx].0;
+
+                // Process neighbors at the current level
+                // Modify the graph, and return true if cell is isolated
+                let was_isolated = graph_temp.neighbours(
+                    i,
+                    j,
+                    u,
+                    &COLS,
+                    &ROWS,
+                    factor,
+                    &node_mapping,
+                    &level_affine,
+                    geographic,
+                    pa_to_pa,
+                );
+
+                // For source nodes with no neighbours (isolated pixel, e.g tiny islands), add duplicated values
+                // and break the outer loop to avoid processing the rest of levels for the current graph
+                if was_isolated {
+                    break 'outer;
+                }
+
+                // Process connections to the next level (e.g. from level 2 to level 4)
+                if higher_window.is_some() && edge_indices[cell_idx] {
+                    graph_temp.fringe(
                         i,
                         j,
-                        u,
-                        &COLS,
-                        &ROWS,
                         factor,
+                        level,
                         &node_mapping,
-                        &level_affine,
+                        &node_mapping_higher,
+                        &transforms,
                         geographic,
-                        pa_to_pa,
+                        offsets,
                     );
-
-                    // For source nodes with no neighbours (isolated pixel, e.g tiny islands), add duplicated values
-                    // and break the outer loop to avoid processing the rest of levels for the current graph
-                    if was_isolated {
-                        break 'outer;
-                    }
-
-                    // Process connections to the next level (e.g. from level 2 to level 4)
-                    if level < max_level && edge_indices.contains(&(i, j)) {
-                        graph_temp.fringe(
-                            i,
-                            j,
-                            factor,
-                            level,
-                            &node_mapping,
-                            &node_mapping_higher,
-                            &transforms,
-                            geographic,
-                            offsets,
-                        );
-                    }
                 }
             }
         }
@@ -144,18 +135,26 @@ impl Graph {
 /// Create node mapping (the unique ID of each node/pixel)
 /// This is done per level/resolution in a window;
 /// (i, j) (id, cond, trav, count, pa, sims)
-fn create_node_mapping(
-    win: &FocalWindow,
-    level: i32,
-    offsets: (usize, usize),
-) -> NodeMap {
+fn create_node_mapping(win: &FocalWindow, level: i32, offsets: (usize, usize)) -> NodeMap {
     let num_sims = win.sims.len();
     let (tile_row0_u, tile_col0_u) = offsets;
     let level_origin_i = (tile_row0_u as i32).div_euclid(level);
     let level_origin_j = (tile_col0_u as i32).div_euclid(level);
 
-    let mut mapping = NodeMap::default();
-    mapping.reserve(win.i_array.len());
+    if win.i_array.is_empty() {
+        return NodeMap::default();
+    }
+    let i_min = *win.i_array.iter().min().unwrap();
+    let i_max = *win.i_array.iter().max().unwrap();
+    let j_min = *win.j_array.iter().min().unwrap();
+    let j_max = *win.j_array.iter().max().unwrap();
+    let shape = ((i_max - i_min + 1) as usize, (j_max - j_min + 1) as usize);
+    let mut mapping = NodeMap {
+        origin: (i_min, j_min),
+        shape,
+        index: vec![usize::MAX; shape.0 * shape.1],
+        data: Vec::with_capacity(win.i_array.len()),
+    };
 
     for (idx, (&i_val, &j_val)) in win.i_array.iter().zip(win.j_array.iter()).enumerate() {
         // Collect this cell's similarity across all scenarios
@@ -176,10 +175,17 @@ fn create_node_mapping(
             None => win.values[idx],
         };
 
-        mapping.insert(
-            (i_val, j_val),
-            (node_id, win.values[idx], trav, win.counts[idx], win.pa_values[idx], sim_vals),
-        );
+        let row = (i_val - i_min) as usize;
+        let col = (j_val - j_min) as usize;
+        mapping.index[row * shape.1 + col] = idx;
+        mapping.data.push((
+            node_id,
+            win.values[idx],
+            trav,
+            win.counts[idx],
+            win.pa_values[idx],
+            sim_vals,
+        ));
     }
 
     mapping
@@ -214,36 +220,51 @@ fn make_node_id(level: i32, global_i: i32, global_j: i32) -> NodeId {
     (l << 48) | (r << 24) | c
 }
 
-/// Efficiently get edge cells in a level neighbourhood using HashSet
-fn square_edge_indices(i_arr: &[i32], j_arr: &[i32]) -> FxHashSet<(i32, i32)> {
-    let i_min = *i_arr.iter().min().unwrap_or(&0);
-    let i_max = *i_arr.iter().max().unwrap_or(&0);
-    let j_min = *j_arr.iter().min().unwrap_or(&0);
-    let j_max = *j_arr.iter().max().unwrap_or(&0);
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // Pre-allocate approximately the right size
-    let perimeter = 2 * (i_max - i_min + j_max - j_min);
-    let mut edge_set = FxHashSet::default();
-    edge_set.reserve(perimeter as usize);
+    #[test]
+    fn indexes_window_bounds_and_holes() {
+        let win = FocalWindow {
+            i_array: vec![1_000_000, 1_000_000, 1_000_002],
+            j_array: vec![2_000_000, 2_000_002, 2_000_001],
+            values: vec![0.2, 0.4, 0.6],
+            trav_values: Some(vec![0.9, 0.8, 0.7]),
+            counts: vec![1.0, 2.0, 3.0],
+            pa_values: vec![0.0, 0.5, 1.0],
+            sims: vec![vec![Some(1.0); 3], vec![Some(0.3), None, Some(0.7)]],
+            edge_cells: None,
+        };
+        let mapping = create_node_mapping(&win, 2, (3, 5));
+        assert_eq!(mapping.origin, (1_000_000, 2_000_000));
+        assert_eq!(mapping.shape, (3, 3));
+        assert_eq!(mapping.index.len(), 9);
+        assert_eq!(mapping.data.len(), 3);
+        assert!(mapping.get(&(1_000_000, 2_000_001)).is_none());
+        for cell in [
+            (999_999, 2_000_000),
+            (1_000_003, 2_000_000),
+            (1_000_000, 1_999_999),
+            (1_000_000, 2_000_003),
+        ] {
+            assert!(mapping.get(&cell).is_none());
+        }
 
-    // Use iterator for better cache locality
-    i_arr
-        .iter()
-        .zip(j_arr.iter())
-        .filter(|(&i, &j)| i == i_min || i == i_max || j == j_min || j == j_max)
-        .for_each(|(&i, &j)| {
-            edge_set.insert((i, j));
-        });
+        let &(id, cond, trav, count, pa, ref sims) = mapping.get(&(1_000_000, 2_000_002)).unwrap();
+        assert_eq!(id, make_node_id(2, 1_000_001, 2_000_004));
+        assert_eq!([cond, trav, count, pa], [0.4, 0.8, 2.0, 0.5]);
+        assert_eq!(sims.as_ref(), &[Some(1.0), None]);
 
-    edge_set
-}
+        let mut fallback = win.clone();
+        fallback.trav_values = None;
+        let mapping = create_node_mapping(&fallback, 2, (3, 5));
+        assert_eq!(mapping.data[1].2, 0.4);
 
-/// Circular windows need the full curved outer perimeter, not just min/max
-/// rows/columns. The window builder computes these cells geometrically from
-/// rectangle-circle overlap so cross-level links are placed around the ring.
-fn circular_edge_indices(win: &FocalWindow) -> FxHashSet<(i32, i32)> {
-    win.edge_cells
-        .as_ref()
-        .map(|edges| edges.iter().copied().collect())
-        .unwrap_or_default()
+        fallback.i_array.clear();
+        fallback.j_array.clear();
+        let mapping = create_node_mapping(&fallback, 2, (3, 5));
+        assert!(mapping.index.is_empty());
+        assert!(mapping.get(&(0, 0)).is_none());
+    }
 }

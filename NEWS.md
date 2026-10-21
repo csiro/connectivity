@@ -1,3 +1,7 @@
+# Version 2.4.0 (unreleased)
+## Changed
+- Replaced per-cell window and fringe lookups with dense indexed arrays, and stored routing adjacency and shortest-path state in compact arrays. The edge table retains its existing order so tied paths and numerical outputs are unchanged; CPU/Rayon remains the only execution path.
+
 # Version 2.3.0
 ## Changed
 - Reduced routing overhead by building one adjacency list for both adjusted and intact searches, caching raw adjusted-distance sums along the selected paths, and avoiding repeated path back-tracing and attribute copying. Integer cost scaling and shortest-path tie handling are unchanged.

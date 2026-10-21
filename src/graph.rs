@@ -6,8 +6,31 @@ use std::rc::Rc;
 
 pub type NodeId = u64;
 
-/// Window cell (i, j) -> (id, cond, trav, count, pa, sims); used for lookups only
-pub type NodeMap = FxHashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>;
+/// Window cell data: (id, cond, trav, count, pa, sims).
+pub type NodeData = (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>);
+
+/// Dense lookup within a level's local bounds; missing cells have index usize::MAX.
+#[derive(Default)]
+pub struct NodeMap {
+    pub origin: (i32, i32),
+    pub shape: (usize, usize),
+    pub index: Vec<usize>,
+    pub data: Vec<NodeData>,
+}
+
+impl NodeMap {
+    #[inline]
+    pub fn get(&self, &(i, j): &(i32, i32)) -> Option<&NodeData> {
+        let row = i - self.origin.0;
+        let col = j - self.origin.1;
+        if row < 0 || col < 0 || row as usize >= self.shape.0 || col as usize >= self.shape.1 {
+            return None;
+        }
+
+        self.data
+            .get(self.index[row as usize * self.shape.1 + col as usize])
+    }
+}
 
 // The data of Graph edge
 #[derive(Debug, Clone)]
@@ -48,11 +71,13 @@ impl Graph {
     }
 
     /// Get an entry by reference
+    #[cfg(test)]
     pub fn get(&self, key: &(NodeId, NodeId)) -> Option<&EdgeData> {
         self.data.get(&key)
     }
 
     /// Count how many outgoing edges each `u` node has.
+    #[cfg(test)]
     pub fn count_edges(&self) -> FxHashMap<NodeId, usize> {
         // Count the source in hashmap to keep the keys unique
         let mut edge_counts = FxHashMap::default();
