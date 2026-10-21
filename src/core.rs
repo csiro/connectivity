@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ndarray::parallel::prelude::*;
 use ndarray::{Array1, Array2, Array3, Axis};
+use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 // local modules
 use crate::affine;
@@ -145,7 +146,8 @@ pub fn conn(
                     // Get the transgrid values for ij cell for the current climate
                     let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
                     // Pre-allocate window hashmap
-                    let mut windows: HashMap<i32, FocalWindow> = HashMap::with_capacity(num_levels);
+                    let mut windows: FxHashMap<i32, FocalWindow> = FxHashMap::default();
+                    windows.reserve(num_levels);
                     // Build window for each level for the cell ij
                     for &level in &sorted_levels {
                         let win = FocalWindow::from_data(

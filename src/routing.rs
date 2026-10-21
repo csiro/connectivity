@@ -1,15 +1,20 @@
 use crate::graph::{EdgeData, Graph, NodeId};
-use pathfinding::prelude::dijkstra_all;
 use rustc_hash::FxHashMap;
+use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
+use std::collections::BinaryHeap;
 use std::rc::Rc;
 
-/// Convert edge list to adjacency list format to be injested by dijksta_all function via successor
+/// u -> [(v, adjusted, intact)]
+type Adjacency = FxHashMap<NodeId, Vec<(NodeId, u32, u32)>>;
+
+/// Convert edge list to adjacency list format for `dijkstra`
 /// Converts f32 weights to u32 by multiplying with 100 and rounding to be used in Dijkstra
 /// HashMap<u, Vec<(v, adjusted, intact)>>
 /// u: source, v: destination
 impl Graph {
     #[inline]
-    fn to_adjacency(&self) -> FxHashMap<NodeId, Vec<(NodeId, u32, u32)>> {
+    fn to_adjacency(&self) -> Adjacency {
         // First pass: count edges per source node
         let edge_counts = self.count_edges();
 
@@ -35,6 +40,109 @@ impl Graph {
     }
 }
 
+/// Heap entry ordered by cost alone, lowest first, as in `pathfinding::dijkstra_all`,
+/// so equal-cost entries pop in the same order and ties resolve the same way.
+struct Queued {
+    cost: u32,
+    index: usize,
+}
+
+impl PartialEq for Queued {
+    fn eq(&self, other: &Self) -> bool {
+        self.cost == other.cost
+    }
+}
+
+impl Eq for Queued {}
+
+impl PartialOrd for Queued {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Queued {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.cost.cmp(&self.cost)
+    }
+}
+
+/// Shortest-path tree; nodes are indexed in discovery order, source first.
+struct Tree {
+    node: Vec<NodeId>,
+    parent: Vec<usize>,
+    cost: Vec<u32>,
+    index: FxHashMap<NodeId, usize>,
+    order: Vec<usize>, // settlement order
+}
+
+/// Dijkstra over integer weights. Mirrors `pathfinding::dijkstra_all` step for step,
+/// so parents and ties are unchanged, and also records the settlement order.
+/// Adapted from `run_dijkstra` in the pathfinding crate (Samuel Tardieu, MIT OR Apache-2.0).
+fn dijkstra(
+    adjacency: &Adjacency,
+    source: NodeId,
+    weight: impl Fn(&(NodeId, u32, u32)) -> u32,
+) -> Tree {
+    let cap = adjacency.len() + 1;
+    let mut tree = Tree {
+        node: Vec::with_capacity(cap),
+        parent: Vec::with_capacity(cap),
+        cost: Vec::with_capacity(cap),
+        index: FxHashMap::default(),
+        order: Vec::with_capacity(cap),
+    };
+    tree.index.reserve(cap);
+    tree.node.push(source);
+    tree.parent.push(usize::MAX);
+    tree.cost.push(0);
+    tree.index.insert(source, 0);
+
+    let mut heap = BinaryHeap::new();
+    heap.push(Queued { cost: 0, index: 0 });
+    while let Some(Queued { cost, index }) = heap.pop() {
+        // Skip entries superseded by a cheaper path
+        if cost > tree.cost[index] {
+            continue;
+        }
+        tree.order.push(index);
+        let Some(neighbours) = adjacency.get(&tree.node[index]) else {
+            continue;
+        };
+        for edge in neighbours {
+            // Checked: a wrapped cost would re-settle nodes and silently double-count them
+            let new_cost = cost
+                .checked_add(weight(edge))
+                .expect("Path cost overflow; check max_cost and resistance scaling!");
+            let next = match tree.index.entry(edge.0) {
+                Entry::Vacant(e) => {
+                    e.insert(tree.node.len());
+                    tree.node.push(edge.0);
+                    tree.parent.push(index);
+                    tree.cost.push(new_cost);
+                    tree.node.len() - 1
+                }
+                Entry::Occupied(e) => {
+                    let next = *e.get();
+                    // Only a strictly cheaper path replaces the parent
+                    if tree.cost[next] <= new_cost {
+                        continue;
+                    }
+                    tree.parent[next] = index;
+                    tree.cost[next] = new_cost;
+                    next
+                }
+            };
+            heap.push(Queued {
+                cost: new_cost,
+                index: next,
+            });
+        }
+    }
+
+    tree
+}
+
 pub trait GraphDijkstraExt {
     fn paths(&self) -> Vec<EdgeData>;
 }
@@ -42,47 +150,24 @@ pub trait GraphDijkstraExt {
 impl GraphDijkstraExt for Graph {
     /// Calculate adjusted and intact paths using the same adjacency list.
     fn paths(&self) -> Vec<EdgeData> {
-        let graph_int = self.to_adjacency();
-        // Keep settlement order for repeatable summation.
-        let mut order = Vec::with_capacity(graph_int.len());
-        let successors = |node: &NodeId| {
-            if *node != self.source {
-                order.push(*node);
-            }
-            graph_int
-                .get(node)
-                .into_iter()
-                .flatten()
-                .map(|&(v, adjusted, _)| (v, adjusted))
-        };
-        let nodes_altered = dijkstra_all(&self.source, successors);
-        // `order` relies on dijkstra_all expanding each reachable node exactly once.
-        assert_eq!(order.len(), nodes_altered.len(), "Settlement order mismatch!");
-        let successors = |node: &NodeId| {
-            graph_int
-                .get(node)
-                .into_iter()
-                .flatten()
-                .map(|&(v, _, intact)| (v, intact))
-        };
-        let nodes_intact = dijkstra_all(&self.source, successors);
-        drop(graph_int);
+        let adjacency = self.to_adjacency();
+        let altered = dijkstra(&adjacency, self.source, |&(_, adjusted, _)| adjusted);
+        let intact = dijkstra(&adjacency, self.source, |&(_, _, intact)| intact);
+        drop(adjacency);
 
-        let mut distances = FxHashMap::default();
-        distances.reserve(nodes_altered.len() + 1);
-        distances.insert(self.source, 0.0f32);
-        let mut cell_paths = Vec::with_capacity(nodes_altered.len());
+        let mut distances = vec![0.0f32; altered.node.len()];
+        let mut cell_paths = Vec::with_capacity(altered.node.len() - 1);
 
-        // Parents are settled first; keep the original source-to-target addition order.
-        for node in order {
-            let parent = nodes_altered[&node].0;
-            let edge = self.get(&(parent, node)).expect("Edge not found!");
-            let dist_adjusted = distances[&parent] + edge.adj_dist;
-            distances.insert(node, dist_adjusted);
+        // Settlement order is fixed and parents settle before their children, so sums keep
+        // the source-to-target addition order; order[0] is the source itself.
+        for &i in &altered.order[1..] {
+            let (node, p) = (altered.node[i], altered.parent[i]);
+            let edge = self.get(&(altered.node[p], node)).expect("Edge not found!");
+            distances[i] = distances[p] + edge.adj_dist;
 
-            let dist_intact = nodes_intact[&node].1 as f32 / 100.0;
+            let dist_intact = intact.cost[intact.index[&node]] as f32 / 100.0;
             cell_paths.push(EdgeData {
-                adj_dist: dist_adjusted,
+                adj_dist: distances[i],
                 geo_dist: dist_intact,
                 condition: edge.condition,
                 pa: edge.pa,
@@ -129,7 +214,7 @@ pub fn path_distance(graph: &Graph, path: &[NodeId], dist_intact: f32) -> EdgeDa
 mod tests {
     use super::*;
     use crate::metrics;
-    use pathfinding::prelude::build_path;
+    use pathfinding::prelude::{build_path, dijkstra_all};
 
     fn reference(graph: &Graph) -> Vec<EdgeData> {
         let graph_int = graph.to_adjacency();
@@ -168,6 +253,19 @@ mod tests {
                     .map(|&(v, adj, geo)| (v, if adjusted { adj } else { geo }))
             };
             assert_eq!(paths, dijkstra_all(&graph.source, successors));
+
+            // Own search must match pathfinding's parents, costs and settlement order
+            let weight = |e: &(NodeId, u32, u32)| if adjusted { e.1 } else { e.2 };
+            let tree = dijkstra(&graph_int, graph.source, weight);
+            assert_eq!(tree.node.len(), paths.len() + 1);
+            for i in 1..tree.node.len() {
+                let parent = tree.node[tree.parent[i]];
+                assert_eq!(paths[&tree.node[i]], (parent, tree.cost[i]));
+            }
+            if adjusted {
+                let settled: Vec<NodeId> = tree.order[1..].iter().map(|&i| tree.node[i]).collect();
+                assert_eq!(settled, order);
+            }
             nodes.push(paths);
         }
 
@@ -273,6 +371,27 @@ mod tests {
             expected.last().unwrap().adj_dist.to_bits()
         );
         assert_eq!(actual.last().unwrap().adj_dist, 16_777_216.0);
+    }
+
+    // Two edges of 3e9 scaled cost exceed u32::MAX; must fail in every build profile
+    #[test]
+    #[should_panic(expected = "Path cost overflow")]
+    fn rejects_overflow() {
+        let mut graph = Graph::new(None);
+        for (u, v) in [(0, 1), (1, 2)] {
+            graph.add_node(
+                (u, v),
+                EdgeData {
+                    adj_dist: 3.0e7,
+                    geo_dist: 1.0,
+                    condition: 1.0,
+                    pa: 1.0,
+                    num_cells: 1.0,
+                    similarities: Rc::new(Vec::new()),
+                },
+            );
+        }
+        graph.paths();
     }
 
     #[test]

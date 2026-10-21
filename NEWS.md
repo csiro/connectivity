@@ -1,9 +1,11 @@
 # Version 2.3.0
 ## Changed
 - Reduced routing overhead by building one adjacency list for both adjusted and intact searches, caching raw adjusted-distance sums along the selected paths, and avoiding repeated path back-tracing and attribute copying. Integer cost scaling and shortest-path tie handling are unchanged.
+- Replaced the remaining standard (SipHash) hash maps in per-cell graph building with `FxHashMap`, and replaced `pathfinding::dijkstra_all` with an in-crate Dijkstra that follows the same steps, so parents, ties and summation order are unchanged and outputs are bit-identical. Together about 20% faster on the bundled example; `pathfinding` is now only a test dependency.
 
 ## Fixed
 - Made indicator summation deterministic by retaining the adjusted search visitation order instead of iterating over a randomized hash map. Repeated runs on the same build and platform now use a fixed summation order without sorting targets for every focal cell. Final scores may differ in the last few bits from earlier versions because floating-point addition depends on order.
+- Integer path costs are now checked for overflow. Inputs that push a path cost past the `u32` range (for example a very large `max_cost` or unscaled resistance values) now raise an error instead of silently wrapping and corrupting the result.
 
 # Version 2.2.0
 ## Added

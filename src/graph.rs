@@ -6,6 +6,9 @@ use std::rc::Rc;
 
 pub type NodeId = u64;
 
+/// Window cell (i, j) -> (id, cond, trav, count, pa, sims); used for lookups only
+pub type NodeMap = FxHashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>;
+
 // The data of Graph edge
 #[derive(Debug, Clone)]
 pub struct EdgeData {
@@ -79,7 +82,7 @@ impl Graph {
         i_ngb: &[i32],
         j_ngb: &[i32],
         factor: f32,
-        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &NodeMap,
         transform: &Affine,
         is_wgs: bool,
         pa_to_pa: bool,
@@ -166,8 +169,8 @@ impl Graph {
         j: i32,
         factor: f32,
         level: i32,
-        node_mapping: &HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>,
-        node_mapping_higher: &HashMap<(i32, i32), (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>)>,
+        node_mapping: &NodeMap,
+        node_mapping_higher: &NodeMap,
         transforms: &HashMap<i32, Affine>,
         is_wgs: bool,
         offsets: (usize, usize),
