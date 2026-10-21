@@ -56,6 +56,8 @@ impl GraphDijkstraExt for Graph {
                 .map(|&(v, adjusted, _)| (v, adjusted))
         };
         let nodes_altered = dijkstra_all(&self.source, successors);
+        // `order` relies on dijkstra_all expanding each reachable node exactly once.
+        assert_eq!(order.len(), nodes_altered.len(), "Settlement order mismatch!");
         let successors = |node: &NodeId| {
             graph_int
                 .get(node)

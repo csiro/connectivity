@@ -68,7 +68,7 @@
 ## Changed
 - Graph construction now passes tile offsets through the full path (`core -> builder -> graph::fringe`) to keep multi-resolution linking globally aligned.
 - Node IDs are now tile-invariant (`NodeId = u64` from level/global-row/global-col), removing tile-local ID drift between adjacent runs.
-- Core traversal is now deterministic where relevant (sorted overview levels and sorted Dijkstra targets before accumulation).
+- Core traversal now processes overview levels in sorted order.
 - Non-closed tile reads are snapped to the coarsest overview grid, improving consistency of aggregated counts/weights at tile boundaries.
 - Added `Area` resampling for 2D overviews (latitude-weighted by `cos(phi)`), alongside `Average`, `Sum`, and `Count`.
 - 3D overview generation now explicitly supports only `Average` and `Sum` resampling.

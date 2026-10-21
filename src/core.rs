@@ -206,3 +206,39 @@ pub fn conn(
         anyhow::bail!("No base level (key=1) in condition array");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Repeated runs must give bit-identical output.
+    #[test]
+    fn repeats_exactly() {
+        let cond = Some(Array2::from_shape_fn((32, 32), |(i, j)| {
+            ((i * 7 + j * 13) % 10 + 1) as f32 / 10.0
+        }));
+        let mask = Array2::from_elem((32, 32), false);
+        let levels = vec![1, 2, 4];
+        let transforms: HashMap<i32, Affine> = levels
+            .iter()
+            .map(|&l| {
+                let s = 1000.0 * l as f64;
+                (l as i32, Affine::from((s, 0.0, 0.0, 0.0, -s, 32_000.0)))
+            })
+            .collect();
+        let run = || {
+            conn(
+                &cond, None, None, &transforms, &mask, &levels, &[2.0, 20.0], false, 2.0, 3, 5,
+                (0, 0), WindowMode::Circular, false,
+            )
+            .unwrap()
+        };
+
+        let first = run();
+        assert!(first.iter().any(|&v| v > 0.0));
+        for _ in 0..3 {
+            let next = run();
+            assert!(first.iter().zip(&next).all(|(a, b)| a.to_bits() == b.to_bits()));
+        }
+    }
+}
