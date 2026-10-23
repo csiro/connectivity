@@ -44,6 +44,7 @@ pub const STRADDLE: u8 = 5;
 pub const RANGE: u8 = 6;
 pub const BUDGET: u8 = 7;
 pub const STATUSES: usize = 8;
+#[cfg(test)]
 pub const STATUS_NAMES: [&str; STATUSES] = ["exact", "bounded", "skew", "nonfinite", "levels", "straddle", "range", "budget"];
 
 const U: f64 = f64::EPSILON / 2.0; // unit roundoff

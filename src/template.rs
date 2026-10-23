@@ -267,6 +267,7 @@ impl Templates {
     }
 
     /// Bytes of cached geometry (excluding the always-built shapes)
+    #[cfg(test)]
     pub fn cached_bytes(&self) -> usize {
         self.bytes - self.shapes.iter().map(Shape::bytes).sum::<usize>()
     }
