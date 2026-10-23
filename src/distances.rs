@@ -27,12 +27,17 @@ fn haversine(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
 
 /// Calculate distance of cells in kilometer
 pub fn distance_km(x1: f64, y1: f64, x2: f64, y2: f64, geo: bool) -> f32 {
+    distance_km64(x1, y1, x2, y2, geo) as f32
+}
+
+/// Distance in kilometres before the f32 conversion of `distance_km`
+pub fn distance_km64(x1: f64, y1: f64, x2: f64, y2: f64, geo: bool) -> f64 {
     let dist: f64 = if geo {
         haversine(x1, y1, x2, y2)
     } else {
         euclidean(x1, y1, x2, y2)
     };
 
-    (dist / 1000.0)  as f32
+    dist / 1000.0
 }
 

@@ -1,15 +1,18 @@
-use crate::graph::EdgeData;
+use crate::graph::Nodes;
+use crate::routing::Paths;
 
-// Compute the connectedness from a segment and a lambda
-pub fn connectedness(segment: &[EdgeData], lambda: f32) -> f32 {
-    let (sum_numerator, sum_denominator): (f32, f32) = segment
-        .iter()
-        .map(|edge| {
-            let area = edge.num_cells;
+// Compute the connectedness from the destination stream and a lambda.
+// Destinations are visited in adjusted settlement order; attributes come from each
+// destination node.
+pub fn connectedness(paths: &Paths, nodes: &Nodes, lambda: f32) -> f32 {
+    let (sum_numerator, sum_denominator): (f32, f32) = (0..paths.len())
+        .map(|k| {
+            let v = paths.node[k] as usize;
+            let area = nodes.count[v];
             // `pa` is the destination's protected fraction (1.0 when pa_to_pa is off), applied to
             // the numerator only so the denominator keeps the full reachable area in both cases.
-            let numerator = (-(edge.adj_dist / lambda)).exp() * edge.condition * edge.pa * area;
-            let denominator = (-(edge.geo_dist / lambda)).exp() * area;
+            let numerator = (-(paths.adj[k] / lambda)).exp() * nodes.cond[v] * nodes.pa[v] * area;
+            let denominator = (-(paths.geo[k] / lambda)).exp() * area;
             (numerator, denominator)
         })
         .fold((0.0, 0.0), |(acc_num, acc_den), (num, den)| {
@@ -39,66 +42,62 @@ fn minimax(x: &[f32]) -> f32 {
     0.5 * (mean + min)
 }
 
-/// Compute a BERI score from a segment and a lambda
-pub fn beri_score(segment: &[EdgeData], lambda: f32) -> f32 {
+/// Compute a BERI score from the destination stream and a lambda. `n_scenario` is the number of
+/// scenarios (current first) and `numerator` a reusable per-scenario accumulator.
+pub fn beri_score(
+    paths: &Paths,
+    nodes: &Nodes,
+    n_scenario: usize,
+    lambda: f32,
+    numerator: &mut Vec<f32>,
+) -> f32 {
     const DENOM_VAL: f32 = 283.465; // 5.785 * (50 - 1)
     
-    if segment.is_empty() {
+    if paths.is_empty() {
         return 0.0;
     }
-
-    // Get number of scenarios (including current)
-    let n_scenario = match segment.first() {
-        Some(ed) => ed.similarities.len(),
-        None => return 0.0,
-    };
     if n_scenario == 0 {
         return 0.0;
     }
-    // Initialize numerator vector with capacity
-    let mut numerator = vec![0.0f32; n_scenario];
+    // Reset the numerator vector
+    numerator.clear();
+    numerator.resize(n_scenario, 0.0);
     let mut denominator = 0.0f32;
 
     let inv_lambda: f32 = 1.0 / lambda;
 
-    // Process each segment
-    // for &(edge.adj_dist, dist, cond, ref similarities) in segment {
-    for edge in segment {
-        // Skip invalid data points
-        if edge.similarities.len() < n_scenario {
-            continue;
-        }
-        
-        // Calculate numerator weight with edge.adj_dist
-        let area = edge.num_cells;
+    // Process each destination
+    for k in 0..paths.len() {
+        let v = paths.node[k] as usize;
+        // Calculate numerator weight with the adjusted distance
+        let area = nodes.count[v];
         let weight_num: f32 = {
-            let t = edge.adj_dist * inv_lambda;
+            let t = paths.adj[k] * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
-            (-exp_term).exp() * edge.condition * area
+            (-exp_term).exp() * nodes.cond[v] * area
         };
-        // Calculate denominator weight with dist
+        // Calculate denominator weight with the intact distance
         let weight_denom: f32 = {
-            let t = edge.geo_dist * inv_lambda;
+            let t = paths.geo[k] * inv_lambda;
             let exp_term = (t * t) / DENOM_VAL;
             (-exp_term).exp() * area
         };
 
         // Update numerator values with similarity of scenarios
-        // In case the similarity was None, return NAN value for BERI
-        for (i, sim_opt) in edge.similarities.iter().take(n_scenario).enumerate() {
-            let sim = match sim_opt {
-                Some(s) => *s,
-                None => 0.0,
-            };
+        // A missing similarity (NO_SIM) counts as 0.0, as `None` did
+        let sims = &nodes.sims[v * n_scenario..(v + 1) * n_scenario];
+        for (i, &sim) in sims.iter().enumerate() {
+            let sim = if sim.is_nan() { 0.0 } else { sim };
             numerator[i] += weight_num * sim;
         }
 
         // Update denominator using the first similarity value (i.e. current climate)
-        denominator += weight_denom * edge.similarities[0].unwrap_or(0.0);
+        let current = if sims[0].is_nan() { 0.0 } else { sims[0] };
+        denominator += weight_denom * current;
     }
-    
+
     if denominator > 0.0 {
-        minimax(&numerator) / denominator
+        minimax(numerator) / denominator
     } else {
         0.0
     }

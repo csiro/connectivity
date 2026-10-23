@@ -1,3 +1,11 @@
+# Version 2.4.0 (unreleased)
+## Changed
+- Rebuilt per-cell graphs with flat node arrays and directly constructed compressed sparse row (CSR) edges, retaining integer Dijkstra. Per-thread buffers eliminate per-cell allocations. Together with the caching and BERI improvements below, these changes are about 4x faster for connectedness and PARC and 3x faster for BERI than v2.3 on the bundled example (8 threads); speedups against v2.2 are about twice as large. CPU/Rayon remains the only execution path.
+- Cached window area fractions and outer-edge flags in per-call templates; cells clipped by tile boundaries are still computed directly. Edge distances use per-call tables wherever values provably match the per-edge calculation bit for bit, with direct calculation retained for other edges, including skewed or inconsistent level transforms and distances near an f32 rounding boundary. Distances and integer costs are unchanged.
+- Batched BERI similarity calculations across all scenarios of each cell, preserving similarity values.
+- Fixed each node's outgoing edge order: same-level queen neighbours in the existing order, then fringe links in `get_edge_neighbours` order. Shortest-path costs are unchanged, but integer-cost ties can select different parents and adjusted path sums, and indicator accumulation follows a different destination order. On the bundled example 2-16% of cells change, by up to about 1e-4 (2.4e-4 relative); grids where most edges round to zero integer cost can change more. Repeated runs and different thread counts remain bit-identical on the same build and platform.
+- Improved Rust `connectivity()` validation: missing transforms are checked before processing, and skipped powers of two produce a clear panic message instead of an index error. Both previously surfaced when a focal cell first reached the affected level. Python `connectedness()` and `beri()` already validate both.
+
 # Version 2.3.0
 ## Changed
 - Reduced routing overhead by building one adjacency list for both adjusted and intact searches, caching raw adjusted-distance sums along the selected paths, and avoiding repeated path back-tracing and attribute copying. Integer cost scaling and shortest-path tie handling are unchanged.

@@ -1,0 +1,336 @@
+//! Frozen baseline graph (95554da `graph.rs`), kept for tests.
+use crate::affine::Affine;
+use crate::distances;
+use rustc_hash::FxHashMap;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+pub type NodeId = u64;
+
+/// Window cell data: (id, cond, trav, count, pa, sims).
+pub type NodeData = (NodeId, f32, f32, f32, f32, Rc<Vec<Option<f32>>>);
+
+/// Dense lookup within a level's local bounds; missing cells have index usize::MAX.
+#[derive(Default)]
+pub struct NodeMap {
+    pub origin: (i32, i32),
+    pub shape: (usize, usize),
+    pub index: Vec<usize>,
+    pub data: Vec<NodeData>,
+}
+
+impl NodeMap {
+    #[inline]
+    pub fn get(&self, &(i, j): &(i32, i32)) -> Option<&NodeData> {
+        let row = i - self.origin.0;
+        let col = j - self.origin.1;
+        if row < 0 || col < 0 || row as usize >= self.shape.0 || col as usize >= self.shape.1 {
+            return None;
+        }
+
+        self.data
+            .get(self.index[row as usize * self.shape.1 + col as usize])
+    }
+}
+
+// The data of Graph edge
+#[derive(Debug, Clone)]
+pub struct EdgeData {
+    pub adj_dist: f32,                      // Condistion-adjusted distance
+    pub geo_dist: f32,                      // Geo-distance; no condition adjustment
+    pub condition: f32,                     // Raw condition
+    pub pa: f32,                            // Protected fraction of the destination (1.0 when pa_to_pa off); numerator-only
+    pub num_cells: f32,                     // Original Cell count/weight for habitat area
+    pub similarities: Rc<Vec<Option<f32>>>, // Similarity of the cell; all scenarios
+}
+
+/// The multi-resolution graph type
+/// struct { HashMap<(source, destination), EdgeData>, source-node }
+#[derive(Debug, Clone)]
+pub struct Graph {
+    pub data: FxHashMap<(NodeId, NodeId), EdgeData>,
+    pub source: NodeId, // should be separate as data-oriented design principal, but cleaner now;
+}
+
+
+impl Graph {
+    /// Default constructor (no preallocated capacity)
+    pub fn new(cap: Option<usize>) -> Self {
+        let mut data = FxHashMap::default();
+        if let Some(c) = cap {
+            data.reserve(c);
+        }
+        // An initial source
+        let source = 0;
+
+        Self { data, source }
+    }
+
+    /// Insert a new node entry
+    pub fn add_node(&mut self, key: (NodeId, NodeId), value: EdgeData) {
+        self.data.insert(key, value);
+    }
+
+    /// Get an entry by reference
+    #[cfg(test)]
+    pub fn get(&self, key: &(NodeId, NodeId)) -> Option<&EdgeData> {
+        self.data.get(&key)
+    }
+
+    /// Count how many outgoing edges each `u` node has.
+    #[cfg(test)]
+    pub fn count_edges(&self) -> FxHashMap<NodeId, usize> {
+        // Count the source in hashmap to keep the keys unique
+        let mut edge_counts = FxHashMap::default();
+        edge_counts.reserve(self.data.len());
+        for &(u, _) in self.data.keys() {
+            *edge_counts.entry(u).or_insert(0) += 1;
+        }
+
+        edge_counts
+    }
+
+    /// Clear the graph; e.g. in case of isolcated pixels
+    pub fn clear(&mut self) {
+        self.data.clear();
+    }
+}
+
+
+/// Add edges to neighboring cells; if a source is isolated, adds a synthetic edge.
+impl Graph {
+    #[inline]
+    pub fn neighbours(
+        &mut self,
+        i: i32,
+        j: i32,
+        u: NodeId, // target node id
+        i_ngb: &[i32],
+        j_ngb: &[i32],
+        factor: f32,
+        node_mapping: &NodeMap,
+        transform: &Affine,
+        is_wgs: bool,
+        pa_to_pa: bool,
+    ) -> bool {
+        // Start with true if it's the source node
+        let mut is_isolated = u == self.source;
+
+        // Coordinates of the current node only need to be computed once
+        let (x1, y1) = transform.xy(i, j);
+
+        // Iterate over queen-case neighbor offsets (8 adjacent neighbours)
+        for (&di, &dj) in i_ngb.iter().zip(j_ngb.iter()) {
+            let ni = i + di;
+            let nj = j + dj;
+
+            // Check if neighbor exists in node_mapping
+            if let Some(&(v, z, t, c, pa_v, ref s)) = node_mapping.get(&(ni, nj)) {
+                // Distance to adjacent node/cell in kilometers
+                let (x2, y2) = transform.xy(ni, nj);
+                let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
+                // Calcualte the weight from the traversal value `t` (resistance-derived when
+                // supplied, otherwise the condition value) and max_cost.
+                let w: f32 = (1.0 - factor) * t + factor;
+
+                // Store weighted distance + similarities
+                self.add_node(
+                    (u, v),
+                    EdgeData {
+                        adj_dist: w * dist,
+                        geo_dist: dist,
+                        condition: z,
+                        pa: pa_v,
+                        num_cells: c,
+                        similarities: s.clone(),
+                    },
+                );
+
+                // Not isolated; at least one neighbor found
+                is_isolated = false;
+            }
+        }
+
+        // If the source node is isolated, create a "synthetic" edge so it is connected somewhere
+        if is_isolated {
+            if pa_to_pa {
+                // PARC target-gating: an isolated PA source can reach no other PA, so it must
+                // score 0. Drop the synthetic self-edge and leave the graph empty.
+                self.clear();
+            } else if let Some(&(_, z, t, c, pa_v, ref s)) = node_mapping.get(&(i, j)) {
+                // Distance to an adjacent cell in kilometers
+                let (x2, y2) = transform.xy(i + 1, j);
+                let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
+                // Calcualte the weight from the traversal value `t` and max_cost
+                let w: f32 = (1.0 - factor) * t + factor;
+                // Make a fake node
+                let fake_v = u + 1;
+
+                // Clear the graph to ensure no isolated edge remains
+                self.clear();
+                self.add_node(
+                    (u, fake_v),
+                    EdgeData {
+                        adj_dist: w * dist,
+                        geo_dist: dist,
+                        condition: z,
+                        pa: pa_v,
+                        num_cells: c,
+                        similarities: s.clone(),
+                    },
+                );
+            }
+        }
+
+        is_isolated
+    }
+}
+
+/// Process connections to the next level (e.g. from level 2 to level 4)
+impl Graph {
+    #[inline]
+    pub fn fringe(
+        &mut self,
+        i: i32,
+        j: i32,
+        factor: f32,
+        level: i32,
+        node_mapping: &NodeMap,
+        node_mapping_higher: &NodeMap,
+        transforms: &HashMap<i32, Affine>,
+        is_wgs: bool,
+        offsets: (usize, usize),
+    ) {
+        if let Some(&(uu, _, _, _, _, _)) = node_mapping.get(&(i, j)) {
+            let higher_level: i32 = level * 2;
+
+            // Get all higher neighbours at once
+            let (higher_neighbours, n_higher_neighbours) =
+                get_edge_neighbours(i, j, level, offsets);
+
+            // Get the Affines for distance calc
+            let transform: &Affine = transforms.get(&level).unwrap();
+            let transform_upper: &Affine = transforms.get(&higher_level).unwrap();
+            // Get the actual coordinates values for distance calc
+            let (x1, y1) = transform.xy(i, j);
+
+            // Use 'ref' to borrow Vec<f32> rather than moving it
+            for &(ni, nj) in higher_neighbours[..n_higher_neighbours].iter() {
+                // Only if the neghbours are in the higher mapping proceess
+                if let Some(&(v, z, t, c, pa_v, ref s)) = node_mapping_higher.get(&(ni, nj)) {
+                    // Get the actual coordinates of the higher level
+                    let (x2, y2) = transform_upper.xy(ni, nj);
+                    // Distance in kilometer
+                    let dist: f32 = distances::distance_km(x1, y1, x2, y2, is_wgs);
+
+                    // Calcualte the weight from the traversal value `t` and max_cost
+                    let w = (1.0 - factor) * t + factor;
+
+                    self.add_node(
+                        (uu, v),
+                        EdgeData {
+                            adj_dist: w * dist,
+                            geo_dist: dist,
+                            condition: z,
+                            pa: pa_v,
+                            num_cells: c,
+                            similarities: s.clone(),
+                        },
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Get possible higher-level cells for a current-level edge cell.
+///
+/// Fractional annulus windows can overlap the higher-level cell containing the
+/// current edge cell at the rim, so include it alongside adjacent cells.
+pub fn get_edge_neighbours(
+    i: i32,
+    j: i32,
+    level: i32,
+    offsets: (usize, usize),
+) -> ([(i32, i32); 4], usize) {
+    let (tile_row0_u, tile_col0_u) = offsets;
+    let tile_row0 = tile_row0_u as i32;
+    let tile_col0 = tile_col0_u as i32;
+
+    #[inline]
+    fn to_higher_local(idx: i32, level: i32, tile0: i32) -> i32 {
+        let curr_origin = tile0.div_euclid(level);
+        let higher_origin = tile0.div_euclid(level * 2);
+        (curr_origin + idx).div_euclid(2) - higher_origin
+    }
+
+    // Higher level cell containing the target cell
+    let target_higher = (
+        to_higher_local(i, level, tile_row0),
+        to_higher_local(j, level, tile_col0),
+    );
+    // 8 neighbor offsets: N, S, W, E, NW, NE, SW, SE
+    const OFFSETS: [(i32, i32); 8] = [
+        (-1, 0),
+        (1, 0),
+        (0, -1),
+        (0, 1),
+        (-1, -1),
+        (-1, 1),
+        (1, -1),
+        (1, 1),
+    ];
+
+    let mut higher_cells = [(0, 0); 4];
+    let mut count = 1;
+    higher_cells[0] = target_higher;
+
+    for (di, dj) in OFFSETS {
+        let ni = i + di;
+        let nj = j + dj;
+        let higher = (
+            to_higher_local(ni, level, tile_row0),
+            to_higher_local(nj, level, tile_col0),
+        );
+
+        // Skip if it's the same as target's higher cell
+        if higher == target_higher {
+            continue;
+        }
+
+        // Check if we already have this higher cell
+        let mut found = false;
+        for k in 0..count {
+            if higher_cells[k] == higher {
+                found = true;
+                break;
+            }
+        }
+
+        // Add if not found and we have space
+        if !found && count < higher_cells.len() {
+            higher_cells[count] = higher;
+            count += 1;
+        }
+    }
+
+    (higher_cells, count)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn includes_parent_cell() {
+        let (cells, count) = get_edge_neighbours(1, 1, 1, (0, 0));
+        let cells = &cells[..count];
+
+        assert_eq!(count, 4);
+        assert!(cells.contains(&(0, 0)));
+        assert!(cells.contains(&(1, 0)));
+        assert!(cells.contains(&(0, 1)));
+        assert!(cells.contains(&(1, 1)));
+    }
+}

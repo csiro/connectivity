@@ -13,10 +13,18 @@ mod coverage;
 mod distances;
 mod extract;
 mod graph;
+#[cfg(test)]
+mod legacy;
 mod metrics;
 mod overview;
 mod routing;
+mod tables;
+mod template;
+#[cfg(test)]
+mod testkit;
 mod utils;
+#[cfg(test)]
+mod verify;
 mod window;
 use affine::Affine;
 
