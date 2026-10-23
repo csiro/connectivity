@@ -21,9 +21,12 @@ use window::WindowMode;
 #[cfg_attr(not(test), allow(dead_code))]
 pub struct Stats {
     pub scratch: Vec<usize>, // retained bytes of each scratch instance
-    pub cache_bytes: usize,  // shared templates and distance tables
+    pub cache_bytes: usize,  // retained shared cache: templates and distance tables
+    pub cache_peak: usize,   // largest cache heap while building, temporaries included
+    pub cache_fixed: usize,  // per-level descriptors, allocated whatever the budget
     pub table_bytes: usize,  // distance tables alone
     pub cached: Vec<usize>,  // template phases cached per level
+    pub linked: Vec<bool>,   // levels with cached links
     pub edges: [u64; STATUSES], // edges by distance-table status (hits, then fallback reasons)
     pub setup_s: f64,        // overviews, templates, contexts and scratch
     pub process_s: f64,      // focal-cell loop
@@ -137,8 +140,11 @@ pub fn conn_stats(
                 .map(|s| s.lock().unwrap_or_else(PoisonError::into_inner).bytes())
                 .collect(),
             cache_bytes: ctx.templates.bytes + ctx.tables.bytes,
+            cache_peak: ctx.templates.peak + ctx.tables.bytes,
+            cache_fixed: ctx.templates.fixed + ctx.tables.fixed,
             table_bytes: ctx.tables.bytes,
-            cached: ctx.templates.cached.clone(),
+            cached: ctx.templates.cached.to_vec(),
+            linked: ctx.templates.linked.to_vec(),
             edges: scratch.iter().fold([0; STATUSES], |mut acc, s| {
                 let s = s.lock().unwrap_or_else(PoisonError::into_inner);
                 acc.iter_mut().zip(s.counts).for_each(|(a, c)| *a += c);
@@ -329,9 +335,12 @@ pub fn prepare<'a>(
     let effective: Vec<i32> = (0..sorted_levels.len())
         .map(|l| if l + 1 == sorted_levels.len() { outer } else { window_size })
         .collect();
-    // Distance tables first, then window templates, within one shared cache budget
+    // Distance tables first, then window templates, within one shared cache budget that bounds
+    // the cache's heap while it is built and afterwards
     let dims: Vec<(usize, usize)> = cond.iter().map(|a| a.dim()).collect();
-    let tables = Tables::new(&sorted_levels, &transforms, &dims, offsets, &fringe, is_geo, CACHE_BUDGET);
+    let reserved = Templates::fixed(sorted_levels.len());
+    let budget = CACHE_BUDGET.saturating_sub(reserved);
+    let tables = Tables::new(&sorted_levels, &transforms, &dims, offsets, &fringe, is_geo, budget);
     let templates = Templates::new(
         &sorted_levels,
         &effective,
@@ -339,7 +348,7 @@ pub fn prepare<'a>(
         window_mode,
         mask_array,
         offsets,
-        CACHE_BUDGET - tables.bytes,
+        CACHE_BUDGET.saturating_sub(tables.bytes),
         None,
     );
 

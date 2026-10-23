@@ -1,10 +1,10 @@
 use crate::affine::Affine;
 use crate::distances;
-use crate::graph::{Csr, Edge, Nodes, NONE, NO_SIM};
+use crate::graph::{Csr, Edge, Nodes, COLS, NONE, NO_SIM, ROWS};
 use crate::metrics;
 use crate::routing::Router;
 use crate::tables::{Tables, BOUNDED, STATUSES, SYNTHETIC};
-use crate::template::{Geom, Templates, NO_CAND};
+use crate::template::Templates;
 use crate::utils;
 use crate::window::{circle_frac, similarities, similarity, square_frac, WindowMode};
 use ndarray::{s, Array2, Array3, ArrayView1};
@@ -75,39 +75,75 @@ impl Context<'_> {
     }
 }
 
+/// Dense lookup over the search box's cells inside the tile, in local cells of one level; NONE
+/// marks cells that are not nodes.
+#[derive(Default)]
+struct Grid {
+    origin: (i32, i32),
+    shape: (i32, i32),
+    index: Vec<u32>,
+}
+
+impl Grid {
+    fn reset(&mut self, origin: (i32, i32), shape: (i32, i32)) {
+        self.origin = origin;
+        self.shape = shape;
+        self.index.clear();
+        self.index.resize((shape.0 * shape.1) as usize, NONE);
+    }
+
+    #[inline]
+    fn get(&self, i: i32, j: i32) -> u32 {
+        let (r, c) = (i - self.origin.0, j - self.origin.1);
+        if r < 0 || c < 0 || r >= self.shape.0 || c >= self.shape.1 {
+            return NONE;
+        }
+        self.index[(r * self.shape.1 + c) as usize]
+    }
+
+    #[inline]
+    fn set(&mut self, i: i32, j: i32, node: u32) {
+        let (r, c) = (i - self.origin.0, j - self.origin.1);
+        self.index[(r * self.shape.1 + c) as usize] = node;
+    }
+}
+
 /// Reusable per-thread state for one focal cell at a time: nodes, CSR, routing and metrics.
 #[derive(Default)]
 pub struct Scratch {
     pub nodes: Nodes,
-    pub cand: Vec<u32>, // template candidate of each node
     pub csr: Csr,
     pub router: Router,
     pub ranges: Vec<(u32, u32)>, // node range of each level
     bounds: Vec<(i32, i32, i32, i32)>, // admitted rows and columns of each level
-    node_of: Vec<Vec<u32>>,  // node of each template candidate, per level
-    parity: Vec<usize>,      // parent-grid parity of the source's cell, per level
-    geom: Vec<Geom>,         // geometry of uncached phases, per level
-    numerator: Vec<f32>,     // BERI scenario accumulator
+    grids: Vec<Grid>,          // node of each searched cell, per level
+    first: Vec<(i32, i32)>,    // local cell of each level's first box candidate
+    src: Vec<(i32, i32)>,      // local cell of the source at each level
+    parity: Vec<usize>,        // parent-grid parity of the source's cell, per level
+    numerator: Vec<f32>,       // BERI scenario accumulator
     pub counts: [u64; STATUSES], // edges by distance-table status
-    pub source: u32,         // NONE when the focal cell is not in its own window
+    pub source: u32,           // NONE when the focal cell is not in its own window
     pub isolated: bool,
 }
 
 impl Scratch {
-    /// Scratch sized for the largest windows of this call, so cells never allocate.
+    /// Scratch sized for this call's largest windows inside the tile, so cells never allocate.
     pub fn new(ctx: &Context) -> Self {
         let mut scratch = Self::default();
-        let shapes = &ctx.templates.shapes;
-        let nodes: usize = shapes.iter().map(|s| s.len()).sum();
-        for shape in shapes {
-            scratch.node_of.push(Vec::with_capacity(shape.len()));
-            let uncached = Geom {
-                frac: Vec::with_capacity(shape.len()),
-                rim: Vec::with_capacity(shape.len()),
-            };
-            scratch.geom.push(uncached);
+        let n_levels = ctx.levels.len();
+        let mut nodes = 0;
+        for l in 0..n_levels {
+            // A level admits at most the search box's cells inside the tile's level grid
+            let (height, width) = ctx.cond[l].dim();
+            let cells = ctx.templates.shapes[l].len().min(height * width);
+            let mut grid = Grid::default();
+            grid.index.reserve(cells);
+            scratch.grids.push(grid);
+            nodes += cells;
         }
-        scratch.parity = vec![0; shapes.len()];
+        scratch.first = vec![(0, 0); n_levels];
+        scratch.src = vec![(0, 0); n_levels];
+        scratch.parity = vec![0; n_levels];
         let n = &mut scratch.nodes;
         n.level.reserve(nodes + 1);
         n.cell.reserve(nodes + 1);
@@ -119,12 +155,11 @@ impl Scratch {
         n.pa.reserve(nodes + 1);
         n.rim.reserve(nodes + 1);
         n.sims.reserve((nodes + 1) * ctx.n_scen());
-        scratch.cand.reserve(nodes + 1);
         scratch.csr.offsets.reserve(nodes + 2);
         scratch.csr.edges.reserve(12 * nodes);
         scratch.router.reserve(nodes + 1, 12 * nodes);
-        scratch.ranges.reserve(shapes.len());
-        scratch.bounds.reserve(shapes.len());
+        scratch.ranges.reserve(n_levels);
+        scratch.bounds.reserve(n_levels);
         scratch.numerator.reserve(ctx.n_scen());
         scratch
     }
@@ -132,14 +167,14 @@ impl Scratch {
     /// Retained capacity in bytes
     pub fn bytes(&self) -> usize {
         self.nodes.bytes()
-            + self.cand.capacity() * 4
             + self.csr.bytes()
             + self.router.bytes()
             + self.ranges.capacity() * 8
             + self.bounds.capacity() * 16
-            + self.node_of.iter().map(|v| v.capacity() * 4).sum::<usize>()
+            + self.grids.iter().map(|g| g.index.capacity() * 4).sum::<usize>()
+            + self.grids.capacity() * std::mem::size_of::<Grid>()
+            + (self.first.capacity() + self.src.capacity()) * 8
             + self.parity.capacity() * 8
-            + self.geom.iter().map(|g| g.frac.capacity() * 4 + g.rim.capacity()).sum::<usize>()
             + self.numerator.capacity() * 4
             + std::mem::size_of_val(&self.counts)
     }
@@ -160,7 +195,6 @@ impl Scratch {
     pub fn build(&mut self, ctx: &Context, i: usize, j: usize) {
         let (bi, bj) = (i as i32, j as i32);
         self.nodes.clear();
-        self.cand.clear();
         self.csr.clear();
         self.ranges.clear();
         self.bounds.clear();
@@ -173,13 +207,9 @@ impl Scratch {
         }
 
         // The focal cell must be in its own first-level window to be a source
-        let first = &ctx.templates.shapes[0];
-        let centre = if first.len() > 0 { first.centre() } else { NO_CAND };
-        self.source = if centre == NO_CAND { NONE } else { self.node_of[0][centre as usize] };
+        self.source = self.grids[0].get(bi, bj);
         self.isolated = self.source != NONE
-            && first.nbr[centre as usize]
-                .iter()
-                .all(|&nb| nb == NO_CAND || self.node_of[0][nb as usize] == NONE);
+            && (0..8).all(|k| self.grids[0].get(bi + COLS[k], bj + ROWS[k]) == NONE);
         if self.isolated {
             self.synthetic(ctx, bi, bj);
         } else {
@@ -200,48 +230,43 @@ impl Scratch {
         let cell = (global.0.div_euclid(level), global.1.div_euclid(level));
         self.parity[l] = (cell.0.rem_euclid(2) * 2 + cell.1.rem_euclid(2)) as usize;
         let origin = ((ctx.offsets.0 as i32).div_euclid(level), (ctx.offsets.1 as i32).div_euclid(level));
-        let first = (cell.0 - origin.0 + shape.start, cell.1 - origin.1 + shape.start);
+        self.src[l] = (cell.0 - origin.0, cell.1 - origin.1);
+        let first = (self.src[l].0 + shape.start, self.src[l].1 + shape.start);
+        self.first[l] = first;
 
-        // Geometry of this phase, cached or evaluated into scratch
-        let mut uncached = std::mem::take(&mut self.geom[l]);
-        let geom = match ctx.templates.geom(l, phase) {
-            Some(geom) => geom,
-            None => {
-                shape.geom(ctx.mode, phase, &mut uncached);
-                &uncached
-            }
-        };
-        let mut node_of = std::mem::take(&mut self.node_of[l]);
-        node_of.clear();
-        node_of.resize(shape.len(), NONE);
-
-        // Candidates inside the tile's level grid, row-major
+        // Box candidates inside the tile's level grid, row-major
         let (height, width) = (ctx.cond[l].nrows() as i32, ctx.cond[l].ncols() as i32);
+        let rows = (-first.0).max(0)..shape.side.min(height - first.0);
+        let cols = (-first.1).max(0)..shape.side.min(width - first.1);
+        let extent = ((rows.end - rows.start).max(0), (cols.end - cols.start).max(0));
+        self.grids[l].reset((first.0 + rows.start, first.1 + cols.start), extent);
+
+        // Geometry of this phase: cached, or computed cell by cell with the same function
+        let cached = ctx.templates.geom(l, phase);
         let clip = ctx.clip[l];
-        for r in (-first.0).max(0)..shape.side.min(height - first.0) {
+        for r in rows {
             let li = first.0 + r;
             let row_clipped = (li == 0 && clip[0]) || (li == height - 1 && clip[1]);
-            for q in (-first.1).max(0)..shape.side.min(width - first.1) {
+            for q in cols.clone() {
                 let lj = first.1 + q;
-                let c = (r * shape.side + q) as usize;
                 let clipped = row_clipped || (lj == 0 && clip[2]) || (lj == width - 1 && clip[3]);
                 let (fraction, rim) = if clipped {
                     ctx.clipped(l, li, lj, base_i, base_j)
+                } else if let Some((frac, rims)) = cached {
+                    let c = (r * shape.side + q) as usize;
+                    (frac[c], rims[c])
                 } else {
-                    (geom.frac[c], geom.rim[c])
+                    shape.cell_geom(ctx.mode, phase, r, q)
                 };
                 if fraction <= 0.0 {
                     continue;
                 }
                 if self.push(ctx, l, [li as usize, lj as usize], fraction, rim) {
-                    node_of[c] = self.nodes.len() as u32 - 1;
-                    self.cand.push(c as u32);
+                    self.grids[l].set(li, lj, self.nodes.len() as u32 - 1);
                     bounds = (bounds.0.min(li), bounds.1.max(li), bounds.2.min(lj), bounds.3.max(lj));
                 }
             }
         }
-        self.node_of[l] = node_of;
-        self.geom[l] = uncached;
         self.ranges.push((start, self.nodes.len() as u32));
         self.bounds.push(bounds);
     }
@@ -337,16 +362,16 @@ impl Scratch {
                 "levels must form a continuous power-of-two sequence"
             );
             let fringe = ctx.fringe[l];
-            let links = &shape.links[self.parity[l]];
             let (i_min, i_max, j_min, j_max) = self.bounds[l];
+            let (first, parity) = (self.first[l], self.parity[l]);
+            let up = if fringe { self.src[l + 1] } else { (0, 0) };
 
             for u in start as usize..end as usize {
-                let c = self.cand[u] as usize;
                 let (i, j) = self.nodes.cell[u];
                 // Source coordinates only when an edge falls back to the legacy distance
                 let mut xy1 = None;
-                for (k, &nb) in shape.nbr[c].iter().enumerate() {
-                    let v = if nb == NO_CAND { NONE } else { self.node_of[l][nb as usize] };
+                for k in 0..8 {
+                    let v = self.grids[l].get(i + COLS[k], j + ROWS[k]);
                     if v != NONE {
                         let (d, status) = ctx.tables.get(l, i, k);
                         self.counts[status as usize] += 1;
@@ -369,10 +394,10 @@ impl Scratch {
                 };
                 if fringe && eligible {
                     let upper = ctx.transforms[l + 1].unwrap();
-                    let link = &links[c];
+                    let link = shape.links(parity, i - first.0, j - first.1);
                     for m in 0..link.count as usize {
-                        let h = link.cand[m];
-                        let v = if h == NO_CAND { NONE } else { self.node_of[l + 1][h as usize] };
+                        let target = (up.0 + link.cell[m].0, up.1 + link.cell[m].1);
+                        let v = self.grids[l + 1].get(target.0, target.1);
                         if v != NONE {
                             let (d, status) = ctx.tables.get(l, i, 8 + link.slot[m] as usize);
                             self.counts[status as usize] += 1;
@@ -450,8 +475,8 @@ impl Scratch {
 pub mod tests {
     use super::*;
     use crate::core::prepare;
-    use crate::graph::{COLS, ROWS};
     use crate::template::link_slot;
+    use rayon::prelude::*;
     use crate::legacy::canonical::{edge_order, encode};
     use crate::legacy::Prepared;
     use crate::testkit::Fixture;
@@ -744,6 +769,49 @@ pub mod tests {
             .collect()
     }
 
+    /// Distance tables and templates for a context built on one thread as `prepare` does, with
+    /// the heap they retain and the peak heap while building, both counted by the allocator.
+    pub fn measured(ctx: &Context, f: &Fixture, budget: usize) -> (Tables, Templates, usize, usize) {
+        use crate::testkit::alloc;
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        pool.install(|| {
+            // Warm rayon's own buffers on this thread first
+            (0..4096).into_par_iter().for_each(|k| _ = std::hint::black_box(k));
+            let n = ctx.levels.len();
+            let outer = if f.outer_window < f.window_size { f.window_size } else { f.outer_window };
+            let effective: Vec<i32> = (0..n).map(|l| if l + 1 == n { outer } else { f.window_size }).collect();
+            let dims: Vec<(usize, usize)> = ctx.cond.iter().map(|a| a.dim()).collect();
+            let before = alloc::live();
+            alloc::reset_peak();
+            let reserve = budget.saturating_sub(Templates::fixed(n));
+            let tables = Tables::new(&ctx.levels, &ctx.transforms, &dims, ctx.offsets, &ctx.fringe, ctx.is_geo, reserve);
+            let rest = budget.saturating_sub(tables.bytes);
+            let templates = Templates::new(&ctx.levels, &effective, f.window_size, f.mode, &f.mask, ctx.offsets, rest, None);
+            let retained = (alloc::live() - before) as usize;
+            let peak = (alloc::peak() - before) as usize;
+            (tables, templates, retained, peak)
+        })
+    }
+
+    // Allocator-measured cache memory equals the reported retained bytes, and the peak while
+    // building stays within the reported peak and the budget, from no budget to unlimited
+    #[test]
+    fn cache_memory() {
+        for seed in 0..20 {
+            let f = Fixture::random(seed);
+            let ctx = context(&f);
+            let full = ctx.templates.bytes + ctx.tables.bytes;
+            for budget in [0, 1 << 10, full / 3, full / 2, full, usize::MAX] {
+                let (tables, templates, retained, peak) = measured(&ctx, &f, budget);
+                let fixed = tables.fixed + templates.fixed;
+                let at = format!("seed {seed}, budget {budget}");
+                assert_eq!(retained, tables.bytes + templates.bytes, "{at}");
+                assert!(peak <= tables.bytes + templates.peak, "{at}: measured peak {peak}");
+                assert!(peak <= budget.max(fixed), "{at}: peak {peak}, fixed {fixed}");
+            }
+        }
+    }
+
     // No cache, partial caches and shuffled build orders give the same nodes and values
     #[test]
     fn cache_variants() {
@@ -768,18 +836,19 @@ pub mod tests {
                 (full, Some(reversed.as_slice())),
             ] {
                 retemplate(&mut ctx, &f, budget, order);
-                let shapes: usize = ctx.templates.bytes - ctx.templates.cached_bytes();
-                assert!(ctx.templates.bytes <= budget.max(shapes), "seed {seed}, budget {budget}");
+                assert!(ctx.templates.bytes <= budget.max(ctx.templates.fixed), "seed {seed}, budget {budget}");
                 assert_eq!(evaluate(&ctx, &f), expected, "seed {seed}, budget {budget}");
             }
+            // Nothing cached: geometry and links are computed per cell
             retemplate(&mut ctx, &f, 0, None);
             assert!(ctx.templates.cached.iter().all(|&n| n == 0));
+            assert!(ctx.templates.linked.iter().all(|&l| !l));
             compare_ctx(&f, &ctx);
         }
     }
 
-    // Maximum levels 32 to 512 on small, sparse tiles: the cache stays within its budget and
-    // levels that do not fit are evaluated uncached with identical results
+    // Maximum levels 32 to 512 on small, sparse tiles: the measured cache stays within its budget
+    // and levels that do not fit are evaluated per cell with identical results
     #[test]
     fn max_levels() {
         for (max_level, budget) in [(32usize, 1usize << 20), (64, 1 << 20), (128, 4 << 20), (512, 16 << 20)] {
@@ -793,17 +862,18 @@ pub mod tests {
             let t = (base_t.x_scale, base_t.x_skew, base_t.x_origin, base_t.y_skew, base_t.y_scale, base_t.y_origin);
             f.transforms = crate::testkit::level_transforms(t, &f.levels, f.offsets);
             let mut ctx = context(&f);
-            for budget in [budget, 64 << 10] {
-                retemplate(&mut ctx, &f, budget, None);
-                // Shapes depend only on window sizes and are always built; cached phases use the rest
-                let shapes = ctx.templates.bytes - ctx.templates.cached_bytes();
-                assert!(ctx.templates.cached_bytes() <= budget.saturating_sub(shapes), "{max_level}");
-                let uncached = ctx.templates.cached.iter().filter(|&&n| n == 0).count();
+            for budget in [budget, 64 << 10, 0] {
+                let (tables, templates, retained, peak) = measured(&ctx, &f, budget);
+                let fixed = tables.fixed + templates.fixed;
+                assert_eq!(retained, tables.bytes + templates.bytes, "{max_level}");
+                assert!(peak <= budget.max(fixed), "{max_level}: peak {peak} over {budget}");
+                let uncached = templates.cached.iter().filter(|&&n| n == 0).count();
                 println!(
-                    "max level {max_level}: cache {} bytes of {budget}, phases cached per level {:?}, {uncached} uncached levels",
-                    ctx.templates.bytes, ctx.templates.cached
+                    "max level {max_level}, budget {budget}: retained {retained}, peak {peak}, phases {:?}, links {:?}",
+                    templates.cached, templates.linked
                 );
                 assert!(budget > 64 << 10 || max_level < 128 || uncached > 0);
+                (ctx.tables, ctx.templates) = (tables, templates);
                 compare_ctx(&f, &ctx);
             }
             let stats = crate::core::conn_stats(
@@ -813,9 +883,82 @@ pub mod tests {
             )
             .unwrap()
             .1;
-            assert!(stats.cache_bytes <= crate::template::CACHE_BUDGET);
+            assert!(stats.cache_peak <= crate::template::CACHE_BUDGET);
+            assert!(stats.cache_bytes <= stats.cache_peak && stats.cache_fixed <= stats.cache_bytes);
             assert_eq!(stats.scratch.len(), rayon::current_num_threads());
             assert!(stats.setup_s >= 0.0 && stats.process_s >= 0.0 && stats.cached.len() == f.levels.len());
+            assert_eq!(stats.linked.len(), f.levels.len());
+        }
+    }
+
+    // Dense 256 x 256 tiles at maximum level 256, with a standard and a much larger outer window:
+    // the measured cache peak stays within the 128 MiB budget (near the limit for 5/9), saturated
+    // levels fall back to per-cell evaluation, and sampled cells agree across full, partial and
+    // empty caches and with the canonical reference
+    #[test]
+    fn dense_saturation() {
+        use crate::template::CACHE_BUDGET;
+        for (window_size, outer_window) in [(5, 9), (9, 31)] {
+            let mut f = Fixture::random(256 + outer_window as u64);
+            let mut rng = crate::testkit::Rng::new(outer_window as u64);
+            f.cond = Array2::from_shape_fn((256, 256), |_| 0.05 + 0.95 * rng.unit() as f32);
+            f.mask = Array2::from_elem((256, 256), false);
+            f.trav = None;
+            f.trans = None;
+            f.levels = (0..=8).map(|k| 1usize << k).collect();
+            (f.window_size, f.outer_window) = (window_size, outer_window);
+            f.offsets = (5, 3);
+            f.transforms = crate::testkit::level_transforms(
+                (100.0, 0.0, 400_000.0, 0.0, -100.0, 6_000_000.0),
+                &f.levels,
+                f.offsets,
+            );
+            let mut ctx = context(&f);
+            let cells: Vec<(usize, usize)> = (0..48).map(|k| ((k * 37 + 3) % 256, (k * 91 + 11) % 256)).collect();
+            let values = |ctx: &Context| -> Vec<u32> {
+                let mut scratch = Scratch::new(ctx);
+                cells.iter().map(|&(i, j)| scratch.eval(ctx, i, j).to_bits()).collect()
+            };
+            let mut expected = None;
+            for budget in [CACHE_BUDGET, CACHE_BUDGET / 8, 0] {
+                let (tables, templates, retained, peak) = measured(&ctx, &f, budget);
+                let fixed = tables.fixed + templates.fixed;
+                println!(
+                    "window {window_size}/{outer_window}, budget {budget}: retained {retained}, peak {peak}, \
+                     phases {:?}, links {:?}",
+                    templates.cached, templates.linked
+                );
+                assert_eq!(retained, tables.bytes + templates.bytes);
+                assert!(peak <= budget.max(fixed), "peak {peak} over budget {budget}");
+                (ctx.tables, ctx.templates) = (tables, templates);
+                let got = values(&ctx);
+                assert_eq!(expected.get_or_insert_with(|| got.clone()), &got, "budget {budget}");
+            }
+            let prepared = f.prepared();
+            let mut scratch = Scratch::new(&ctx);
+            for &(i, j) in cells.iter().step_by(6) {
+                compare_cell(&ctx, &prepared, &mut scratch, i, j);
+            }
+        }
+    }
+
+    // Windows far larger than the tile: scratch grows with the tile rather than the window, and
+    // uncached links and geometry match the canonical reference
+    #[test]
+    fn huge_windows() {
+        for seed in 0..6 {
+            let mut f = Fixture::random(seed);
+            (f.window_size, f.outer_window) = (41, 101);
+            let mut ctx = context(&f);
+            let scratch = Scratch::new(&ctx);
+            let tile: usize = ctx.cond.iter().map(|a| a.len()).sum();
+            let window: usize = ctx.templates.shapes.iter().map(|s| s.len()).sum();
+            assert!(tile < window / 4, "seed {seed}: tile {tile}, window {window}");
+            assert!(scratch.bytes() < (tile + 1) * 2048, "seed {seed}: scratch {}", scratch.bytes());
+            for budget in [crate::template::CACHE_BUDGET, 0] {
+                retemplate(&mut ctx, &f, budget, None);
+                compare_ctx(&f, &ctx);
+            }
         }
     }
 

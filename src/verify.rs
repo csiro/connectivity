@@ -193,10 +193,13 @@ fn profile_phases() {
     }
 }
 
-// Scratch, cache and allocation figures of each workload in an 8-thread pool
+// Scratch, cache and allocation figures of each workload in an 8-thread pool. The cache is also
+// rebuilt on one thread so the allocator can count its retained and peak heap.
 #[test]
 #[ignore]
 fn resource_report() {
+    use crate::builder::tests::measured;
+    use crate::template::CACHE_BUDGET;
     use crate::testkit::alloc;
     let (inputs, out, names) = workloads();
     let pool = rayon::ThreadPoolBuilder::new().num_threads(8).build().unwrap();
@@ -207,8 +210,13 @@ fn resource_report() {
         let total: usize = stats.scratch.iter().sum();
         let max = stats.scratch.iter().max().copied().unwrap_or(0);
 
-        // Steady state on one thread: a second pass over the same cells must not allocate
         let ctx = context(&f);
+        let (tables, templates, retained, peak) = measured(&ctx, &f, CACHE_BUDGET);
+        assert_eq!(retained, tables.bytes + templates.bytes, "{name}");
+        assert_eq!(retained, stats.cache_bytes, "{name}");
+        assert!(peak <= CACHE_BUDGET, "{name}");
+
+        // Steady state on one thread: a second pass over the same cells must not allocate
         let mut scratch = Scratch::new(&ctx);
         let cells: Vec<(usize, usize)> =
             f.mask.indexed_iter().filter(|(_, &m)| !m).map(|(c, _)| c).step_by(13).collect();
@@ -220,15 +228,20 @@ fn resource_report() {
         let steady = alloc::count() - before;
         writeln!(
             report,
-            "{name}: {} scratch instances, max {:.0} KiB each, {:.2} MiB in all; cache {:.2} MiB \
-             (tables {:.2} MiB, template phases per level {:?}); setup {:.4}s, process {:.3}s; \
+            "{name}: {} scratch instances, max {:.0} KiB each, {:.2} MiB in all; cache retained \
+             {:.3} MiB measured (= reported), peak {:.3} MiB measured ({:.3} reported bound), \
+             fixed {} B, tables {:.3} MiB, phases {:?}, links {:?}; setup {:.4}s, process {:.3}s; \
              {} cells: {growth} first-pass growth allocations, {steady} steady-state",
             stats.scratch.len(),
             max as f64 / 1024.0,
             total as f64 / 1048576.0,
-            stats.cache_bytes as f64 / 1048576.0,
+            retained as f64 / 1048576.0,
+            peak as f64 / 1048576.0,
+            stats.cache_peak as f64 / 1048576.0,
+            stats.cache_fixed,
             stats.table_bytes as f64 / 1048576.0,
             stats.cached,
+            stats.linked,
             stats.setup_s,
             stats.process_s,
             cells.len()

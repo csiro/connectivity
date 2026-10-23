@@ -426,13 +426,23 @@ impl Fixture {
     }
 }
 
-/// Per-thread allocation counter for steady-state checks.
+/// Per-thread allocation counts and live heap bytes, for steady-state and memory checks.
 pub mod alloc {
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
 
     thread_local! {
         static COUNT: Cell<usize> = const { Cell::new(0) };
+        static LIVE: Cell<isize> = const { Cell::new(0) };
+        static PEAK: Cell<isize> = const { Cell::new(0) };
+    }
+
+    fn grow(bytes: isize) {
+        let live = LIVE.with(|l| {
+            l.set(l.get() + bytes);
+            l.get()
+        });
+        PEAK.with(|p| p.set(p.get().max(live)));
     }
 
     pub struct Counting;
@@ -440,15 +450,24 @@ pub mod alloc {
     unsafe impl GlobalAlloc for Counting {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             COUNT.with(|c| c.set(c.get() + 1));
+            grow(layout.size() as isize);
             unsafe { System.alloc(layout) }
         }
 
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            COUNT.with(|c| c.set(c.get() + 1));
+            grow(layout.size() as isize);
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            grow(-(layout.size() as isize));
             unsafe { System.dealloc(ptr, layout) }
         }
 
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
             COUNT.with(|c| c.set(c.get() + 1));
+            grow(new_size as isize - layout.size() as isize);
             unsafe { System.realloc(ptr, layout, new_size) }
         }
     }
@@ -459,6 +478,21 @@ pub mod alloc {
     /// Allocations and reallocations made by this thread so far
     pub fn count() -> usize {
         COUNT.with(|c| c.get())
+    }
+
+    /// Bytes this thread has allocated and not freed
+    pub fn live() -> isize {
+        LIVE.with(|l| l.get())
+    }
+
+    /// Start a new peak measurement at the current live bytes
+    pub fn reset_peak() {
+        PEAK.with(|p| p.set(live()));
+    }
+
+    /// Highest live bytes since `reset_peak`
+    pub fn peak() -> isize {
+        PEAK.with(|p| p.get())
     }
 }
 

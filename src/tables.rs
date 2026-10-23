@@ -242,14 +242,16 @@ fn level_row(
 /// Distance tables of every level; a NaN entry means per-edge legacy evaluation.
 pub struct Tables {
     geo: bool,
-    dist: Vec<Vec<f32>>, // [level][row * SLOTS + slot]; empty when not built
-    status: Vec<Vec<u8>>,
-    pub bytes: usize,
+    dist: Box<[Box<[f32]>]>, // [level][row * SLOTS + slot]; empty when not built
+    status: Box<[Box<[u8]>]>,
+    pub fixed: usize, // per-level slice headers, allocated whatever the budget
+    pub bytes: usize, // retained heap bytes, from allocation sizes
 }
 
 impl Tables {
     /// `dims` are the (rows, columns) of each level's grid and `fringe` whether a level links to
-    /// the next. Levels are tabulated from the smallest while their size fits `budget`.
+    /// the next. Levels are tabulated from the smallest while the retained heap fits `budget`;
+    /// building allocates nothing else.
     pub fn new(
         levels: &[i32],
         transforms: &[Option<Affine>],
@@ -260,21 +262,23 @@ impl Tables {
         budget: usize,
     ) -> Self {
         let n_levels = transforms.len();
+        let fixed = n_levels * (std::mem::size_of::<Box<[f32]>>() + std::mem::size_of::<Box<[u8]>>());
         let mut tables = Self {
             geo,
-            dist: vec![Vec::new(); n_levels],
-            status: vec![Vec::new(); n_levels],
-            bytes: 0,
+            dist: vec![Box::default(); n_levels].into_boxed_slice(),
+            status: vec![Box::default(); n_levels].into_boxed_slice(),
+            fixed,
+            bytes: fixed,
         };
         for l in 0..n_levels {
             let rows = if geo { dims[l].0 } else { 1 };
-            let bytes = rows * SLOTS * 5;
+            let bytes = rows * SLOTS * (std::mem::size_of::<f32>() + std::mem::size_of::<u8>());
             if tables.bytes + bytes > budget {
                 continue;
             }
             tables.bytes += bytes;
-            let mut dist = vec![f32::NAN; rows * SLOTS];
-            let mut status = vec![BUDGET; rows * SLOTS];
+            let mut dist = vec![f32::NAN; rows * SLOTS].into_boxed_slice();
+            let mut status = vec![BUDGET; rows * SLOTS].into_boxed_slice();
             let frame = |l: usize| {
                 check(&transforms[l]).map(|t| Frame::new(t, dims[l].0 as i32, dims[l].1 as i32))
             };
