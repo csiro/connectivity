@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import geopandas as gpd
 import rasterio
-from rust_conn import connectivity
+from rust_conn import connectivity, validate_device
 from .rastio import read_raster, write_raster
 from .utils import (
     _normalise_window_mode,
@@ -37,6 +37,7 @@ def connectedness(
         option: int = 3,
         n_threads: int | None = None,
         filename: str = "",
+        device: str = "cpu",
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics
     
@@ -142,6 +143,13 @@ def connectedness(
     filename : str, optional
         Path to save the output file. If empty, the result is not written to disk.
         Default is "".
+    device : {"cpu", "metal", "cuda"}, optional
+        Execution device for shortest-path searches. "cpu" (default) uses Rayon.
+        "metal" uses a compatible Mac GPU; "cuda" uses an NVIDIA GPU, including
+        H100, on Linux or Windows. They require builds with the `metal` or `cuda`
+        feature, respectively. Graph construction, edge costs
+        and indicator calculations remain on the CPU. Unavailable devices raise
+        an error before raster data is read.
 
     Returns
     -------
@@ -154,6 +162,12 @@ def connectedness(
     - This function is suitable for applications in spatial pattern analysis, texture segmentation,
 
     """
+    if not isinstance(device, str):
+        raise ValueError("device must be one of 'cpu', 'metal', or 'cuda'.")
+    device = device.strip().lower()
+    if device not in {"cpu", "metal", "cuda"}:
+        raise ValueError("device must be one of 'cpu', 'metal', or 'cuda'.")
+    validate_device(device)
     window_mode = _normalise_window_mode(window_mode)
 
     # Before reading raster, fix neighbours window
@@ -270,6 +284,7 @@ def connectedness(
                 n_threads = n_threads,
                 window_mode = window_mode,
                 pa_to_pa = pa_to_pa,
+                device = device,
             )
 
             # Calculate the connected-habitat or just return the PARC-connectedness
@@ -309,6 +324,7 @@ def beri(
         resistance_scale: float | None = None,
         n_threads: int | None = None,
         filename: str = "",
+        device: str = "cpu",
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -393,6 +409,13 @@ def beri(
     filename : str, optional
         Path to save the resulting BERI raster. If empty, the output is not written to disk.
         Default is "".
+    device : {"cpu", "metal", "cuda"}, optional
+        Execution device for shortest-path searches. "cpu" (default) uses Rayon.
+        "metal" uses a compatible Mac GPU; "cuda" uses an NVIDIA GPU, including
+        H100, on Linux or Windows. They require builds with the `metal` or `cuda`
+        feature, respectively. Graph construction, edge costs
+        and indicator calculations remain on the CPU. Unavailable devices raise
+        an error before raster data is read.
 
     Returns
     -------
@@ -406,6 +429,12 @@ def beri(
     - BERI is derived by aggregating scenario results to capture the capacity of the ecosystem to maintain biodiversity.
 
     """
+    if not isinstance(device, str):
+        raise ValueError("device must be one of 'cpu', 'metal', or 'cuda'.")
+    device = device.strip().lower()
+    if device not in {"cpu", "metal", "cuda"}:
+        raise ValueError("device must be one of 'cpu', 'metal', or 'cuda'.")
+    validate_device(device)
     window_mode = _normalise_window_mode(window_mode)
 
     # Before reading raster, fix neighbours window
@@ -517,6 +546,7 @@ def beri(
             traversal = traversal,
             n_threads = n_threads,
             window_mode = window_mode,
+            device = device,
         )
 
     tr = affine_dict[1]

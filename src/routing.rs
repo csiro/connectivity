@@ -6,6 +6,85 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::rc::Rc;
 
+/// CPU is the default; GPU backends require an explicit build feature.
+#[derive(Clone, Copy)]
+pub enum Device {
+    Cpu,
+    #[cfg(any(
+        all(feature = "metal", target_os = "macos"),
+        all(feature = "cuda", any(target_os = "linux", target_os = "windows"))
+    ))]
+    Gpu(&'static crate::gpu::GpuRouter),
+}
+
+impl Device {
+    pub fn parse(name: &str) -> anyhow::Result<Self> {
+        match name {
+            "cpu" => Ok(Self::Cpu),
+            "metal" => {
+                #[cfg(all(feature = "metal", target_os = "macos"))]
+                {
+                    // Reuse the Metal client between tiles and check availability before raster work.
+                    static ROUTER: std::sync::OnceLock<Result<crate::gpu::GpuRouter, String>> =
+                        std::sync::OnceLock::new();
+                    match ROUTER
+                        .get_or_init(|| crate::gpu::GpuRouter::metal().map_err(|e| e.to_string()))
+                    {
+                        Ok(router) => Ok(Self::Gpu(router)),
+                        Err(error) => anyhow::bail!("{error}"),
+                    }
+                }
+                #[cfg(not(all(feature = "metal", target_os = "macos")))]
+                anyhow::bail!("Metal is unavailable in this build; on macOS, rebuild with `maturin build --release --features metal`.")
+            }
+            "cuda" => {
+                #[cfg(all(feature = "cuda", any(target_os = "linux", target_os = "windows")))]
+                {
+                    // CUDA_VISIBLE_DEVICES controls which physical GPU is visible as device zero.
+                    static ROUTER: std::sync::OnceLock<Result<crate::gpu::GpuRouter, String>> =
+                        std::sync::OnceLock::new();
+                    match ROUTER
+                        .get_or_init(|| crate::gpu::GpuRouter::cuda().map_err(|e| e.to_string()))
+                    {
+                        Ok(router) => Ok(Self::Gpu(router)),
+                        Err(error) => anyhow::bail!("{error}"),
+                    }
+                }
+                #[cfg(not(all(feature = "cuda", any(target_os = "linux", target_os = "windows"))))]
+                anyhow::bail!("CUDA is unavailable in this build; on Linux or Windows, rebuild with `maturin build --release --features cuda`.")
+            }
+            _ => anyhow::bail!("Unknown device '{name}'; choose 'cpu', 'metal' or 'cuda'."),
+        }
+    }
+
+    /// Route a batch while keeping graph attributes and indicator arithmetic on CPU.
+    #[cfg(any(
+        all(feature = "metal", target_os = "macos"),
+        all(feature = "cuda", any(target_os = "linux", target_os = "windows"))
+    ))]
+    pub fn paths(&self, graphs: &[Graph]) -> anyhow::Result<Vec<Vec<EdgeData>>> {
+        match self {
+            Self::Cpu => Ok(graphs.iter().map(GraphDijkstraExt::paths).collect()),
+            Self::Gpu(router) => {
+                let adjacency: Vec<_> = graphs.iter().map(Graph::to_adjacency).collect();
+                let inputs: Vec<_> = adjacency
+                    .iter()
+                    .map(|a| crate::gpu::CsrGraph {
+                        offsets: &a.offsets,
+                        edges: &a.edges,
+                    })
+                    .collect();
+                let trees = router.search_batch(&inputs)?;
+                Ok(adjacency
+                    .iter()
+                    .zip(trees)
+                    .map(|(a, (altered, intact))| a.path_data(&altered, &intact))
+                    .collect())
+            }
+        }
+    }
+}
+
 /// Compact adjacency: offsets delimit each node's outgoing edges in one flat array.
 /// Edges hold (destination, adjusted cost, intact cost), with matching edge data.
 struct Adjacency<'a> {
@@ -99,11 +178,11 @@ impl Ord for Queued {
 }
 
 /// Shortest-path state indexed directly by local node index.
-struct Tree {
-    parent: Vec<usize>,
-    edge: Vec<usize>,
-    cost: Vec<u32>,
-    order: Vec<usize>, // settlement order
+pub(crate) struct Tree {
+    pub parent: Vec<usize>,
+    pub edge: Vec<usize>,
+    pub cost: Vec<u32>,
+    pub order: Vec<usize>, // settlement order
 }
 
 /// Dijkstra over integer weights. Keeps the existing cost-only heap ordering and
@@ -164,6 +243,13 @@ impl GraphDijkstraExt for Graph {
         let altered = dijkstra(&adjacency, |&(_, adjusted, _)| adjusted);
         let intact = dijkstra(&adjacency, |&(_, _, intact)| intact);
 
+        adjacency.path_data(&altered, &intact)
+    }
+}
+
+impl Adjacency<'_> {
+    /// Recover raw adjusted distances in the original source-to-target addition order.
+    fn path_data(&self, altered: &Tree, intact: &Tree) -> Vec<EdgeData> {
         let mut distances = vec![0.0f32; altered.cost.len()];
         let mut cell_paths = Vec::with_capacity(altered.order.len() - 1);
 
@@ -171,7 +257,7 @@ impl GraphDijkstraExt for Graph {
         // the source-to-target addition order; order[0] is the source itself.
         for &i in &altered.order[1..] {
             let p = altered.parent[i];
-            let edge = adjacency.data[altered.edge[i]];
+            let edge = self.data[altered.edge[i]];
             distances[i] = distances[p] + edge.adj_dist;
 
             let dist_intact = intact.cost[i] as f32 / 100.0;
@@ -224,6 +310,67 @@ mod tests {
     use super::*;
     use crate::metrics;
     use pathfinding::prelude::{build_path, dijkstra_all};
+
+    #[cfg(all(feature = "metal", target_os = "macos"))]
+    #[test]
+    #[ignore = "requires a Metal GPU"]
+    fn metal_matches_varied_graphs() {
+        gpu_matches_varied_graphs(crate::gpu::GpuRouter::metal().unwrap());
+    }
+
+    #[cfg(all(feature = "cuda", any(target_os = "linux", target_os = "windows")))]
+    #[test]
+    #[ignore = "requires an NVIDIA GPU and CUDA toolkit"]
+    fn cuda_matches_varied_graphs() {
+        gpu_matches_varied_graphs(crate::gpu::GpuRouter::cuda().unwrap());
+    }
+
+    #[cfg(any(
+        all(feature = "metal", target_os = "macos"),
+        all(feature = "cuda", any(target_os = "linux", target_os = "windows"))
+    ))]
+    fn gpu_matches_varied_graphs(router: crate::gpu::GpuRouter) {
+        // Multiple workgroups, a partial tail, isolated nodes, cycles and many tied costs.
+        let graphs: Vec<_> = (0..67)
+            .map(|seed| {
+                let nodes = [1, 2, 17, 64, 257][seed % 5];
+                let mut offsets = vec![0];
+                let mut edges = Vec::new();
+                for from in 0..nodes {
+                    for k in 0..(from + seed) % 9 {
+                        let to = (from * 17 + k * 13 + seed) % nodes;
+                        edges.push((to, ((from + k + seed) % 4) as u32, (k % 3) as u32));
+                    }
+                    offsets.push(edges.len());
+                }
+                Adjacency {
+                    offsets,
+                    edges,
+                    data: Vec::new(),
+                    nodes: (0..nodes as u64).collect(),
+                }
+            })
+            .collect();
+        let inputs: Vec<_> = graphs
+            .iter()
+            .map(|g| crate::gpu::CsrGraph {
+                offsets: &g.offsets,
+                edges: &g.edges,
+            })
+            .collect();
+        let trees = router.search_batch(&inputs).unwrap();
+        for (graph, (adjusted, intact)) in graphs.iter().zip(trees) {
+            for (actual, expected) in [
+                (adjusted, dijkstra(graph, |e| e.1)),
+                (intact, dijkstra(graph, |e| e.2)),
+            ] {
+                assert_eq!(actual.parent, expected.parent);
+                assert_eq!(actual.edge, expected.edge);
+                assert_eq!(actual.cost, expected.cost);
+                assert_eq!(actual.order, expected.order);
+            }
+        }
+    }
 
     fn reference(graph: &Graph) -> Vec<EdgeData> {
         let graph_int = graph.to_adjacency();

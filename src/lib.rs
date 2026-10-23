@@ -12,13 +12,35 @@ mod core;
 mod coverage;
 mod distances;
 mod extract;
+#[cfg(any(
+    all(feature = "metal", target_os = "macos"),
+    all(feature = "cuda", any(target_os = "linux", target_os = "windows"))
+))]
+mod gpu;
 mod graph;
+#[cfg(all(feature = "metal", target_os = "macos"))]
+mod metal;
 mod metrics;
 mod overview;
 mod routing;
 mod utils;
 mod window;
 use affine::Affine;
+
+fn execution_device(name: &str) -> PyResult<routing::Device> {
+    if !matches!(name, "cpu" | "metal" | "cuda") {
+        return Err(PyValueError::new_err(format!(
+            "Unknown device '{name}'; choose 'cpu', 'metal' or 'cuda'."
+        )));
+    }
+    routing::Device::parse(name).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Check a requested device before Python reads rasters or takes an empty-window return.
+#[pyfunction]
+fn validate_device(device: &str) -> PyResult<()> {
+    execution_device(device).map(|_| ())
+}
 
 /// Compute habitat/PARC connectivity and BERI.
 ///
@@ -53,10 +75,11 @@ use affine::Affine;
 ///   the non-PA landscape. An isolated PA scores 0. When `false`, all reachable nodes count.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
+/// * `device` - "cpu" (default), "metal" or "cuda" for opt-in GPU shortest paths.
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false, device="cpu"))]
 fn connectivity(
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,
@@ -73,7 +96,9 @@ fn connectivity(
     n_threads: Option<usize>,
     window_mode: &str,
     pa_to_pa: bool,
+    device: &str,
 ) -> PyResult<Py<PyArray2<f32>>> {
+    let device = execution_device(device)?;
     // Get the Numpy array
     let cond_array = extract::to_array(condition)
         .map_err(|er| PyRuntimeError::new_err(format!("Reading condition failed: {er}")))?;
@@ -136,6 +161,7 @@ fn connectivity(
                 offsets,
                 window_mode,
                 pa_to_pa,
+                device,
             )
         })
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
@@ -146,7 +172,6 @@ fn connectivity(
         Ok(pyarray.unbind())
     })
 }
-
 
 /// Compute the proportion of each raster pixel covered by a (multi)polygon.
 ///
@@ -188,6 +213,7 @@ fn pixel_coverage(
 
 #[pymodule(gil_used = true)]
 fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(validate_device, m)?)?;
     m.add_function(wrap_pyfunction!(connectivity, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_coverage, m)?)?;
     Ok(())

@@ -1,11 +1,16 @@
 # Version 2.4.0 (unreleased)
+## Added
+- Added an experimental CubeCL native Metal backend for batched adjusted and intact shortest-path searches. Build with the optional `metal` feature and select `device="metal"` in `connectedness()` or `beri()`; CPU remains the default. Graph construction, integer edge costs and indicator calculations remain on CPU. Unavailable devices and GPU failures raise regular Python errors.
+- Added an experimental NVIDIA CUDA backend sharing the Metal routing kernel. Build on Linux or Windows with `--features cuda` and select `device="cuda"`. Includes H100/Slurm setup instructions, a validation job and CPU/GPU parity tests; H100 performance remains unverified.
+
 ## Changed
-- Replaced per-cell window and fringe lookups with dense indexed arrays, and stored routing adjacency and shortest-path state in compact arrays. The edge table retains its existing order so tied paths and numerical outputs are unchanged; CPU/Rayon remains the only execution path.
+- Reduced Metal transfer synchronization and batched focal cells across rows with bounded memory. CPU execution processes each graph directly without GPU batch allocations.
+- Replaced per-cell window and fringe lookups with dense indexed arrays, and stored routing adjacency and shortest-path state in compact arrays. The edge table retains its existing order so tied paths and numerical outputs are unchanged.
 
 # Version 2.3.0
 ## Changed
 - Reduced routing overhead by building one adjacency list for both adjusted and intact searches, caching raw adjusted-distance sums along the selected paths, and avoiding repeated path back-tracing and attribute copying. Integer cost scaling and shortest-path tie handling are unchanged.
-- Replaced the remaining standard (SipHash) hash maps in per-cell graph building with `FxHashMap`, and replaced `pathfinding::dijkstra_all` with an in-crate Dijkstra that follows the same steps, so the switch itself does not change parents, ties, summation order or outputs. Together about 20% faster on the bundled example; `pathfinding` is now only a test dependency.
+- Replaced the remaining standard (SipHash) hash maps in per-cell graph building with `FxHashMap`, and replaced `pathfinding::dijkstra_all` with an in-crate Dijkstra that follows the same steps, preserving parents, ties, summation order and outputs. `pathfinding` is now only a test dependency. Together with the routing optimizations above, these changes made v2.3 about 2x faster than v2.2 in testing.
 
 ## Fixed
 - Made indicator summation deterministic by retaining the adjusted search visitation order instead of iterating over a randomized hash map. Repeated runs on the same build and platform now use a fixed summation order without sorting targets for every focal cell. Final scores may differ in the last few bits from earlier versions because floating-point addition depends on order.

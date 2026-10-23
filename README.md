@@ -11,6 +11,8 @@
   - [Installation ](#installation-)
     - [Install from PyPI ](#install-from-pypi-)
     - [Install from Source ](#install-from-source-)
+    - [Experimental Mac GPU support](#experimental-mac-gpu-support)
+    - [Experimental NVIDIA GPU support (CUDA/H100)](#experimental-nvidia-gpu-support-cudah100)
   - [Connectivity Analysis ](#connectivity-analysis-)
     - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
       - [Optional resistance surface](#optional-resistance-surface)
@@ -44,6 +46,126 @@ git clone https://github.com/csiro/connectivity.git
 cd connectivity
 pip install .
 ```
+
+### Experimental Mac GPU support
+
+CPU execution remains the default. To enable the experimental CubeCL native
+Metal backend, build a wheel from source on macOS 15 or newer with a
+Metal 3-compatible GPU and Rust 1.95 or newer:
+
+```bash
+rustup toolchain install 1.95.0 --profile minimal
+pip install maturin
+RUSTUP_TOOLCHAIN=1.95.0 maturin build --release --features metal
+```
+
+Install the exact wheel path printed by Maturin:
+
+```bash
+pip install --force-reinstall /path/to/the/built/wheel.whl
+```
+
+An ordinary `maturin build --release` or `pip install .` builds the CPU backend.
+The `metal` feature is selected at build time; requesting a device at runtime
+cannot add it to an existing installation. Published wheels are not assumed to
+include this experimental feature.
+
+Pass `device="metal"` to `connectedness()` or `beri()` to opt in:
+
+```python
+from connectivity import connectedness, example_data_path
+
+connd = connectedness(
+    condition_file = example_data_path("site_condition"),
+    device = "metal",
+)
+```
+
+The prototype runs adjusted and intact shortest-path searches in GPU batches
+that span raster rows, with a per-worker edge limit to bound memory use. Each
+batch uses one input upload and one combined result readback.
+Graph construction, edge-cost calculation and indicator calculations stay on
+the CPU, preserving the CPU edge costs for comparison. Performance depends on
+the graph size and transfer overhead; this prototype does not promise a speedup.
+Compare GPU results against the default `device="cpu"` for the same inputs.
+If Metal was not compiled in or a compatible GPU cannot be initialized, the
+request raises a clear error before raster data is read. It never silently
+changes the selected device.
+
+### Experimental NVIDIA GPU support (CUDA/H100)
+
+The optional CUDA backend targets NVIDIA GPUs, including H100, on Linux or
+Windows. For an H100 Linux machine, install Rust 1.95 or newer and load your
+site's CUDA Toolkit 12.1 or newer environment, with a compatible NVIDIA driver.
+The selected CubeCL CUDA C++ compiler uses NVRTC and CUDA headers at runtime,
+so these must also be available on the compute node. Set `CUDA_PATH` to the
+toolkit directory; if your module sets only `CUDA_HOME`, use
+`export CUDA_PATH="$CUDA_HOME"`. Ensure its NVRTC libraries are on the runtime
+library search path. The H100 compiler target is `sm_90a`, requiring CUDA 12.1
+or newer. The first build also needs a C++ compiler and access to CubeCL's LLVM
+bundle download or a pre-populated build cache. Make `nvcc` available while
+building so the bindings match the toolkit used on the compute node. See the
+[CubeCL setup requirements](https://burn.dev/books/cubecl/getting-started/installation.html)
+and [NVIDIA Hopper compatibility guide](https://docs.nvidia.com/cuda/hopper-compatibility-guide/).
+
+Build from the repository checkout in the environment where you will run it:
+
+```bash
+nvidia-smi
+nvcc --version
+rustup toolchain install 1.95.0 --profile minimal
+pip install maturin
+RUSTUP_TOOLCHAIN=1.95.0 maturin build --release --features cuda
+pip install --force-reinstall /path/to/the/built/wheel.whl
+```
+
+Replace the wheel path with the exact path printed by Maturin. Ordinary builds
+and published wheels are not assumed to include CUDA. Select it explicitly:
+
+```python
+import os
+from connectivity import connectedness, example_data_path
+
+result = connectedness(
+    condition_file=example_data_path("site_condition"),
+    device="cuda",
+    n_threads=int(os.environ.get("SLURM_CPUS_PER_TASK", "8")),
+)
+```
+
+`beri()` accepts the same device argument. Initialization failures raise an error
+before raster data is read; CPU remains the default. The backend uses the first
+GPU visible to the process. On Slurm, request an H100 GPU allocation and preserve
+the scheduler's `CUDA_VISIBLE_DEVICES` setting. Outside a scheduler, set that
+variable before starting Python to select a physical GPU. Each process uses one
+GPU; multiple GPUs are not used automatically.
+
+On an allocated H100 compute node, check device availability and then run the
+CPU/GPU parity tests from the checkout:
+
+```bash
+python -c 'from rust_conn import validate_device; validate_device("cuda")'
+python -m unittest discover -s tests -p test_device.py
+cargo +1.95.0 test --features cuda cuda_ -- --ignored
+```
+
+For Slurm, [examples/h100.slurm](examples/h100.slurm) runs the Python device and
+parity checks without building on the compute node. Adjust its GPU resource,
+account and partition for your site, then submit from the checkout with the
+built Python environment activated and CUDA loaded:
+
+```bash
+sbatch examples/h100.slurm
+```
+
+The job inherits your environment and preserves Slurm's GPU visibility setting.
+It validates the installation and results; it is not a performance benchmark.
+
+The availability check must succeed: hardware parity tests skip when no GPU
+backend is available. Compare results and full analysis runtime against
+`device="cpu"` on your actual rasters. Graph construction and indicator
+calculations still run on CPU, and GPU transfer overhead can outweigh routing
+savings. H100 correctness and performance require validation on that hardware.
 
 ## Connectivity Analysis <a name="analysis"></a>     
 Resolve the bundled example paths once so they can be reused throughout the

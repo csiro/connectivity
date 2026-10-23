@@ -13,7 +13,12 @@ use crate::window;
 use affine::Affine;
 use graph::Graph;
 use overview::Resampling;
-use routing::GraphDijkstraExt;
+#[cfg(any(
+    all(feature = "metal", target_os = "macos"),
+    all(feature = "cuda", any(target_os = "linux", target_os = "windows"))
+))]
+use rayon::slice::ParallelSliceMut;
+use routing::{Device, GraphDijkstraExt};
 use window::{FocalWindow, WindowMode};
 
 /// Core connectivity function
@@ -34,6 +39,7 @@ pub fn conn(
     offsets: (usize, usize),
     window_mode: WindowMode,
     pa_to_pa: bool,
+    device: Device,
 ) -> Result<Array2<f32>> {
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = trans_arrays
@@ -83,14 +89,9 @@ pub fn conn(
                     0.0
                 }
             });
-            let map = overview::make_overview(
-                &pa_indicator, 
-                levels, 
-                offsets, 
-                Resampling::Average, 
-                None
-            )
-            .expect("Failed to build PA-membership overview.");
+            let map =
+                overview::make_overview(&pa_indicator, levels, offsets, Resampling::Average, None)
+                    .expect("Failed to build PA-membership overview.");
             utils::check_dims(&map, &cond_map)?;
             Some(map)
         } else {
@@ -102,9 +103,8 @@ pub fn conn(
         // condition, so the output is bit-identical to a resistance-free run.
         let trav_map: Option<HashMap<i32, Array2<f32>>> = match trav_array {
             Some(arr) => {
-                let map =
-                    overview::make_overview(arr, levels, offsets, Resampling::Average, None)
-                        .expect("Failed average resampling for traversal.");
+                let map = overview::make_overview(arr, levels, offsets, Resampling::Average, None)
+                    .expect("Failed average resampling for traversal.");
                 utils::check_dims(&map, &cond_map)?;
                 Some(map)
             }
@@ -130,76 +130,131 @@ pub fn conn(
         sorted_levels.sort_unstable();
         let max_level = sorted_levels.last().copied().unwrap_or(1);
 
-        // Parallel iteration over rows in the thread pool
-        outarray
-            .axis_iter_mut(Axis(0))
-            .into_par_iter()
-            .enumerate()
-            .for_each(|(i, mut row_result)| {
-                for j in 0..ncols {
-                    // Skip masked areas
-                    if mask_array[[i, j]] {
-                        continue;
-                    }
+        let build_graph = |i: usize, j: usize| {
+            // Keep windows indexed in ascending level order.
+            let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
+            let mut windows = Vec::with_capacity(num_levels);
+            for &level in &sorted_levels {
+                let win = FocalWindow::from_data(
+                    i as i32,
+                    j as i32,
+                    level,
+                    max_level,
+                    window_size,
+                    outer_window,
+                    offsets,
+                    &cond_map,
+                    &trans_maps,
+                    &ij_values,
+                    &cell_weights,
+                    pa_map.as_ref(),
+                    trav_map.as_ref(),
+                    window_mode,
+                );
+                windows.push((level, win));
+            }
+            Graph::from_data(
+                i as i32,
+                j as i32,
+                max_cost,
+                &windows,
+                transform_map,
+                is_geo,
+                offsets,
+                window_mode,
+                pa_to_pa,
+            )
+        };
+        let score = |cell_paths: &[graph::EdgeData]| {
+            if lambdas.is_empty() {
+                0.0
+            } else {
+                let sum: f32 = lambdas
+                    .iter()
+                    .map(|&lambda| {
+                        if run_beri {
+                            metrics::beri_score(cell_paths, lambda)
+                        } else {
+                            metrics::connectedness(cell_paths, lambda)
+                        }
+                    })
+                    .sum();
+                sum / lambdas.len() as f32
+            }
+        };
 
-                    // Get the transgrid values for ij cell for the current climate
-                    let ij_values: Array1<f32> = utils::get_current(&trans_maps, i, j);
-                    // Keep windows indexed in ascending level order
-                    let mut windows = Vec::with_capacity(num_levels);
-                    // Build window for each level for the cell ij
-                    for &level in &sorted_levels {
-                        let win = FocalWindow::from_data(
-                            i as i32,
-                            j as i32,
-                            level,
-                            max_level,
-                            window_size,
-                            outer_window,
-                            offsets,
-                            &cond_map,
-                            &trans_maps,
-                            &ij_values,
-                            &cell_weights,
-                            pa_map.as_ref(),
-                            trav_map.as_ref(),
-                            window_mode,
-                        );
-                        windows.push((level, win));
-                    }
-
-                    // Build a Graph for the cell ij using multi-res windows
-                    let the_graph = Graph::from_data(
-                        i as i32,
-                        j as i32,
-                        max_cost,
-                        &windows,
-                        transform_map,
-                        is_geo,
-                        offsets,
-                        window_mode,
-                        pa_to_pa,
-                    );
-                    let cell_paths = the_graph.paths();
-
-                    // Calculate BERI or Connectedness
-                    row_result[j] = if lambdas.is_empty() {
-                        0.0
-                    } else {
-                        let sum: f32 = lambdas
-                            .iter()
-                            .map(|&lambda| {
-                                if run_beri {
-                                    metrics::beri_score(&cell_paths, lambda)
-                                } else {
-                                    metrics::connectedness(&cell_paths, lambda)
+        match device {
+            Device::Cpu => {
+                // CPU workers consume one graph at a time without batch allocations.
+                outarray
+                    .axis_iter_mut(Axis(0))
+                    .into_par_iter()
+                    .enumerate()
+                    .for_each(|(i, mut row_result)| {
+                        for (j, value) in row_result.iter_mut().enumerate() {
+                            if !mask_array[[i, j]] {
+                                *value = score(&build_graph(i, j).paths());
+                            }
+                        }
+                    });
+            }
+            #[cfg(any(
+                all(feature = "metal", target_os = "macos"),
+                all(feature = "cuda", any(target_os = "linux", target_os = "windows"))
+            ))]
+            Device::Gpu(_) => {
+                // Cross row boundaries so narrow rasters can fill multiple GPU workgroups.
+                // Bound retained graphs per worker; large windows flush sooner by edge count.
+                const BATCH_CELLS: usize = 256;
+                const BATCH_EDGES: usize = 262_144;
+                outarray
+                    .as_slice_mut()
+                    .expect("New output array is contiguous")
+                    .par_chunks_mut(BATCH_CELLS)
+                    .enumerate()
+                    .try_for_each(|(chunk, output)| -> Result<()> {
+                        let mut graphs = Vec::with_capacity(output.len());
+                        let mut positions = Vec::with_capacity(output.len());
+                        let mut edges = 0usize;
+                        let flush = |graphs: &mut Vec<Graph>,
+                                     positions: &mut Vec<usize>,
+                                     output: &mut [f32]|
+                         -> Result<()> {
+                            if !graphs.is_empty() {
+                                for (&pos, paths) in positions.iter().zip(device.paths(graphs)?) {
+                                    output[pos] = score(&paths);
                                 }
-                            })
-                            .sum();
+                                graphs.clear();
+                                positions.clear();
+                            }
+                            Ok(())
+                        };
 
-                        sum / lambdas.len() as f32
-                    };
-                }
-            });
+                        for pos in 0..output.len() {
+                            let cell = chunk * BATCH_CELLS + pos;
+                            let (i, j) = (cell / ncols, cell % ncols);
+                            if mask_array[[i, j]] {
+                                continue;
+                            }
+                            let graph = build_graph(i, j);
+                            let graph_edges = graph.data.len();
+                            if edges.saturating_add(graph_edges) > BATCH_EDGES {
+                                flush(&mut graphs, &mut positions, output)?;
+                                edges = 0;
+                            }
+                            graphs.push(graph);
+                            positions.push(pos);
+                            edges += graph_edges;
+                            // A graph larger than the budget runs alone.
+                            if edges >= BATCH_EDGES {
+                                flush(&mut graphs, &mut positions, output)?;
+                                edges = 0;
+                            }
+                        }
+                        flush(&mut graphs, &mut positions, output)
+                    })?;
+            }
+        }
 
         Ok(outarray)
     } else {
@@ -210,6 +265,104 @@ pub fn conn(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(all(feature = "metal", target_os = "macos"))]
+    #[test]
+    #[ignore = "requires a Metal GPU"]
+    fn metal_matches_cpu() {
+        gpu_matches_cpu("metal");
+    }
+
+    #[cfg(all(feature = "cuda", any(target_os = "linux", target_os = "windows")))]
+    #[test]
+    #[ignore = "requires an NVIDIA GPU and CUDA toolkit"]
+    fn cuda_matches_cpu() {
+        gpu_matches_cpu("cuda");
+    }
+
+    #[cfg(any(
+        all(feature = "metal", target_os = "macos"),
+        all(feature = "cuda", any(target_os = "linux", target_os = "windows"))
+    ))]
+    fn gpu_matches_cpu(name: &str) {
+        let device = Device::parse(name).unwrap();
+        for (rows, cols) in [(9, 39), (39, 9)] {
+            let cond = Some(Array2::from_shape_fn((rows, cols), |(i, j)| {
+                if (i * 7 + j * 11) % 29 == 0 {
+                    f32::NAN
+                } else {
+                    ((i * 7 + j * 13) % 10 + 1) as f32 / 10.0
+                }
+            }));
+            let mask = Array2::from_shape_fn((rows, cols), |(i, j)| {
+                cond.as_ref().unwrap()[[i, j]].is_nan() || (i * 3 + j * 5) % 7 == 0
+            });
+            let traversal = Array2::from_shape_fn((rows, cols), |(i, j)| {
+                if (i + j * 3) % 13 == 0 {
+                    f32::NAN
+                } else {
+                    ((i * 5 + j * 3) % 11) as f32 / 10.0
+                }
+            });
+            let transitions = vec![Array3::from_shape_fn((rows, cols, 2), |(i, j, k)| {
+                if (i * 3 + j * 5 + k) % 31 == 0 {
+                    f32::NAN
+                } else {
+                    ((i * 7 + j * 3 + k * 2) % 23) as f32 / 23.0
+                }
+            })];
+            let levels = vec![1, 2, 4];
+            let transforms: HashMap<i32, Affine> = levels
+                .iter()
+                .map(|&level| {
+                    let s = 1000.0 * level as f64;
+                    (
+                        level as i32,
+                        Affine::from((s, 0.0, 500_000.0, 0.0, -s, 6_000_000.0)),
+                    )
+                })
+                .collect();
+            // Flat batches cross rows and include a partial tail, masked holes and directed fringe links.
+            for threads in [1, 4] {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .build()
+                    .unwrap();
+                for mode in [WindowMode::Circular, WindowMode::Square] {
+                    for beri in [false, true] {
+                        for pa_to_pa in [false, true] {
+                            let run = |device| {
+                                pool.install(|| {
+                                    conn(
+                                        &cond,
+                                        Some(&traversal),
+                                        beri.then_some(transitions.as_slice()),
+                                        &transforms,
+                                        &mask,
+                                        &levels,
+                                        &[2.0, 20.0],
+                                        false,
+                                        20.0,
+                                        3,
+                                        5,
+                                        (3, 5),
+                                        mode,
+                                        pa_to_pa,
+                                        device,
+                                    )
+                                    .unwrap()
+                                })
+                            };
+                            let cpu = run(Device::Cpu);
+                            let gpu = run(device);
+                            assert!(cpu.iter().zip(&gpu).all(|(a, b)| a.to_bits() == b.to_bits()),
+                                "{name} differs from CPU: {rows}x{cols}, {mode:?}, beri={beri}, pa_to_pa={pa_to_pa}, threads={threads}");
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Repeated runs must give bit-identical output.
     #[test]
@@ -228,8 +381,21 @@ mod tests {
             .collect();
         let run = || {
             conn(
-                &cond, None, None, &transforms, &mask, &levels, &[2.0, 20.0], false, 2.0, 3, 5,
-                (0, 0), WindowMode::Circular, false,
+                &cond,
+                None,
+                None,
+                &transforms,
+                &mask,
+                &levels,
+                &[2.0, 20.0],
+                false,
+                2.0,
+                3,
+                5,
+                (0, 0),
+                WindowMode::Circular,
+                false,
+                Device::Cpu,
             )
             .unwrap()
         };
@@ -238,7 +404,10 @@ mod tests {
         assert!(first.iter().any(|&v| v > 0.0));
         for _ in 0..3 {
             let next = run();
-            assert!(first.iter().zip(&next).all(|(a, b)| a.to_bits() == b.to_bits()));
+            assert!(first
+                .iter()
+                .zip(&next)
+                .all(|(a, b)| a.to_bits() == b.to_bits()));
         }
     }
 
@@ -363,6 +532,7 @@ mod tests {
                 offsets,
                 mode,
                 pa_to_pa,
+                Device::Cpu,
             )
             .unwrap();
 
