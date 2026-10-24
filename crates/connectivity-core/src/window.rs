@@ -1,12 +1,18 @@
 use ndarray::ArrayView1;
 
+/// Shape of the annulus that each level contributes around a focal cell. Cells cut by the
+/// annulus boundary count with their covered area fraction in both modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
+    /// Source-centred circular annuli (the Python default).
     Circular,
+    /// Source-centred square annuli.
     Square,
 }
 
 impl WindowMode {
+    /// Parse `"circular"` or `"square"`, ignoring case and surrounding whitespace. The error
+    /// is the message the Python binding raises as `ValueError`.
     pub fn parse(value: &str) -> Result<Self, String> {
         match value.trim().to_ascii_lowercase().as_str() {
             "square" => Ok(Self::Square),

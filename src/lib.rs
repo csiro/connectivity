@@ -1,3 +1,4 @@
+use connectivity_core::{Affine, Config, Inputs, WindowMode};
 use ndarray::{Array2, Array3};
 use numpy::{PyArray2, ToPyArray};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -6,27 +7,7 @@ use pyo3::types::{PyAny, PyList};
 use pyo3::Bound;
 use std::collections::HashMap;
 // local modules
-mod affine;
-mod builder;
-mod core;
-mod coverage;
-mod distances;
 mod extract;
-mod graph;
-#[cfg(test)]
-mod legacy;
-mod metrics;
-mod overview;
-mod routing;
-mod tables;
-mod template;
-#[cfg(test)]
-mod testkit;
-mod utils;
-#[cfg(test)]
-mod verify;
-mod window;
-use affine::Affine;
 
 /// Compute habitat/PARC connectivity and BERI.
 ///
@@ -49,7 +30,7 @@ use affine::Affine;
 ///   (e.g. 3 gives an effective 6×6 current-level window).
 /// * `outer_window` - Odd coarsest-level window width used to set the long-range
 ///   search reach. Must be ≥ `window_size`.
-/// * `offsets` -
+/// * `offsets` - (row, col) of the tile's top-left pixel in the full raster, in base pixels.
 /// * `window_mode` - "circular" for source-centered circular annuli or
 ///   "square" for source-centered square annuli.
 /// * `traversal` - Optional 2D array (same shape as `condition`) of pre-inverted, [0, 1]
@@ -117,7 +98,7 @@ fn connectivity(
         None => None,
     };
 
-    let window_mode = window::WindowMode::parse(window_mode).map_err(PyValueError::new_err)?;
+    let window_mode = WindowMode::parse(window_mode).map_err(PyValueError::new_err)?;
 
     // Set the number of cores for parallel processing with Rayon
     // Use a local pool to safely control exact number of core
@@ -126,26 +107,34 @@ fn connectivity(
         .build()
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
+    // The core requires a condition array; a missing one fails as the core call used to
+    let Some(cond_array) = cond_array else {
+        return Err(PyRuntimeError::new_err(
+            "Connectivity failed: No base level (key=1) in condition array",
+        ));
+    };
+    let inputs = Inputs {
+        condition: &cond_array,
+        mask: &mask_array,
+        traversal: trav_array.as_ref(),
+        transgrids: trans_arrays.as_deref(),
+        transforms: &transform_map,
+    };
+    let config = Config {
+        levels: &levels,
+        lambdas: &lambdas,
+        is_geo,
+        max_cost,
+        window_size,
+        outer_window,
+        offsets,
+        window_mode,
+        pa_to_pa,
+    };
+
     // Core connectivity function
     let outarray: Array2<f32> = pool
-        .install(|| {
-            core::conn(
-                &cond_array,
-                trav_array.as_ref(),
-                trans_arrays.as_deref(),
-                &transform_map,
-                &mask_array,
-                &levels,
-                &lambdas,
-                is_geo,
-                max_cost,
-                window_size,
-                outer_window,
-                offsets,
-                window_mode,
-                pa_to_pa,
-            )
-        })
+        .install(|| connectivity_core::connectivity(&inputs, &config))
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
 
     // Convert the array back to Python with gil
@@ -186,7 +175,7 @@ fn pixel_coverage(
         .build()
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-    let outarray = pool.install(|| coverage::pixel_coverage_array(&rings, &tr, nrows, ncols));
+    let outarray = pool.install(|| connectivity_core::pixel_coverage(&rings, &tr, nrows, ncols));
 
     Python::attach(|py| {
         let pyarray = outarray.to_pyarray(py);

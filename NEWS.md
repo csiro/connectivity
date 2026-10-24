@@ -5,6 +5,7 @@
 - Batched BERI similarity calculations across all scenarios of each cell, preserving similarity values.
 - Fixed each node's outgoing edge order: same-level queen neighbours in the existing order, then fringe links in `get_edge_neighbours` order. Shortest-path costs are unchanged, but integer-cost ties can select different parents and adjusted path sums, and indicator accumulation follows a different destination order. On the bundled example 2-16% of cells change, by up to about 1e-4 (2.4e-4 relative); grids where most edges round to zero integer cost can change more. Repeated runs and different thread counts remain bit-identical on the same build and platform.
 - Improved Rust `connectivity()` validation: missing transforms are checked before processing, and skipped powers of two produce a clear panic message instead of an index error. Both previously surfaced when a focal cell first reached the affected level. Python `connectedness()` and `beri()` already validate both.
+- Moved the Rust numerical engine (overviews, window templates, graph building, routing, indicator metrics and pixel coverage) into a separate crate, `connectivity-core` 0.1.0 in `crates/connectivity-core`, with a documented array-based Rust API and no Python, GDAL or file I/O dependencies. The `rust_conn` extension is now a thin PyO3 wrapper around it: Python function signatures, outputs, exceptions and threading are unchanged. The core is versioned and tagged separately (`connectivity-core-vX.Y.Z`); only `vX.Y.Z` tags publish the Python package to PyPI.
 
 # Version 2.3.0
 ## Changed

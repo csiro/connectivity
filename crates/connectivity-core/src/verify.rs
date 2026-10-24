@@ -1,6 +1,6 @@
 //! Verification runs on captured workloads (ignored by default; not timed).
 //!
-//! `CONN_INPUTS=<dir> CONN_OUT=<dir> cargo test --release verify -- --ignored --nocapture`
+//! `CONN_INPUTS=<dir> CONN_OUT=<dir> cargo test --release -p connectivity-core verify -- --ignored --nocapture`
 //! reads every `<dir>/<workload>/rust.txt` (or the names in `CONN_WORKLOADS`) and, per workload:
 //! compares Optimized with the Canonical reference bit for bit, runs the structural comparison
 //! on every unmasked cell, and writes the Optimized, Canonical and Legacy outputs as raw f32.
@@ -35,23 +35,7 @@ fn workloads() -> (PathBuf, PathBuf, Vec<String>) {
 }
 
 fn optimized(f: &Fixture) -> (ndarray::Array2<f32>, core::Stats) {
-    core::conn_stats(
-        &Some(f.cond.clone()),
-        f.trav.as_ref(),
-        f.trans.as_deref(),
-        &f.transforms,
-        &f.mask,
-        &f.levels,
-        &f.lambdas,
-        f.is_geo,
-        f.max_cost,
-        f.window_size,
-        f.outer_window,
-        f.offsets,
-        f.mode,
-        f.pa_to_pa,
-    )
-    .unwrap()
+    core::conn_stats(&f.inputs(), &f.config()).unwrap()
 }
 
 /// Structural comparison of every unmasked cell with per-edge distance tallies.

@@ -15,6 +15,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
+name = "connectivity-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ndarray",
+ "num_cpus",
+ "pathfinding",
+ "rayon",
+ "rustc-hash",
+]
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -342,16 +354,15 @@ name = "rust_conn"
 version = "2.4.0"
 dependencies = [
  "anyhow",
+ "connectivity-core",
  "ndarray",
  "num_cpus",
  "numpy",
  "ordered-float",
- "pathfinding",
  "pyo3",
  "pyo3-build-config",
  "pyo3-built",
  "rayon",
- "rustc-hash",
 ]
 
 [[package]]

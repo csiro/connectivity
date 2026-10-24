@@ -11,10 +11,9 @@ use crate::overview;
 use crate::tables::{Tables, STATUSES};
 use crate::template::{Templates, CACHE_BUDGET};
 use crate::utils;
-use crate::window;
+use crate::{Config, Inputs};
 use affine::Affine;
 use overview::Resampling;
-use window::WindowMode;
 
 /// Call-level resource statistics.
 #[derive(Debug, Default, Clone)]
@@ -32,31 +31,78 @@ pub struct Stats {
     pub process_s: f64,      // focal-cell loop
 }
 
-/// Core connectivity function
+/// Core connectivity function (`crate::connectivity`)
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-pub fn conn(
-    cond_array: &Option<Array2<f32>>,
-    trav_array: Option<&Array2<f32>>,
-    trans_arrays: Option<&[Array3<f32>]>,
-    transform_map: &HashMap<i32, Affine>,
-    mask_array: &Array2<bool>,
-    levels: &Vec<usize>,
-    lambdas: &[f32],
-    is_geo: bool,
-    max_cost: f32,
-    window_size: i32,
-    outer_window: i32,
-    offsets: (usize, usize),
-    window_mode: WindowMode,
-    pa_to_pa: bool,
-) -> Result<Array2<f32>> {
-    conn_stats(
-        cond_array,
-        trav_array,
-        trans_arrays,
-        transform_map,
-        mask_array,
+pub fn conn(inputs: &Inputs, config: &Config) -> Result<Array2<f32>> {
+    conn_stats(inputs, config).map(|(out, _)| out)
+}
+
+/// `conn` that also reports scratch memory and setup/processing time.
+pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stats)> {
+    let start = Instant::now();
+    let (cond_base, mask_array) = (inputs.condition, inputs.mask);
+    let ctx = prepare(inputs, config)?;
+
+    // One scratch per pool thread, sized up front; a row borrows its thread's scratch, so
+    // focal cells only allocate if a window outgrows the initial capacity.
+    let threads = rayon::current_num_threads();
+    let scratch: Vec<Mutex<Scratch>> =
+        (0..threads).map(|_| Mutex::new(Scratch::new(&ctx))).collect();
+    let setup_s = start.elapsed().as_secs_f64();
+
+    // Initialize output with NaNs so masked cells keep the previous output semantics.
+    let ncols = cond_base.ncols();
+    let mut outarray = Array2::<f32>::from_elem(cond_base.dim(), f32::NAN);
+    outarray
+        .axis_iter_mut(Axis(0))
+        .into_par_iter()
+        .enumerate()
+        .for_each(|(i, mut row_result)| {
+            let slot = rayon::current_thread_index().unwrap_or(0) % threads;
+            // A panicking cell poisons its scratch, but every cell resets what it uses
+            let mut scratch = scratch[slot].lock().unwrap_or_else(PoisonError::into_inner);
+            for j in 0..ncols {
+                // Skip masked areas
+                if mask_array[[i, j]] {
+                    continue;
+                }
+                row_result[j] = scratch.eval(&ctx, i, j);
+            }
+        });
+
+    let stats = Stats {
+        scratch: scratch
+            .iter()
+            .map(|s| s.lock().unwrap_or_else(PoisonError::into_inner).bytes())
+            .collect(),
+        cache_bytes: ctx.templates.bytes + ctx.tables.bytes,
+        cache_peak: ctx.templates.peak + ctx.tables.bytes,
+        cache_fixed: ctx.templates.fixed + ctx.tables.fixed,
+        table_bytes: ctx.tables.bytes,
+        cached: ctx.templates.cached.to_vec(),
+        linked: ctx.templates.linked.to_vec(),
+        edges: scratch.iter().fold([0; STATUSES], |mut acc, s| {
+            let s = s.lock().unwrap_or_else(PoisonError::into_inner);
+            acc.iter_mut().zip(s.counts).for_each(|(a, c)| *a += c);
+            acc
+        }),
+        setup_s,
+        process_s: start.elapsed().as_secs_f64() - setup_s,
+    };
+    Ok((outarray, stats))
+}
+
+/// Overviews and settings for one call, indexed by ascending level.
+pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> {
+    let Inputs {
+        condition: cond_base,
+        mask: mask_array,
+        traversal: trav_array,
+        transgrids: trans_arrays,
+        transforms: transform_map,
+    } = *inputs;
+    let Config {
         levels,
         lambdas,
         is_geo,
@@ -66,116 +112,7 @@ pub fn conn(
         offsets,
         window_mode,
         pa_to_pa,
-    )
-    .map(|(out, _)| out)
-}
-
-/// `conn` that also reports scratch memory and setup/processing time.
-pub fn conn_stats(
-    cond_array: &Option<Array2<f32>>,
-    trav_array: Option<&Array2<f32>>,
-    trans_arrays: Option<&[Array3<f32>]>,
-    transform_map: &HashMap<i32, Affine>,
-    mask_array: &Array2<bool>,
-    levels: &Vec<usize>,
-    lambdas: &[f32],
-    is_geo: bool,
-    max_cost: f32,
-    window_size: i32,
-    outer_window: i32,
-    offsets: (usize, usize),
-    window_mode: WindowMode,
-    pa_to_pa: bool,
-) -> Result<(Array2<f32>, Stats)> {
-    let start = Instant::now();
-    // Check condition dictionay was not empty and run the code for level 1 (original resolution)
-    if let Some(cond_base) = cond_array {
-        let ctx = prepare(
-            cond_base,
-            trav_array,
-            trans_arrays,
-            transform_map,
-            mask_array,
-            levels,
-            lambdas,
-            is_geo,
-            max_cost,
-            window_size,
-            outer_window,
-            offsets,
-            window_mode,
-            pa_to_pa,
-        )?;
-
-        // One scratch per pool thread, sized up front; a row borrows its thread's scratch, so
-        // focal cells only allocate if a window outgrows the initial capacity.
-        let threads = rayon::current_num_threads();
-        let scratch: Vec<Mutex<Scratch>> =
-            (0..threads).map(|_| Mutex::new(Scratch::new(&ctx))).collect();
-        let setup_s = start.elapsed().as_secs_f64();
-
-        // Initialize output with NaNs so masked cells keep the previous output semantics.
-        let ncols = cond_base.ncols();
-        let mut outarray = Array2::<f32>::from_elem(cond_base.dim(), f32::NAN);
-        outarray
-            .axis_iter_mut(Axis(0))
-            .into_par_iter()
-            .enumerate()
-            .for_each(|(i, mut row_result)| {
-                let slot = rayon::current_thread_index().unwrap_or(0) % threads;
-                // A panicking cell poisons its scratch, but every cell resets what it uses
-                let mut scratch = scratch[slot].lock().unwrap_or_else(PoisonError::into_inner);
-                for j in 0..ncols {
-                    // Skip masked areas
-                    if mask_array[[i, j]] {
-                        continue;
-                    }
-                    row_result[j] = scratch.eval(&ctx, i, j);
-                }
-            });
-
-        let stats = Stats {
-            scratch: scratch
-                .iter()
-                .map(|s| s.lock().unwrap_or_else(PoisonError::into_inner).bytes())
-                .collect(),
-            cache_bytes: ctx.templates.bytes + ctx.tables.bytes,
-            cache_peak: ctx.templates.peak + ctx.tables.bytes,
-            cache_fixed: ctx.templates.fixed + ctx.tables.fixed,
-            table_bytes: ctx.tables.bytes,
-            cached: ctx.templates.cached.to_vec(),
-            linked: ctx.templates.linked.to_vec(),
-            edges: scratch.iter().fold([0; STATUSES], |mut acc, s| {
-                let s = s.lock().unwrap_or_else(PoisonError::into_inner);
-                acc.iter_mut().zip(s.counts).for_each(|(a, c)| *a += c);
-                acc
-            }),
-            setup_s,
-            process_s: start.elapsed().as_secs_f64() - setup_s,
-        };
-        Ok((outarray, stats))
-    } else {
-        anyhow::bail!("No base level (key=1) in condition array");
-    }
-}
-
-/// Overviews and settings for one call, indexed by ascending level.
-pub fn prepare<'a>(
-    cond_base: &Array2<f32>,
-    trav_array: Option<&Array2<f32>>,
-    trans_arrays: Option<&[Array3<f32>]>,
-    transform_map: &HashMap<i32, Affine>,
-    mask_array: &Array2<bool>,
-    levels: &Vec<usize>,
-    lambdas: &'a [f32],
-    is_geo: bool,
-    max_cost: f32,
-    window_size: i32,
-    outer_window: i32,
-    offsets: (usize, usize),
-    window_mode: WindowMode,
-    pa_to_pa: bool,
-) -> Result<Context<'a>> {
+    } = *config;
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = trans_arrays
         .map(|arrays| !arrays.is_empty())
@@ -380,13 +317,14 @@ pub fn prepare<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::window::WindowMode;
 
     // Repeated runs must give bit-identical output.
     #[test]
     fn repeats_exactly() {
-        let cond = Some(Array2::from_shape_fn((32, 32), |(i, j)| {
+        let cond = Array2::from_shape_fn((32, 32), |(i, j)| {
             ((i * 7 + j * 13) % 10 + 1) as f32 / 10.0
-        }));
+        });
         let mask = Array2::from_elem((32, 32), false);
         let levels = vec![1, 2, 4];
         let transforms: HashMap<i32, Affine> = levels
@@ -396,13 +334,12 @@ mod tests {
                 (l as i32, Affine::from((s, 0.0, 0.0, 0.0, -s, 32_000.0)))
             })
             .collect();
-        let run = || {
-            conn(
-                &cond, None, None, &transforms, &mask, &levels, &[2.0, 20.0], false, 2.0, 3, 5,
-                (0, 0), WindowMode::Circular, false,
-            )
-            .unwrap()
+        let inputs = Inputs { condition: &cond, mask: &mask, traversal: None, transgrids: None, transforms: &transforms };
+        let config = Config {
+            levels: &levels, lambdas: &[2.0, 20.0], is_geo: false, max_cost: 2.0, window_size: 3,
+            outer_window: 5, offsets: (0, 0), window_mode: WindowMode::Circular, pa_to_pa: false,
         };
+        let run = || conn(&inputs, &config).unwrap();
 
         let first = run();
         assert!(first.iter().any(|&v| v > 0.0));
@@ -568,23 +505,7 @@ mod tests {
             (WindowMode::Square, true, true, [0.288273066, 0.334522188, 0.339534730, 0.269480884]),
         ] {
             let f = crate::testkit::Fixture::multilevel(mode, beri, pa_to_pa);
-            let output = conn(
-                &Some(f.cond.clone()),
-                f.trav.as_ref(),
-                f.trans.as_deref(),
-                &f.transforms,
-                &f.mask,
-                &f.levels,
-                &f.lambdas,
-                f.is_geo,
-                f.max_cost,
-                f.window_size,
-                f.outer_window,
-                f.offsets,
-                f.mode,
-                f.pa_to_pa,
-            )
-            .unwrap();
+            let output = conn(&f.inputs(), &f.config()).unwrap();
             for (cell, expected) in cells.iter().zip(expected) {
                 let actual = output[*cell];
                 assert!(
