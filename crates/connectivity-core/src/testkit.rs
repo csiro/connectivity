@@ -1,7 +1,8 @@
 //! Test fixtures, a small deterministic PRNG and output comparisons.
-use crate::affine::Affine;
+use crate::affine::{level_transforms, Affine};
 use crate::legacy::{self, canonical, Prepared};
 use crate::window::WindowMode;
+use crate::{Config, Inputs};
 use ndarray::{Array2, Array3};
 use std::collections::HashMap;
 
@@ -39,27 +40,6 @@ impl Rng {
     }
 }
 
-/// Level transforms anchored like `rastio.read_raster`:
-/// `base * Affine.scale(level) * Affine.translation(col0 // level, row0 // level)`,
-/// with the `affine` package's operation order.
-pub fn level_transforms(
-    base: (f64, f64, f64, f64, f64, f64),
-    levels: &[usize],
-    offsets: (usize, usize),
-) -> HashMap<i32, Affine> {
-    let (a, b, c, d, e, f) = base;
-    levels
-        .iter()
-        .map(|&level| {
-            let l = level as f64;
-            let (sa, sb, sd, se) = (a * l + b * 0.0, a * 0.0 + b * l, d * l + e * 0.0, d * 0.0 + e * l);
-            let (tc, tr) = ((offsets.1 / level) as f64, (offsets.0 / level) as f64);
-            let t = (sa, sb, sa * tc + sb * tr + c, sd, se, sd * tc + se * tr + f);
-            (level as i32, Affine::from(t))
-        })
-        .collect()
-}
-
 #[derive(Clone)]
 pub struct Fixture {
     pub cond: Array2<f32>,
@@ -79,6 +59,32 @@ pub struct Fixture {
 }
 
 impl Fixture {
+    /// The fixture's arrays as production inputs.
+    pub fn inputs(&self) -> Inputs<'_> {
+        Inputs {
+            condition: &self.cond,
+            mask: &self.mask,
+            traversal: self.trav.as_ref(),
+            transgrids: self.trans.as_deref(),
+            transforms: &self.transforms,
+        }
+    }
+
+    /// The fixture's settings as a production configuration.
+    pub fn config(&self) -> Config<'_> {
+        Config {
+            levels: &self.levels,
+            lambdas: &self.lambdas,
+            is_geo: self.is_geo,
+            max_cost: self.max_cost,
+            window_size: self.window_size,
+            outer_window: self.outer_window,
+            offsets: self.offsets,
+            window_mode: self.mode,
+            pa_to_pa: self.pa_to_pa,
+        }
+    }
+
     pub fn prepared(&self) -> Prepared<'_> {
         Prepared::new(
             &self.cond,

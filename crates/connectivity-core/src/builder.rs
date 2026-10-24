@@ -482,23 +482,7 @@ pub mod tests {
     use crate::testkit::Fixture;
 
     pub fn context(f: &Fixture) -> Context<'_> {
-        prepare(
-            &f.cond,
-            f.trav.as_ref(),
-            f.trans.as_deref(),
-            &f.transforms,
-            &f.mask,
-            &f.levels,
-            &f.lambdas,
-            f.is_geo,
-            f.max_cost,
-            f.window_size,
-            f.outer_window,
-            f.offsets,
-            f.mode,
-            f.pa_to_pa,
-        )
-        .unwrap()
+        prepare(&f.inputs(), &f.config()).unwrap()
     }
 
     /// Legacy node id of optimized node u.
@@ -713,14 +697,7 @@ pub mod tests {
             let canonical = f.canonical(None);
             for threads in [1, 2, num_cpus::get().max(3)] {
                 let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
-                let out = pool.install(|| {
-                    crate::core::conn(
-                        &Some(f.cond.clone()), f.trav.as_ref(), f.trans.as_deref(), &f.transforms,
-                        &f.mask, &f.levels, &f.lambdas, f.is_geo, f.max_cost, f.window_size,
-                        f.outer_window, f.offsets, f.mode, f.pa_to_pa,
-                    )
-                    .unwrap()
-                });
+                let out = pool.install(|| crate::core::conn(&f.inputs(), &f.config()).unwrap());
                 assert!(crate::testkit::same_bits(&out, &canonical), "seed {seed}, {threads} threads");
             }
         }
@@ -860,7 +837,7 @@ pub mod tests {
             f.mask.indexed_iter_mut().for_each(|((i, j), m)| *m |= (i * 7 + j * 3) % 5 != 0);
             let base_t = f.transforms[&1];
             let t = (base_t.x_scale, base_t.x_skew, base_t.x_origin, base_t.y_skew, base_t.y_scale, base_t.y_origin);
-            f.transforms = crate::testkit::level_transforms(t, &f.levels, f.offsets);
+            f.transforms = crate::level_transforms(t, &f.levels, f.offsets);
             let mut ctx = context(&f);
             for budget in [budget, 64 << 10, 0] {
                 let (tables, templates, retained, peak) = measured(&ctx, &f, budget);
@@ -876,13 +853,7 @@ pub mod tests {
                 (ctx.tables, ctx.templates) = (tables, templates);
                 compare_ctx(&f, &ctx);
             }
-            let stats = crate::core::conn_stats(
-                &Some(f.cond.clone()), f.trav.as_ref(), f.trans.as_deref(), &f.transforms, &f.mask,
-                &f.levels, &f.lambdas, f.is_geo, f.max_cost, f.window_size, f.outer_window,
-                f.offsets, f.mode, f.pa_to_pa,
-            )
-            .unwrap()
-            .1;
+            let stats = crate::core::conn_stats(&f.inputs(), &f.config()).unwrap().1;
             assert!(stats.cache_peak <= crate::template::CACHE_BUDGET);
             assert!(stats.cache_bytes <= stats.cache_peak && stats.cache_fixed <= stats.cache_bytes);
             assert_eq!(stats.scratch.len(), rayon::current_num_threads());
@@ -908,7 +879,7 @@ pub mod tests {
             f.levels = (0..=8).map(|k| 1usize << k).collect();
             (f.window_size, f.outer_window) = (window_size, outer_window);
             f.offsets = (5, 3);
-            f.transforms = crate::testkit::level_transforms(
+            f.transforms = crate::level_transforms(
                 (100.0, 0.0, 400_000.0, 0.0, -100.0, 6_000_000.0),
                 &f.levels,
                 f.offsets,
@@ -1024,12 +995,7 @@ pub mod tests {
             let ctx = context(&f);
             let inject = table_inject(&ctx);
             let injected = f.canonical(Some(&inject));
-            let optimized = crate::core::conn(
-                &Some(f.cond.clone()), f.trav.as_ref(), f.trans.as_deref(), &f.transforms, &f.mask,
-                &f.levels, &f.lambdas, f.is_geo, f.max_cost, f.window_size, f.outer_window,
-                f.offsets, f.mode, f.pa_to_pa,
-            )
-            .unwrap();
+            let optimized = crate::core::conn(&f.inputs(), &f.config()).unwrap();
             assert!(crate::testkit::same_bits(&optimized, &injected), "fixture {n}");
             let reference = f.canonical(None);
             for (&a, &b) in injected.iter().zip(&reference) {

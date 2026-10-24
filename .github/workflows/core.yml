@@ -1,0 +1,49 @@
+name: Rust core
+
+# The connectivity-core crate on its own: no Python, plus a crates.io packaging dry run.
+# Core releases are tagged connectivity-core-vX.Y.Z. Those tags never reach the PyPI
+# workflow (publish.yml, vX.Y.Z tags), and this workflow publishes nothing: after a core tag
+# passes, the crate is published manually with `cargo publish -p connectivity-core`.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "connectivity-core-v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core without Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Drop local CPU tuning
+        run: rm -f .cargo/config.toml
+      - name: Check the core does not depend on Python
+        run: |
+          if cargo tree -p connectivity-core -e normal,build,dev --locked | grep -Ei 'pyo3|numpy'; then
+            echo "connectivity-core must not depend on Python" >&2
+            exit 1
+          fi
+      # The full unit tests run with the workspace tests in publish.yml
+      - name: Test the public API
+        run: |
+          cargo test -p connectivity-core --test api --locked
+          cargo test -p connectivity-core --doc --locked
+      - name: Run the synthetic example
+        run: cargo run -p connectivity-core --release --example synthetic --locked
+      - name: Check the tag matches the crate version
+        if: startsWith(github.ref, 'refs/tags/connectivity-core-v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "connectivity-core") | .version')
+          test "$TAG" = "connectivity-core-v$version"
+      - name: Validate crates.io packaging
+        run: cargo publish --dry-run -p connectivity-core --locked

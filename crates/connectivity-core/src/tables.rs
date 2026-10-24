@@ -324,9 +324,10 @@ impl Tables {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::affine::level_transforms;
     use crate::distances::distance_km;
     use crate::template::CACHE_BUDGET;
-    use crate::testkit::{level_transforms, Rng};
+    use crate::testkit::Rng;
 
     #[test]
     fn lsb_and_quantum() {

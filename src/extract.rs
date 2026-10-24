@@ -4,7 +4,7 @@ use pyo3::Bound;
 use pyo3::types::{PyAny, PyAnyMethods, PyList, PyListMethods};
 use std::collections::HashMap;
 use ndarray::{Array3, Array2};
-use crate::affine::Affine;
+use connectivity_core::Affine;
 
 
 /// Convert a Python dict of rasterio transforms into a Rust HashMap.

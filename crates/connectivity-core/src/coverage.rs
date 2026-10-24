@@ -2,16 +2,22 @@ use crate::affine::Affine;
 use ndarray::parallel::prelude::*;
 use ndarray::{s, Array2, Axis};
 
+/// One polygon as `(exterior, holes)`: rings of (x, y) world-coordinate vertices, in the
+/// coordinates of the grid's transform. Rings may be open or closed and of either orientation.
+pub type Polygon = (Vec<(f64, f64)>, Vec<Vec<(f64, f64)>>);
+
 /// Compute fractional pixel coverage for a list of polygons.
 ///
-/// Each polygon is `(exterior, holes)` with rings as `Vec<(f64, f64)>` of (x, y)
-/// world-coordinate vertices. Polygons are assumed already-unioned on the Python side;
-/// any residual overlap is clipped to 1.0.
+/// Each pixel of the `nrows` x `ncols` grid mapped by `transform` gets the fraction of its
+/// area covered by `polygons`: exterior rings add their area and holes subtract it. Polygons
+/// are assumed already unioned by the caller (the Python wrapper unions them first); any
+/// residual overlap is clipped to 1.0. Rings with fewer than three vertices are ignored.
+/// Rows are processed in parallel on the current Rayon thread pool.
 ///
 /// # Returns
 /// A 2D array of shape (nrows, ncols) with values in [0, 1].
-pub fn pixel_coverage_array(
-    polygons: &[(Vec<(f64, f64)>, Vec<Vec<(f64, f64)>>)],
+pub fn pixel_coverage(
+    polygons: &[Polygon],
     transform: &Affine,
     nrows: usize,
     ncols: usize,

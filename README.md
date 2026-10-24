@@ -11,6 +11,7 @@
   - [Installation ](#installation-)
     - [Install from PyPI ](#install-from-pypi-)
     - [Install from Source ](#install-from-source-)
+    - [Rust Core Library ](#rust-core-library-)
   - [Connectivity Analysis ](#connectivity-analysis-)
     - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
       - [Optional resistance surface](#optional-resistance-surface)
@@ -44,6 +45,10 @@ git clone https://github.com/csiro/connectivity.git
 cd connectivity
 pip install .
 ```
+
+### Rust Core Library <a name="rust-core"></a>     
+
+The numerical engine is a separate Rust crate, [`connectivity-core`](https://github.com/csiro/connectivity/tree/main/crates/connectivity-core), which works on in-memory arrays without Python, GDAL or file I/O. Rust programs can use it directly; see its [README](https://github.com/csiro/connectivity/blob/main/crates/connectivity-core/README.md) and crate documentation. `cargo test --workspace` runs every Rust test, and `cargo test -p connectivity-core` needs no Python.
 
 ## Connectivity Analysis <a name="analysis"></a>     
 Resolve the bundled example paths once so they can be reused throughout the

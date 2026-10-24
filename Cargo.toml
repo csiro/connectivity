@@ -3,6 +3,8 @@ name = "rust_conn"
 version = "2.4.0"
 edition = "2021"
 license = "MIT"
+# Released as the eco-connectivity Python wheels; only connectivity-core goes to crates.io
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
@@ -10,22 +12,28 @@ name = "rust_conn"
 crate-type = ["cdylib"]
 
 [dependencies]
+connectivity-core = { path = "crates/connectivity-core", version = "0.1.0" }
 pyo3 = {version = "0.28", default-features = false, features = ["macros", "abi3-py38"]}
 pyo3-built = "0.5"
 numpy = "0.28"
-ndarray = { version = "0.16", features = ["rayon"] }
+ndarray = { workspace = true }
 ordered-float = "4.2.0"
-rayon = "1.11"
-num_cpus = "1.16"
-anyhow = "1.0.100"
-rustc-hash = "2.1"
-
-[dev-dependencies]
-# Reference Dijkstra for routing tests
-pathfinding = "4.14.0"
+rayon = { workspace = true }
+num_cpus = { workspace = true }
+anyhow = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = { version = "0.28", features = ["resolve-config"] }
+
+[workspace]
+members = ["crates/connectivity-core"]
+
+# Versions shared by the extension and the core
+[workspace.dependencies]
+anyhow = "1.0.100"
+ndarray = { version = "0.16", features = ["rayon"] }
+num_cpus = "1.16"
+rayon = "1.11"
 
 [profile.release]
 # Stripped builds fail to load on recent macOS (dyld: "mis-aligned LINKEDIT string pool")

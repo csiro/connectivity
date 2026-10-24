@@ -1,0 +1,23 @@
+[package]
+name = "connectivity-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Multi-resolution landscape connectivity, PARC connectedness and BERI on in-memory raster arrays"
+authors = ["Roozbeh Valavi <roozbeh.valavi@csiro.au>"]
+repository = "https://github.com/csiro/connectivity"
+readme = "README.md"
+keywords = ["connectivity", "landscape-ecology", "biodiversity", "raster", "least-cost-path"]
+categories = ["science::geo", "algorithms"]
+
+[dependencies]
+anyhow = { workspace = true }
+ndarray = { workspace = true }
+rayon = { workspace = true }
+
+[dev-dependencies]
+num_cpus = { workspace = true }
+# Reference Dijkstra for routing tests
+pathfinding = "4.14.0"
+# Hash maps of the frozen reference implementation
+rustc-hash = "2.1"
