@@ -1,6 +1,7 @@
 name: Rust core
 
-# The connectivity-core crate on its own: no Python, plus a crates.io packaging dry run.
+# The connectivity-core crate on its own: no Python, its minimum supported Rust version, and a
+# crates.io packaging dry run.
 # Core releases are tagged connectivity-core-vX.Y.Z. Those tags never reach the PyPI
 # workflow (publish.yml, vX.Y.Z tags), and this workflow publishes nothing: after a core tag
 # passes, the crate is published manually with `cargo publish -p connectivity-core`.
@@ -30,11 +31,9 @@ jobs:
             echo "connectivity-core must not depend on Python" >&2
             exit 1
           fi
-      # The full unit tests run with the workspace tests in publish.yml
-      - name: Test the public API
-        run: |
-          cargo test -p connectivity-core --test api --locked
-          cargo test -p connectivity-core --doc --locked
+      # Unit, API and doc tests; core tags only run this workflow
+      - name: Test the core
+        run: cargo test -p connectivity-core --locked
       - name: Run the synthetic example
         run: cargo run -p connectivity-core --release --example synthetic --locked
       - name: Check the tag matches the crate version
@@ -47,3 +46,20 @@ jobs:
           test "$TAG" = "connectivity-core-v$version"
       - name: Validate crates.io packaging
         run: cargo publish --dry-run -p connectivity-core --locked
+
+  msrv:
+    name: Core on its minimum Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Drop local CPU tuning
+        run: rm -f .cargo/config.toml
+      # The version comes from rust-version in crates/connectivity-core/Cargo.toml
+      - name: Install the minimum Rust version
+        run: |
+          msrv=$(cargo metadata --no-deps --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "connectivity-core") | .rust_version')
+          rustup toolchain install "$msrv" --profile minimal
+          echo "MSRV=$msrv" >> "$GITHUB_ENV"
+      - name: Build the core, its tests and example
+        run: cargo +"$MSRV" check -p connectivity-core --all-targets --locked

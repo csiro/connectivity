@@ -27,6 +27,8 @@ pyo3-build-config = { version = "0.28", features = ["resolve-config"] }
 
 [workspace]
 members = ["crates/connectivity-core"]
+# Plain `cargo test` and `cargo build` at the root also cover the core
+default-members = [".", "crates/connectivity-core"]
 
 # Versions shared by the extension and the core
 [workspace.dependencies]

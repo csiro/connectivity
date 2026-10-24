@@ -14,6 +14,8 @@ of one tile, and handle file formats, tiling and post-processing such as Connect
 connectivity-core = "0.1"
 ```
 
+It requires Rust 1.86 or later.
+
 ```rust
 use connectivity_core::ndarray::Array2;
 use connectivity_core::{connectivity, level_transforms, Config, Inputs};
