@@ -10,12 +10,18 @@ use std::convert::From;
 /// latitude (y) in degrees.
 #[derive(Debug, Clone, Copy)]
 pub struct Affine {
-    pub x_scale: f64,   // pixel width
-    pub x_skew: f64,    // rotation/skew term (usually 0)
-    pub x_origin: f64,  // top-left corner X
-    pub y_skew: f64,    // rotation/skew term (usually 0)
-    pub y_scale: f64,   // pixel height (negative if north-up)
-    pub y_origin: f64,  // top-left corner Y
+    /// Pixel width (`a`).
+    pub x_scale: f64,
+    /// Rotation/skew term (`b`), usually 0.
+    pub x_skew: f64,
+    /// Top-left corner X (`c`).
+    pub x_origin: f64,
+    /// Rotation/skew term (`d`), usually 0.
+    pub y_skew: f64,
+    /// Pixel height (`e`), negative if north-up.
+    pub y_scale: f64,
+    /// Top-left corner Y (`f`).
+    pub y_origin: f64,
 }
 
 impl Affine {

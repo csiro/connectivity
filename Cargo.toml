@@ -33,7 +33,7 @@ default-members = [".", "crates/connectivity-core"]
 # Versions shared by the extension and the core
 [workspace.dependencies]
 anyhow = "1.0.100"
-ndarray = { version = "0.16", features = ["rayon"] }
+ndarray = { version = "0.17", features = ["rayon"] }
 num_cpus = "1.16"
 rayon = "1.11"
 
