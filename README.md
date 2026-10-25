@@ -288,7 +288,7 @@ tile_poly = make_tile(
 )
 ```
 
-<img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/balanced_tiles.png" width="500" height="350">
+<img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/balanced_tiles.png" width="500" height="440">
 
 Balanced tiling uses a deterministic raster-mask cost estimate while preserving
 the same `align_to` boundary alignment. It is useful for global rasters where
