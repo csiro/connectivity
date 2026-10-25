@@ -1,4 +1,4 @@
-# Version 2.4.0 (unreleased)
+# Version 2.4.0
 ## Changed
 - Rebuilt per-cell graphs with flat node arrays and directly constructed compressed sparse row (CSR) edges, retaining integer Dijkstra. Per-thread buffers eliminate per-cell allocations. Together with the caching and BERI improvements below, these changes are about 4x faster for connectedness and PARC and 3x faster for BERI than v2.3 on the bundled example (8 threads); speedups against v2.2 are about twice as large. CPU/Rayon remains the only execution path.
 - Cached window area fractions and outer-edge flags in per-call templates; cells clipped by tile boundaries are still computed directly. Edge distances use per-call tables wherever values provably match the per-edge calculation bit for bit, with direct calculation retained for other edges, including skewed or inconsistent level transforms and distances near an f32 rounding boundary. Distances and integer costs are unchanged.
