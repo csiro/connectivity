@@ -1,5 +1,9 @@
 # connectivity-core
 
+[![Rust core](https://github.com/csiro/connectivity/actions/workflows/core.yml/badge.svg?branch=main)](https://github.com/csiro/connectivity/actions/workflows/core.yml)
+[![crates.io version](https://img.shields.io/crates/v/connectivity-core)](https://crates.io/crates/connectivity-core)
+[![API documentation](https://img.shields.io/docsrs/connectivity-core)](https://docs.rs/connectivity-core)
+
 Multi-resolution landscape connectivity on in-memory raster arrays: habitat and PARC
 connectedness, the Bioclimatic Ecosystem Resilience Index (BERI), and fractional pixel
 coverage of polygons. This crate is the numerical engine of the
