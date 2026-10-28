@@ -1,0 +1,9 @@
+^src/\.cargo$
+^src/rust/vendor$
+^src/vendor$
+^src/rust/target$
+^src/Makevars$
+^src/Makevars\.win$
+^tools/(build-source|prepare-source)\.R$
+^.*\.tar\.gz$
+^.*\.Rcheck$
