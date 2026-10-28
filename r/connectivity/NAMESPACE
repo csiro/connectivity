@@ -3,4 +3,5 @@
 export(beri)
 export(connectedness)
 export(pixel_coverage)
+export(resolution_info)
 useDynLib(connectivity, .registration = TRUE)

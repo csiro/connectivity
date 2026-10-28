@@ -36,6 +36,10 @@ terra::plot(habitat, main = "Connected habitat")
 The Tasmania rasters from the Python package are bundled in `inst/extdata`.
 Use `system.file()` to locate them in the installed package, then read them
 with `terra::rast()` or pass their paths directly to the indicator functions.
+Use `resolution_info(condition_file, outer_window = 7)` to preview candidate
+aggregation levels, cell counts, resolutions, approximate search reach in CRS
+units and kilometres, and small-grid flags. It prints the summary and invisibly
+returns a data frame for reuse, accepting either a filename or `SpatRaster`.
 The [Tasmania vignette](vignettes/tasmania-indicators.Rmd) covers resolution
 planning, connectedness, connected habitat, PARC-connectedness and BERI with
 six future scenarios. It plots the returned rasters in memory without saving

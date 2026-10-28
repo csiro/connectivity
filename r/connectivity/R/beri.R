@@ -43,18 +43,32 @@
 #' climate <- c(habitat, 1 - habitat)
 #' score <- beri(habitat, climate, future_files = list(climate * 0.8),
 #'               levels = c(2, 4), outer_window = 5, n_threads = 1)
-beri <- function(
-    condition_file, current_file, future_files = NULL, polygon_mask = NULL,
-    closed_border = FALSE, margin_px = 32L, lambdas = c(2, 20, 200),
-    max_cost = 2, window_size = 3L, outer_window = 9L,
-    window_mode = "circular", levels = c(2, 4, 8, 16, 32), scale = NULL,
-    resistance_file = NULL, resistance_scale = NULL, n_threads = NULL,
-    filename = "", overwrite = FALSE, wopt = list()) {
+beri <- function(condition_file,
+                 current_file,
+                 future_files = NULL,
+                 polygon_mask = NULL,
+                 closed_border = FALSE,
+                 margin_px = 32L,
+                 lambdas = c(2, 20, 200),
+                 max_cost = 2,
+                 window_size = 3L,
+                 outer_window = 9L,
+                 window_mode = "circular",
+                 levels = c(2, 4, 8, 16, 32),
+                 scale = NULL,
+                 resistance_file = NULL,
+                 resistance_scale = NULL,
+                 n_threads = NULL,
+                 filename = "",
+                 overwrite = FALSE,
+                 wopt = list())
+{
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
     .check_scale(scale)
     prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border,
                                    margin_px, settings, scale)
+    
     if (is.null(future_files)) future_files <- list()
     if (inherits(future_files, "SpatRaster")) future_files <- list(future_files)
     if (is.character(future_files)) future_files <- as.list(future_files)
@@ -76,6 +90,7 @@ beri <- function(
     traversal <- .make_traversal(prepared$condition, resistance_file,
                                  resistance_scale, prepared)
     score <- .run_connectivity(prepared, settings, traversal, transgrids = transgrids)
+    
     return(.raster_result(
         score, prepared$template, "beri", filename, overwrite, wopt,
         prepared$polygons, prepared$output_extent

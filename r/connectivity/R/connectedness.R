@@ -90,13 +90,27 @@
 #' terra::values(habitat) <- seq(0.1, 1, length.out = 72)
 #' score <- connectedness(habitat, levels = c(2, 4), outer_window = 5,
 #'                        n_threads = 1)
-connectedness <- function(
-    condition_file, pa_file = NULL, pa_to_pa = FALSE, polygon_mask = NULL,
-    closed_border = FALSE, margin_px = 32L, lambdas = c(2, 20, 200),
-    max_cost = 2, window_size = 3L, outer_window = 9L,
-    window_mode = "circular", levels = c(2, 4, 8, 16, 32), scale = NULL,
-    resistance_file = NULL, resistance_scale = NULL, option = 3L,
-    n_threads = NULL, filename = "", overwrite = FALSE, wopt = list()) {
+connectedness <- function(condition_file,
+                          pa_file = NULL,
+                          pa_to_pa = FALSE,
+                          polygon_mask = NULL,
+                          closed_border = FALSE,
+                          margin_px = 32L,
+                          lambdas = c(2, 20, 200),
+                          max_cost = 2,
+                          window_size = 3L,
+                          outer_window = 9L,
+                          window_mode = "circular",
+                          levels = c(2, 4, 8, 16, 32),
+                          scale = NULL,
+                          resistance_file = NULL,
+                          resistance_scale = NULL,
+                          option = 3L,
+                          n_threads = NULL,
+                          filename = "",
+                          overwrite = FALSE,
+                          wopt = list()) 
+{
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
     .check_integers(option, "option", length = 1L, minimum = 1L)
@@ -125,6 +139,7 @@ connectedness <- function(
         score <- .float32(score * prepared$condition)
         if (option == 3L) score <- .float32(sqrt(score))
     }
+    
     return(.raster_result(
         score, prepared$template, name, filename, overwrite, wopt,
         prepared$polygons, prepared$output_extent

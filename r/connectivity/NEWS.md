@@ -1,5 +1,7 @@
 # connectivity 0.0.0.9000
 
+* Added `resolution_info()` to preview aggregation dimensions, resolutions,
+  cell counts, approximate search reach and small-grid flags, matching Python.
 * Bundled the Python package's Tasmania example rasters under `inst/extdata`,
   with a vignette calculating and plotting all four indicators in memory.
 * Depends on the published `connectivity-core` crate from crates.io, with locked

@@ -34,16 +34,23 @@ These paths work from any working directory after package installation.
 library(connectivity)
 library(terra)
 
-condition_file <- system.file("extdata", "site_condition.tif",
-                              package = "connectivity", mustWork = TRUE)
-pa_file <- system.file("extdata", "pa_proportion.tif",
-                       package = "connectivity", mustWork = TRUE)
-climate_dir <- system.file("extdata", "transgrids",
-                           package = "connectivity", mustWork = TRUE)
+condition_file <- system.file("extdata",
+                              "site_condition.tif",
+                              package = "connectivity",
+                              mustWork = TRUE)
+pa_file <- system.file("extdata",
+                       "pa_proportion.tif",
+                       package = "connectivity",
+                       mustWork = TRUE)
+climate_dir <- system.file("extdata",
+                           "transgrids",
+                           package = "connectivity",
+                           mustWork = TRUE)
 
 condition <- rast(condition_file)
 pa <- rast(pa_file)
 condition
+
 global(condition, c("min", "max"), na.rm = TRUE)
 global(pa, c("min", "max", "mean"), na.rm = TRUE)
 ```
@@ -55,42 +62,49 @@ Auxiliary rasters must share the condition raster's CRS, resolution and pixel
 grid and cover the analysis window. They are not resampled automatically.
 
 ```{r input-maps, fig.width=9, fig.height=4, fig.cap="Bundled habitat condition and protected-area proportions."}
-plot(c(condition, pa), main = c("Habitat condition", "Protected fraction"),
-     col = hcl.colors(100, "viridis"), range = c(0, 1))
+plot(
+    c(condition, pa),
+    main = c("Habitat condition", "Protected fraction"),
+    col = hcl.colors(100, "viridis"),
+    range = c(0, 1)
+)
 ```
 
 ## 2. Choose resolution levels
 
 The Rust engine builds its aggregation pyramid internally. No precomputed
-GeoTIFF overviews are required. The table below mirrors the Python notebook's
-resolution planning using ordinary R calculations. Dimensions round up at each
-aggregation level. The search span in coordinate units is
-`outer_window * level * resolution`; here those units are degrees, with physical
-east-west distances varying by latitude.
+GeoTIFF overviews are required. Use `resolution_info()` before calculating the
+indicators to preview candidate grid dimensions, cell counts, resolutions and
+approximate search reach. It accepts a raster filename or a `SpatRaster` and
+reads only grid metadata.
+
+The default candidates are powers of two from 1 to 512. Set `outer_window` to
+the value intended for the indicator calculations. Here, `min_dimension = 16`
+flags candidates with fewer than 16 cells in either dimension for review.
 
 ```{r resolution-planning}
-candidate_levels <- 2^(0:9)
-resolution_plan <- data.frame(
-    level = candidate_levels,
-    columns = ceiling(ncol(condition) / candidate_levels),
-    rows = ceiling(nrow(condition) / candidate_levels),
-    resolution_degrees = res(condition)[1] * candidate_levels,
-    search_span_degrees = 7 * candidate_levels * max(res(condition))
+resolution_plan <- resolution_info(
+    condition,
+    levels = 2^(0:9),
+    outer_window = 7,
+    min_dimension = 16
 )
-resolution_plan$cells <- with(resolution_plan, columns * rows)
-resolution_plan$percent_base <- 100 * resolution_plan$cells / ncell(condition)
-resolution_plan$note <- ifelse(
-    pmin(resolution_plan$columns, resolution_plan$rows) < 16,
-    "Small grid: review", ""
-)
-knitr::kable(resolution_plan, digits = 3)
 ```
 
-Levels through 32 retain at least 16 cells in each dimension for this grid;
-coarser levels deserve review. The examples use `levels = c(2, 4, 8, 16, 32)`;
-level 1 is always included by the engine. `lambdas` specifies dispersal
-bandwidths in kilometres. `n_threads = NULL` uses the engine's default worker
-count. All calls below use the same settings as the Python notebook.
+The helper prints the summary and invisibly returns the numeric planning table
+saved here as `resolution_plan`. Dimensions round up at each aggregation level.
+Search reach is `outer_window * level * max(res(condition))` in native coordinate
+units, with an additional kilometre estimate. For geographic rasters, that
+estimate uses the raster's centre latitude. This planning span differs from the
+dispersal bandwidths specified by `lambdas` in kilometres.
+
+For this grid, level 32 leaves 19 columns and 17 rows; level 64 leaves only
+10 columns and 9 rows and receives a small-grid flag. Levels through 32 retain
+at least 16 cells in each dimension, so the examples use
+`levels = c(2, 4, 8, 16, 32)`. Level 1 is always included by the engine.
+The flags guide review and do not prevent a calculation or select levels
+automatically. `n_threads = NULL` uses the engine's default worker count.
+All calls below use the same settings as the Python notebook.
 
 ## 3. Connectedness
 
@@ -109,8 +123,13 @@ conns <- connectedness(
     window_mode = "circular",
     n_threads = NULL
 )
-plot(conns, main = "Connectedness", col = hcl.colors(100, "BrBG"),
-     range = c(0, 0.8))
+
+plot(
+    conns, 
+    main = "Connectedness", 
+    col = hcl.colors(100, "fall", rev = 1), 
+    range = c(0, 0.8)
+)
 ```
 
 ## 4. Connected habitat
@@ -131,8 +150,13 @@ connhabitat <- connectedness(
     window_mode = "circular",
     n_threads = NULL
 )
-plot(connhabitat, main = "Connected habitat", col = hcl.colors(100, "BrBG"),
-     range = c(0, 0.8))
+
+plot(
+    connhabitat, 
+    main = "Connected habitat", 
+    col = hcl.colors(100, "fall", rev = 1),
+    range = c(0, 0.8)
+)
 ```
 
 ## 5. PARC-connectedness
@@ -158,8 +182,13 @@ parc <- connectedness(
     window_mode = "circular",
     n_threads = NULL
 )
-plot(parc, main = "PARC-connectedness", col = hcl.colors(100, "viridis"),
-     range = c(0, 1))
+
+plot(
+    parc, 
+    main = "PARC-connectedness", 
+    col = hcl.colors(100, "viridis"),
+    range = c(0, 1)
+)
 ```
 
 ## 6. BERI
@@ -175,10 +204,13 @@ scenario_names <- c(
     "ACC50_85", "GFD50_85", "IPS50_26",
     "IPS50_45", "IPS50_60", "IPS50_85"
 )
+
 future_files <- file.path(climate_dir, paste0(scenario_names, ".tif"))
 basename(future_files)
+
 current_climate <- rast(current_file)
 nlyr(current_climate)
+
 compareGeom(condition, current_climate, lyrs = FALSE)
 ```
 
@@ -201,8 +233,13 @@ beri_map <- beri(
     window_mode = "circular",
     n_threads = NULL
 )
-plot(beri_map, main = "BERI", col = hcl.colors(100, "RdYlGn"),
-     range = c(0, 0.8))
+
+plot(
+    beri_map, 
+    main = "BERI", 
+    col = hcl.colors(100, "RdYlGn"),
+    range = c(0, 0.8)
+)
 ```
 
 ## 7. Compare all indicators
@@ -215,19 +252,32 @@ zero to one for the first four panels and zero to 0.8 for BERI.
 ```{r comparison, fig.width=10, fig.height=7, fig.cap="Habitat condition and the four connectivity indicators on the Tasmanian mainland."}
 mainland <- ext(144.4, 148.6, -43.7, -40.6)
 maps <- list(condition, conns, connhabitat, parc, beri_map)
-titles <- c("(a) Habitat condition", "(b) Connectedness", "(c) Connected habitat",
-            "(d) PARC-connectedness", "(e) BERI")
+titles <- c(
+    "(a) Habitat condition",
+    "(b) Connectedness",
+    "(c) Connected habitat",
+    "(d) PARC-connectedness",
+    "(e) BERI"
+)
+
+condcol <- hcl.colors(100, "fall", rev = TRUE)
 palettes <- list(
-    hcl.colors(100, "BrBG"), hcl.colors(100, "BrBG"), hcl.colors(100, "BrBG"),
+    condcol, condcol, condcol,
     hcl.colors(100, "viridis"), hcl.colors(100, "RdYlGn")
 )
+
 old_par <- par(mfrow = c(2, 3), mar = c(3, 3, 3, 4))
 for (i in seq_along(maps)) {
-    plot(crop(maps[[i]], mainland), main = titles[i], col = palettes[[i]],
-       range = c(0, if (i == 5) 0.8 else 1))
+    plot(
+        terra::crop(maps[[i]], mainland), 
+        main = titles[i], 
+        col = palettes[[i]],
+        range = c(0, if (i == 5) 0.8 else 1)
+    )
 }
 plot.new()
 par(old_par)
+
 ```
 
 ## Data sources and licence
@@ -238,13 +288,14 @@ MIT-licensed code. The installed data README records the grid, layer metadata,
 attribution and licence:
 
 ```{r data-documentation, eval=FALSE}
-file.show(system.file("extdata", "README.md", package = "connectivity",
-                      mustWork = TRUE))
+file.show(
+    system.file("extdata", "README.md", package = "connectivity", mustWork = TRUE)
+)
 ```
 
-Ware, Chris; Valavi, Roozbeh; Vickers, Mat; Giljohann, Kate; Mokany, Karel;
-Purvis, Andy; Walkden, Patrick; De Palma, Adriana; Duffin, Connor; Contu,
-Sara; Harwood, Thomas; Hoskins, Andrew; and Ferrier, Simon (2026).
+Ware, C., Valavi, R., Vickers, M., Giljohann, K. M., Mokany, K., Purvis, A.,
+Walkden, P., De Palma, A., Duffin, C., Contu, S., Harwood, T., Hoskins, A.,
+and Ferrier, S. (2026).
 *Global biodiversity indicator data for BHI, BERI, PARC-representativeness,
 PARC-connectedness and ecosystem condition (2000–2024).* Version 4.
 CSIRO Data Collection. <https://doi.org/10.25919/3aka-y730>.
