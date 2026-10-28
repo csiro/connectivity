@@ -7,7 +7,21 @@ on:
     tags:
       # Python releases (eco-connectivity); connectivity-core uses connectivity-core-v* tags
       - "v[0-9]*"
+    # Only Python and core changes build wheels. GitHub does not evaluate path filters
+    # for tag pushes, so release tags always run.
+    paths:
+      - "python/**"
+      - "crates/connectivity-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/publish.yml"
   pull_request:
+    paths:
+      - "python/**"
+      - "crates/connectivity-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/publish.yml"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         # Linux x86_64, Linux aarch64, macOS universal2 and Windows x64.
-        # Build and test settings are in [tool.cibuildwheel] in pyproject.toml.
+        # Build and test settings are in [tool.cibuildwheel] in python/pyproject.toml.
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
@@ -30,7 +44,11 @@ jobs:
         # published wheels must run on any CPU
         shell: bash
         run: rm -f .cargo/config.toml
+      # Linux builds copy the whole checkout into the container, so the
+      # workspace root and the core crate stay reachable from python/
       - uses: pypa/cibuildwheel@v4.3.0
+        with:
+          package-dir: python
       - uses: actions/upload-artifact@v7
         with:
           name: cibw-wheels-${{ matrix.os }}
@@ -44,7 +62,7 @@ jobs:
       - name: Drop local CPU tuning
         run: rm -f .cargo/config.toml
       - name: Build sdist
-        run: pipx run build --sdist
+        run: pipx run build --sdist python --outdir dist
       - uses: actions/upload-artifact@v7
         with:
           name: cibw-sdist

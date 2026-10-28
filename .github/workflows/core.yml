@@ -11,7 +11,18 @@ on:
       - main
     tags:
       - "connectivity-core-v*"
+    # GitHub does not evaluate path filters for tag pushes, so core tags always run
+    paths:
+      - "crates/connectivity-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/core.yml"
   pull_request:
+    paths:
+      - "crates/connectivity-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/core.yml"
   workflow_dispatch:
 
 permissions:

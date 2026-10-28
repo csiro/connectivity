@@ -37,8 +37,10 @@ include = [
     { path = "connectivity/data/*.tif", format = ["sdist", "wheel"] },
     { path = "connectivity/data/transgrids/*.tif", format = ["sdist", "wheel"] },
     { path = "connectivity/data/README.md", format = ["sdist", "wheel"] },
-    # Notebooks ship in the source distribution only, not in the wheels
+    # Notebooks, tests and the changelog ship in the source distribution only, not in the wheels
     { path = "examples/*.ipynb", format = ["sdist"] },
+    { path = "tests/*.py", format = ["sdist"] },
+    { path = "NEWS.md", format = ["sdist"] },
 ]
 
 [tool.cibuildwheel]

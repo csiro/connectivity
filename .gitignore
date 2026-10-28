@@ -1,11 +1,11 @@
 /target
 
 *.ipynb
-!examples/*.ipynb
+!python/examples/*.ipynb
 single_mod.rs
 
-src/testing.rs
-connectivity/testing.py
+python/src/testing.rs
+python/connectivity/testing.py
 *.tif
 
 # Byte-compiled / optimized / DLL files
