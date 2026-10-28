@@ -1,0 +1,20 @@
+citHeader("To cite connectivity in publications, use:")
+
+bibentry(
+    bibtype = "Misc",
+    title = paste("A scalable multi-resolution framework for",
+                  "connectivity-based biodiversity indicators"),
+    author = c(
+        person("Roozbeh", "Valavi"),
+        person("Karel", "Mokany"),
+        person("Chris", "Ware"),
+        person("Mat", "Vickers"),
+        person("Kate M.", "Giljohann"),
+        person("Simon", "Ferrier")
+    ),
+    year = "2026",
+    publisher = "EcoEvoRxiv",
+    doi = "10.32942/X2S68V",
+    url = "https://doi.org/10.32942/X2S68V",
+    note = "EcoEvoRxiv preprint"
+)

@@ -9,5 +9,10 @@ src/rust/vendor-config.toml
 *.tar.gz
 *.Rcheck/
 
+# RStudio session files.
+.Rproj.user/
+.Rhistory
+.RData
+
 # The repository's Python-oriented ignore file excludes directories named man.
 !man/

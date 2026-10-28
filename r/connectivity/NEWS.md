@@ -1,5 +1,7 @@
 # connectivity 0.0.0.9000
 
+* Bundled the Python package's Tasmania example rasters under `inst/extdata`,
+  with a vignette calculating and plotting all four indicators in memory.
 * Depends on the published `connectivity-core` crate from crates.io, with locked
   dependencies vendored for offline source installation.
 * Added terra-based `connectedness()`, `beri()` and `pixel_coverage()` raster

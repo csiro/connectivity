@@ -65,6 +65,24 @@
 #'   call the function with polygon tiles and open borders: the read window is
 #'   padded and aligned to the full raster's coarsest aggregation grid so that
 #'   adjacent results use the same overview cells.
+#' @references
+#' Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., and
+#' Ferrier, S. (2026). A scalable multi-resolution framework for
+#' connectivity-based biodiversity indicators. EcoEvoRxiv, preprint.
+#' \doi{10.32942/X2S68V}. Describes the multi-resolution implementation.
+#'
+#' Harwood, T., Love, J., Drielsma, M., Brandon, C., and Ferrier, S. (2022).
+#' Staying connected: assessing the capacity of landscapes to retain
+#' biodiversity in a changing climate. Landscape Ecology, 37, 3123--3139.
+#' \doi{10.1007/s10980-022-01534-5}. Describes the underlying landscape
+#' connectedness approach.
+#'
+#' Ferrier, S., Harwood, T. D., Ware, C., and Hoskins, A. J. (2020).
+#' A globally applicable indicator of the capacity of terrestrial ecosystems
+#' to retain biological diversity under climate change: The bioclimatic
+#' ecosystem resilience index. Ecological Indicators, 117, 106554.
+#' \doi{10.1016/j.ecolind.2020.106554}. Introduces the BERI framework from
+#' which the connectedness calculations are derived.
 #' @export
 #' @examples
 #' habitat <- terra::rast(nrows = 8, ncols = 9, xmin = 0, xmax = 9000,
@@ -79,34 +97,36 @@ connectedness <- function(
     window_mode = "circular", levels = c(2, 4, 8, 16, 32), scale = NULL,
     resistance_file = NULL, resistance_scale = NULL, option = 3L,
     n_threads = NULL, filename = "", overwrite = FALSE, wopt = list()) {
-  settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
-                                  outer_window, window_mode, n_threads)
-  .check_integers(option, "option", length = 1L, minimum = 1L)
-  if (!option %in% 1:3) stop("option must be one of 1, 2 or 3", call. = FALSE)
-  .check_flag(pa_to_pa, "pa_to_pa")
-  if (pa_to_pa && is.null(pa_file)) {
-    message("pa_to_pa is ignored because pa_file was not supplied")
-    pa_to_pa <- FALSE
-  }
-  scales <- .condition_scales(scale)
-  prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border,
-                                 margin_px, settings, scales[[1L]])
-  name <- if (option == 1L) "connectedness" else "connected_habitat"
-  if (!is.null(pa_file)) {
-    pa <- .read_window(pa_file, prepared, "pa_file", scale = scales[[2L]])
-    .check_matrix(pa, "pa_file", unit_interval = TRUE)
-    prepared$condition <- pmax(prepared$condition, pa)
-    prepared$mask <- !(pa > 0 & !is.na(prepared$condition))
-    prepared$mask[is.na(prepared$mask)] <- TRUE
-    name <- "parc_connectedness"
-  }
-  traversal <- .make_traversal(prepared$condition, resistance_file,
-                               resistance_scale, prepared)
-  score <- .run_connectivity(prepared, settings, traversal, pa_to_pa = pa_to_pa)
-  if (is.null(pa_file) && option != 1L) {
-    score <- .float32(score * prepared$condition)
-    if (option == 3L) score <- .float32(sqrt(score))
-  }
-  .raster_result(score, prepared$template, name, filename, overwrite, wopt,
-                  prepared$polygons, prepared$output_extent)
+    settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
+                                    outer_window, window_mode, n_threads)
+    .check_integers(option, "option", length = 1L, minimum = 1L)
+    if (!option %in% 1:3) stop("option must be one of 1, 2 or 3", call. = FALSE)
+    .check_flag(pa_to_pa, "pa_to_pa")
+    if (pa_to_pa && is.null(pa_file)) {
+        message("pa_to_pa is ignored because pa_file was not supplied")
+        pa_to_pa <- FALSE
+    }
+    scales <- .condition_scales(scale)
+    prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border,
+                                   margin_px, settings, scales[[1L]])
+    name <- if (option == 1L) "connectedness" else "connected_habitat"
+    if (!is.null(pa_file)) {
+        pa <- .read_window(pa_file, prepared, "pa_file", scale = scales[[2L]])
+        .check_matrix(pa, "pa_file", unit_interval = TRUE)
+        prepared$condition <- pmax(prepared$condition, pa)
+        prepared$mask <- !(pa > 0 & !is.na(prepared$condition))
+        prepared$mask[is.na(prepared$mask)] <- TRUE
+        name <- "parc_connectedness"
+    }
+    traversal <- .make_traversal(prepared$condition, resistance_file,
+                                 resistance_scale, prepared)
+    score <- .run_connectivity(prepared, settings, traversal, pa_to_pa = pa_to_pa)
+    if (is.null(pa_file) && option != 1L) {
+        score <- .float32(score * prepared$condition)
+        if (option == 3L) score <- .float32(sqrt(score))
+    }
+    return(.raster_result(
+        score, prepared$template, name, filename, overwrite, wopt,
+        prepared$polygons, prepared$output_extent
+    ))
 }

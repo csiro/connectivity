@@ -22,27 +22,27 @@
 #' fraction <- pixel_coverage(polygon, grid, n_threads = 1)
 pixel_coverage <- function(polygon, raster_file, n_threads = NULL,
                            filename = "", overwrite = FALSE, wopt = list()) {
-  reference <- .as_raster(raster_file, "raster_file", single = FALSE, values = FALSE)
-  polygons <- .as_polygons(polygon, reference, "polygon")
-  if (!is.null(n_threads)) .check_integers(n_threads, "n_threads", length = 1L, minimum = 1L)
-  rings <- list()
-  if (nrow(polygons) && nrow(terra::geom(polygons))) {
-    polygons <- terra::aggregate(polygons, dissolve = TRUE)
-    geometry <- terra::geom(polygons)
-    parts <- split(seq_len(nrow(geometry)), paste(geometry[, "geom"], geometry[, "part"], sep = "/"))
-    rings <- lapply(parts, function(indices) {
-      part <- geometry[indices, , drop = FALSE]
-      exterior <- part[part[, "hole"] == 0, c("x", "y"), drop = FALSE]
-      holes <- sort(unique(part[part[, "hole"] != 0, "hole"]))
-      c(list(as.double(t(exterior))), lapply(holes, function(hole) {
-        as.double(t(part[part[, "hole"] == hole, c("x", "y"), drop = FALSE]))
-      }))
-    })
-  }
-  result <- pixel_coverage_impl(unname(rings), .affine(reference),
-                                 as.integer(c(nrow(reference), ncol(reference))),
-                                 if (is.null(n_threads)) 0L else as.integer(n_threads))
-  if (!is.null(result$err)) stop(as.character(result$err), call. = FALSE)
-  score <- matrix(result$ok, nrow(reference), ncol(reference))
-  .raster_result(score, reference, "pixel_coverage", filename, overwrite, wopt)
+    reference <- .as_raster(raster_file, "raster_file", single = FALSE, values = FALSE)
+    polygons <- .as_polygons(polygon, reference, "polygon")
+    if (!is.null(n_threads)) .check_integers(n_threads, "n_threads", length = 1L, minimum = 1L)
+    rings <- list()
+    if (nrow(polygons) && nrow(terra::geom(polygons))) {
+        polygons <- terra::aggregate(polygons, dissolve = TRUE)
+        geometry <- terra::geom(polygons)
+        parts <- split(seq_len(nrow(geometry)), paste(geometry[, "geom"], geometry[, "part"], sep = "/"))
+        rings <- lapply(parts, function(indices) {
+            part <- geometry[indices, , drop = FALSE]
+            exterior <- part[part[, "hole"] == 0, c("x", "y"), drop = FALSE]
+            holes <- sort(unique(part[part[, "hole"] != 0, "hole"]))
+            return(c(list(as.double(t(exterior))), lapply(holes, function(hole) {
+                return(as.double(t(part[part[, "hole"] == hole, c("x", "y"), drop = FALSE])))
+            })))
+        })
+    }
+    result <- pixel_coverage_impl(unname(rings), .affine(reference),
+                                  as.integer(c(nrow(reference), ncol(reference))),
+                                  if (is.null(n_threads)) 0L else as.integer(n_threads))
+    if (!is.null(result$err)) stop(as.character(result$err), call. = FALSE)
+    score <- matrix(result$ok, nrow(reference), ncol(reference))
+    return(.raster_result(score, reference, "pixel_coverage", filename, overwrite, wopt))
 }

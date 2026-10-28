@@ -80,3 +80,4 @@ docs/_build/
 
 # Pyenv
 .python-version
+.Rproj.user

@@ -26,13 +26,23 @@ writes it to `filename`. Output files default to float32; existing files require
 ```r
 library(connectivity)
 
-condition <- terra::rast("condition.tif")
-habitat <- connectedness(condition, filename = "connected_habitat.tif")
-pa <- pixel_coverage("protected_areas.gpkg", condition)
-parc <- connectedness(condition, pa_file = pa, pa_to_pa = TRUE)
-resilience <- beri(condition, "current_climate.tif",
-                   future_files = c("future_a.tif", "future_b.tif"))
+condition_file <- system.file("extdata", "site_condition.tif",
+                              package = "connectivity", mustWork = TRUE)
+condition <- terra::rast(condition_file)
+habitat <- connectedness(condition)
+terra::plot(habitat, main = "Connected habitat")
 ```
+
+The Tasmania rasters from the Python package are bundled in `inst/extdata`.
+Use `system.file()` to locate them in the installed package, then read them
+with `terra::rast()` or pass their paths directly to the indicator functions.
+The [Tasmania vignette](vignettes/tasmania-indicators.Rmd) covers resolution
+planning, connectedness, connected habitat, PARC-connectedness and BERI with
+six future scenarios. It plots the returned rasters in memory without saving
+indicator files. After installation, open it with
+`vignette("tasmania-indicators", package = "connectivity")`.
+Data sources, attribution and the CC BY-NC-SA 4.0 data licence are documented
+in `system.file("extdata", "README.md", package = "connectivity")`.
 
 Scientific preparation follows the Python procedures: optional scaling,
 condition/protected-area maxima, protected focal-cell masks, clipped resistance
@@ -61,12 +71,12 @@ yet included. This development package is not yet a CRAN release.
 Source installation needs R >= 4.2, Rust >= 1.86, Cargo, GNU make, and xz/tar.
 Windows additionally needs a matching Rtools installation and Rust GNU target.
 Development preparation uses `rextendr`; tests use `testthat`, and documentation
-uses `roxygen2`.
+uses `roxygen2`. Building the vignette also needs `knitr`, `rmarkdown` and Pandoc.
 
 From the repository root:
 
 ```r
-install.packages(c("rextendr", "testthat", "roxygen2"))
+install.packages(c("rextendr", "testthat", "roxygen2", "knitr", "rmarkdown"))
 ```
 
 ```sh
@@ -99,6 +109,18 @@ read offsets, geographic distances/margins, polygon union/holes, file IO, nodata
 and thread counts. Python is
 not required to run the R tests.
 
+## Citation
+
+Use `citation("connectivity")` for the package citation:
+
+Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., and Ferrier,
+S. (2026). *A scalable multi-resolution framework for connectivity-based
+biodiversity indicators.* EcoEvoRxiv, preprint.
+[doi:10.32942/X2S68V](https://doi.org/10.32942/X2S68V).
+
+The `connectedness()` and `beri()` help pages also cite the underlying methods
+of Ferrier et al. (2020) and Harwood et al. (2022).
+
 ## Licence
 
 The full MIT licence in `LICENSE.md` is an exact copy of the Python package's
@@ -108,6 +130,12 @@ source preparation refreshes `LICENSE.md` from the shared repository licence.
 
 ## Development conventions
 
+- Use four spaces for R code indentation.
+- Use explicit `return()` calls in R functions, including anonymous functions.
+  Functions used only for validation return `invisible(NULL)` explicitly.
+  Error handlers that always call `stop()` have no successful return path.
+  Generated extendr wrappers retain their generator's implicit returns;
+  rebuilding would overwrite manual `return()` edits.
 - Keep all numerical algorithms in `crates/connectivity-core`; the R binding
   consumes published releases from crates.io.
 - Put R input preparation and user-facing validation in `R/`.

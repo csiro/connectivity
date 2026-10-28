@@ -108,6 +108,24 @@ climate <- c(habitat, 1 - habitat)
 score <- beri(habitat, climate, future_files = list(climate * 0.8),
               levels = c(2, 4), outer_window = 5, n_threads = 1)
 }
+\references{
+Ferrier, S., Harwood, T. D., Ware, C., and Hoskins, A. J. (2020).
+A globally applicable indicator of the capacity of terrestrial ecosystems
+to retain biological diversity under climate change: The bioclimatic
+ecosystem resilience index. Ecological Indicators, 117, 106554.
+\doi{10.1016/j.ecolind.2020.106554}. Introduces BERI.
+
+Harwood, T., Love, J., Drielsma, M., Brandon, C., and Ferrier, S. (2022).
+Staying connected: assessing the capacity of landscapes to retain
+biodiversity in a changing climate. Landscape Ecology, 37, 3123--3139.
+\doi{10.1007/s10980-022-01534-5}. Develops the spatial resilience and
+connectedness approach.
+
+Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., and
+Ferrier, S. (2026). A scalable multi-resolution framework for
+connectivity-based biodiversity indicators. EcoEvoRxiv, preprint.
+\doi{10.32942/X2S68V}. Describes the multi-resolution implementation.
+}
 \seealso{
 \code{\link[=connectedness]{connectedness()}} for input units, polygon boundaries, memory use
 and raster alignment requirements.

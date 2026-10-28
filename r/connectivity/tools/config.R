@@ -15,22 +15,22 @@ is_not_cran <- env_not_cran != ""
 is_debug <- env_debug != ""
 
 if (is_debug) {
-  # if we have DEBUG then we set not cran to true
-  # CRAN is always release build
-  is_not_cran <- TRUE
-  message("Creating DEBUG build.")
+    # if we have DEBUG then we set not cran to true
+    # CRAN is always release build
+    is_not_cran <- TRUE
+    message("Creating DEBUG build.")
 }
 
 if (!is_not_cran) {
-  message("Building for CRAN.")
+    message("Building for CRAN.")
 }
 
 # we set cran flags only if NOT_CRAN is empty and if
 # the vendored crates are present.
 .cran_flags <- ifelse(
-  !is_not_cran && vendor_exists,
-  "-j 2 --offline",
-  ""
+    !is_not_cran && vendor_exists,
+    "-j 2 --offline",
+    ""
 )
 
 # when DEBUG env var is present we use `--debug` build
@@ -45,7 +45,7 @@ is_wasm <- identical(R.version$platform, webr_target)
 
 # print to terminal to inform we are building for webr
 if (is_wasm) {
-  message("Building for WebR")
+    message("Building for WebR")
 }
 
 # we check if we are making a debug build or not
@@ -65,9 +65,9 @@ cfg <- if (is_debug) "debug" else "release"
 
 # add panic exports only for WASM builds
 .panic_exports <- ifelse(
-  is_wasm,
-  "CARGO_PROFILE_DEV_PANIC=\"abort\" CARGO_PROFILE_RELEASE_PANIC=\"abort\" ",
-  ""
+    is_wasm,
+    "CARGO_PROFILE_DEV_PANIC=\"abort\" CARGO_PROFILE_RELEASE_PANIC=\"abort\" ",
+    ""
 )
 
 # read in the Makevars.in file checking
@@ -75,22 +75,22 @@ is_windows <- .Platform[["OS.type"]] == "windows"
 
 # if windows we replace in the Makevars.win.in
 mv_fp <- ifelse(
-  is_windows,
-  "src/Makevars.win.in",
-  "src/Makevars.in"
+    is_windows,
+    "src/Makevars.win.in",
+    "src/Makevars.in"
 )
 
 # set the output file
 mv_ofp <- ifelse(
-  is_windows,
-  "src/Makevars.win",
-  "src/Makevars"
+    is_windows,
+    "src/Makevars.win",
+    "src/Makevars"
 )
 
 # delete the existing Makevars{.win/.wasm}
 if (file.exists(mv_ofp)) {
-  message("Cleaning previous `", mv_ofp, "`.")
-  invisible(file.remove(mv_ofp))
+    message("Cleaning previous `", mv_ofp, "`.")
+    invisible(file.remove(mv_ofp))
 }
 
 # read as a single string
