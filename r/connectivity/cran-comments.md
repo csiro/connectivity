@@ -21,8 +21,8 @@
 The package code is MIT-licensed. The bundled example rasters are published
 by CSIRO under CC BY-NC-SA 4.0 (Ware et al. 2026,
 <https://doi.org/10.25919/3aka-y730>). This is declared in the `Description`
-and `Copyright` fields and documented in `inst/extdata/README.md`. The code
-does not depend on the data.
+field and documented in `inst/extdata/README.md`. The code does not depend on
+the data.
 
 ## Rust
 

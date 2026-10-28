@@ -2,7 +2,7 @@
 % Please edit documentation in R/beri.R
 \name{beri}
 \alias{beri}
-\title{Calculate the Bioclimatic Ecosystem Resilience Index}
+\title{Calculate the Bioclimatic Ecosystem Resilience Index (BERI)}
 \usage{
 beri(
   condition_file,
@@ -31,8 +31,9 @@ Habitat condition must be in \verb{[0, 1]} after scaling. Missing values are
 excluded. All raster inputs must share a CRS, resolution and pixel grid;
 auxiliary rasters must cover the analysis window. They are not resampled.}
 
-\item{current_file}{Current-climate \code{terra::SpatRaster} or raster filename.
-Layers are climate-composition bands. One or more bands are supported.}
+\item{current_file}{Current-climate \code{terra::SpatRaster} or raster filename
+of GDM-transformed environmental layers (transgrids). One or more layers
+are supported.}
 
 \item{future_files}{Optional character vector of raster filenames, list of
 raster objects/filenames, or a single \code{SpatRaster} for one future scenario.
@@ -91,18 +92,61 @@ A single-layer \code{terra::SpatRaster}, optionally written to \code{filename}.
 Its values are BERI scores; missing and polygon-masked cells are \code{NA}.
 }
 \description{
-Reads condition and climate rasters with \code{terra} and calculates BERI using
-current climate first and future scenarios in the supplied order. Condition
-is used directly; no Connected Habitat multiplication or square-root
-post-processing is applied.
+The Bioclimatic Ecosystem Resilience Index (BERI) estimates the capacity of
+each cell to retain its biological diversity under climate change. It
+measures how much habitat the cell can reach through the landscape that is
+expected to support ecological communities similar to its present-day
+communities, under the current climate and under future climate scenarios.
+As in \code{\link[=connectedness]{connectedness()}}, reachable habitat is weighted by condition and
+discounted by least-cost distance, here with a kernel representing many
+generations of dispersal over a 50-year horizon.
+
+Compositional similarity comes from generalised dissimilarity modelling
+(GDM). Each climate raster holds environmental layers transformed by a fitted
+GDM (transgrids), with the current climate first. Scenario results are
+combined so that a poor outcome under any one scenario lowers the index.
+Habitat condition is used directly, without the Connected Habitat
+transformation.
+}
+\details{
+For a focal cell \eqn{i}, scenario \eqn{k} (\eqn{k = 0} for the current
+climate) and dispersal bandwidth \eqn{\lambda}{lambda} (km), the accessible,
+compositionally similar habitat is
+\deqn{B_{ik} = \sum_j K(D_{ij}^{adj})\, h_j \tilde{A}_j s_{ijk}, \qquad K(D) = \exp\left(-\frac{(D / \lambda)^2}{283.465}\right),}{B_ik = sum_j K(D_ij(adj)) h_j A_j s_ijk,  K(D) = exp(-(D / lambda)^2 / 283.465),}
+with distances, condition and effective areas as in \code{\link[=connectedness]{connectedness()}}. The
+Gaussian kernel approximates 50 generations of exponential dispersal
+(\eqn{283.465 = 5.785 \times 49}{283.465 = 5.785 x 49}). The similarity of
+destination \eqn{j} under scenario \eqn{k} to the focal cell under the
+current climate is
+\eqn{s_{ijk} = \exp(-\sum_b |x_{ib}^{(0)} - x_{jb}^{(k)}|)}{s_ijk = exp(-sum_b |x_ib(0) - x_jb(k)|)}
+over the transformed layers \eqn{b}. With \eqn{m} future scenarios,
+\deqn{\mathrm{BERI}_i = \frac{\frac{1}{2}\left(\frac{1}{m + 1}\sum_{k=0}^{m} B_{ik} + \min_k B_{ik}\right)}{\sum_j K(D_{ij}^{int})\, \tilde{A}_j s_{ij0}},}{BERI_i = [(mean_k B_ik + min_k B_ik) / 2] / [sum_j K(D_ij(int)) A_j s_ij0],}
+the average of the mean and the worst scenario, relative to an intact
+landscape under the current climate. Scores are averaged over \code{lambdas}.
 }
 \examples{
-habitat <- terra::rast(nrows = 8, ncols = 9, xmin = 0, xmax = 9000,
-                       ymin = 0, ymax = 8000, crs = "EPSG:3857")
-terra::values(habitat) <- seq(0.1, 1, length.out = 72)
-climate <- c(habitat, 1 - habitat)
-score <- beri(habitat, climate, future_files = list(climate * 0.8),
-              levels = c(2, 4), outer_window = 5, n_threads = 1)
+condition_file <- system.file("extdata", "site_condition.tif", package = "connectivity")
+climate_dir <- system.file("extdata", "transgrids", package = "connectivity")
+current_file <- file.path(climate_dir, "1990.tif")
+future_files <- file.path(climate_dir, c("IPS50_45.tif", "GFD50_85.tif"))
+
+\donttest{
+# BERI with the current climate and two future scenarios
+beri_map <- beri(
+    condition_file = condition_file,
+    current_file = current_file,
+    future_files = future_files,
+    lambdas = c(2, 20, 200),
+    max_cost = 2,
+    window_size = 5,
+    outer_window = 9,
+    levels = c(2, 4, 8, 16, 32),
+    window_mode = "circular",
+    n_threads = 2
+)
+
+terra::plot(beri_map, main = "BERI")
+}
 }
 \references{
 Ferrier, S., Harwood, T. D., Ware, C., and Hoskins, A. J. (2020).

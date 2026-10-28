@@ -3,7 +3,8 @@
 #' Unions polygon geometries using `terra`, then calls the existing Rust core's
 #' exact per-cell polygon clipping algorithm. Holes and multipart polygons are
 #' preserved. This does not use sub-cell sampling or rasterize's approximate
-#' coverage option.
+#' coverage option. Use it to prepare the protected-area proportions (`pa_file`)
+#' for PARC-connectedness in [connectedness()].
 #'
 #' @param polygon Polygon `terra::SpatVector`, vector filename, or object
 #'   accepted by [terra::vect()]. Geometries are reprojected to the raster CRS

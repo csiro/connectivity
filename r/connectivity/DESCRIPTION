@@ -5,8 +5,9 @@ Authors@R: c(
     person(given = "Roozbeh", family = "Valavi", email = "roozbeh.valavi@csiro.au",
            role = c("aut", "cre")))
 Description: Calculates multi-resolution landscape connectedness, Connected
-    Habitat, protected-area connectedness and the Bioclimatic Ecosystem
-    Resilience Index from raster filenames or 'terra' SpatRaster objects.
+    Habitat (a.k.a. connectivity-adjusted condition), the Protected Area
+    Connectedness Index (PARC-connectedness) and the Bioclimatic Ecosystem
+    Resilience Index (BERI) from raster filenames or 'terra' SpatRaster objects.
     The multi-resolution method is described in Valavi, R. et al. (2026)
     <doi:10.32942/X2S68V>. Uses 'terra' for raster and vector input and output, input preparation and
     polygon analysis boundaries, and 'extendr' to call the 'connectivity-core'
@@ -17,9 +18,7 @@ Description: Calculates multi-resolution landscape connectedness, Connected
     CC BY-NC-SA 4.0.
 License: MIT + file LICENSE
 Copyright: Commonwealth Scientific and Industrial Research Organisation
-    (CSIRO). Vendored Rust crates: see file LICENSE.note. Example rasters in
-    inst/extdata: Ware et al. (2026), CSIRO, CC BY-NC-SA 4.0; see
-    inst/extdata/README.md.
+    (CSIRO). Vendored Rust crates: see file LICENSE.note.
 URL: https://github.com/csiro/connectivity
 BugReports: https://github.com/csiro/connectivity/issues
 Imports:

@@ -4,7 +4,8 @@
 [![R versions](https://img.shields.io/badge/R-%E2%89%A54.2-blue)](https://www.r-project.org/)
 [![DOI](https://img.shields.io/badge/DOI-10.32942%2FX2S68V-blue)](https://doi.org/10.32942/X2S68V)
 
-An R package for calculating **Connected Habitat**, **PARC-connectedness** and
+An R package for calculating **Connected Habitat** (a.k.a. connectivity-adjusted
+condition), the **Protected Area Connectedness Index (PARC-connectedness)** and
 the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat
 condition, least-cost paths and dispersal kernels to estimate how much
 surrounding habitat is accessible across dispersal scales. Fine spatial detail
@@ -23,8 +24,9 @@ engine.
 
 ## Key features
 
-- `connectedness()`: raw connectedness, condition-adjusted Connected Habitat,
-  and PARC-connectedness, including protected-to-protected destinations.
+- `connectedness()`: raw connectedness, Connected Habitat (a.k.a.
+  connectivity-adjusted condition) and PARC-connectedness, including
+  protected-to-protected destinations.
 - `beri()`: resilience from current climate and optional future scenarios.
 - `pixel_coverage()`: exact fractional polygon coverage, preserving holes and
   multipart geometries and unioning overlapping polygons.

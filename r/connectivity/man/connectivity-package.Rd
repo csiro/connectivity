@@ -6,12 +6,14 @@
 \alias{connectivity-package}
 \title{connectivity: Multi-Resolution Landscape Connectivity}
 \description{
-Calculates multi-resolution landscape connectedness, Connected Habitat, protected-area connectedness and the Bioclimatic Ecosystem Resilience Index from raster filenames or 'terra' SpatRaster objects. The multi-resolution method is described in Valavi, R. et al. (2026) \doi{10.32942/X2S68V}. Uses 'terra' for raster and vector input and output, input preparation and polygon analysis boundaries, and 'extendr' to call the 'connectivity-core' Rust numerical engine. Calculations load the analysis window into memory, and large rasters can be processed as aligned tiles. Also calculates exact fractional polygon coverage of raster cells. Bundled example rasters for Tasmania are licensed separately under CC BY-NC-SA 4.0.
+Calculates multi-resolution landscape connectedness, Connected Habitat (a.k.a. connectivity-adjusted condition), the Protected Area Connectedness Index (PARC-connectedness) and the Bioclimatic Ecosystem Resilience Index (BERI) from raster filenames or 'terra' SpatRaster objects. The multi-resolution method is described in Valavi, R. et al. (2026) \doi{10.32942/X2S68V}. Uses 'terra' for raster and vector input and output, input preparation and polygon analysis boundaries, and 'extendr' to call the 'connectivity-core' Rust numerical engine. Calculations load the analysis window into memory, and large rasters can be processed as aligned tiles. Also calculates exact fractional polygon coverage of raster cells. Bundled example rasters for Tasmania are licensed separately under CC BY-NC-SA 4.0.
 }
 \details{
-The main functions are \code{\link[=connectedness]{connectedness()}} for Connected Habitat, raw and
-PARC connectedness, \code{\link[=beri]{beri()}} for the Bioclimatic Ecosystem Resilience Index,
-\code{\link[=pixel_coverage]{pixel_coverage()}} for protected-area fractions from polygons,
+The main functions are \code{\link[=connectedness]{connectedness()}} for habitat connectedness, Connected
+Habitat (a.k.a. connectivity-adjusted condition) and the Protected Area
+Connectedness Index (PARC-connectedness), \code{\link[=beri]{beri()}} for the Bioclimatic
+Ecosystem Resilience Index (BERI), \code{\link[=pixel_coverage]{pixel_coverage()}} for protected-area
+fractions from polygons,
 \code{\link[=resolution_info]{resolution_info()}} for choosing aggregation levels, and \code{\link[=make_tiles]{make_tiles()}} for
 processing large rasters in tiles. Example rasters for Tasmania are in
 \code{system.file("extdata", package = "connectivity")}; see the

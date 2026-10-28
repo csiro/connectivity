@@ -1,9 +1,23 @@
-#' Calculate Connected Habitat or PARC connectedness
+#' Calculate habitat connectedness, Connected Habitat or PARC-connectedness
 #'
-#' Reads rasters with [terra::rast()], prepares condition and optional protected
-#' area and resistance inputs, and returns a georeferenced raster.
-#' By default, it returns Connected Habitat: the square root of connectedness
-#' multiplied by habitat condition.
+#' @description
+#' Habitat connectedness measures how much of the potentially connected habitat
+#' around each cell is retained, relative to a hypothetical intact landscape.
+#' Surrounding habitat counts more when it is in better condition and closer
+#' along its least-cost path, which lengthens through degraded habitat. Values
+#' range from 0 (isolated) to 1 (as connected as an intact landscape).
+#'
+#' By default, the function returns Connected Habitat (a.k.a.
+#' connectivity-adjusted condition): the geometric mean of a cell's own habitat
+#' condition and its connectedness, used as an input to the Biodiversity
+#' Habitat Index (BHI). With `pa_file`, it returns the Protected Area
+#' Connectedness Index (PARC-connectedness) instead: how well protected cells
+#' are connected to other protected areas and to surrounding intact habitat.
+#'
+#' Each cell's neighbourhood keeps fine detail nearby and represents more
+#' distant landscape with progressively coarser aggregated cells (Valavi et al.
+#' 2026). Inputs are raster filenames or `terra` SpatRaster objects, and the
+#' result is a georeferenced raster.
 #'
 #' @param condition_file Single-layer `terra::SpatRaster` or raster filename.
 #'   Habitat condition must be in `[0, 1]` after scaling. Missing values are
@@ -53,7 +67,29 @@
 #' @return A single-layer `terra::SpatRaster`, optionally written to `filename`.
 #'   Missing and masked cells are `NA`. Computation and habitat post-processing
 #'   use single precision.
-#' @details Projected CRS units are converted to metres for the Rust engine.
+#' @details
+#' For a focal cell \eqn{i} and one dispersal bandwidth \eqn{\lambda}{lambda}
+#' (km), connectedness is
+#' \deqn{C_i = \frac{\sum_j \exp(-D_{ij}^{adj} / \lambda)\, h_j \tilde{A}_j}{\sum_j \exp(-D_{ij}^{int} / \lambda)\, \tilde{A}_j},}{C_i = [sum_j exp(-D_ij(adj) / lambda) h_j A_j] / [sum_j exp(-D_ij(int) / lambda) A_j],}
+#' where \eqn{j} runs over the cells of the multi-resolution neighbourhood,
+#' \eqn{h_j} is habitat condition and \eqn{\tilde{A}_j}{A_j} is effective area.
+#' \eqn{D_{ij}^{adj}}{D_ij(adj)} is the least-cost distance when crossing a cell
+#' of condition \eqn{h} costs its length times \eqn{(1 - \mu) h + \mu}{(1 - mu) h + mu},
+#' with \eqn{\mu}{mu} = `max_cost`, and \eqn{D_{ij}^{int}}{D_ij(int)} is the
+#' distance through an intact landscape. With `resistance_file`, the cost factor
+#' is \eqn{1 + (\mu - 1) r}{1 + (mu - 1) r} for resistance \eqn{r}, while
+#' \eqn{h_j} remains the destination weight. Scores are averaged over `lambdas`.
+#' `option = 2` returns \eqn{h_i C_i} and `option = 3` returns Connected
+#' Habitat, \eqn{\sqrt{h_i C_i}}{sqrt(h_i C_i)}.
+#'
+#' PARC-connectedness replaces \eqn{h} with
+#' \eqn{\varphi = \max(h, p)}{phi = max(h, p)}, for protected fraction \eqn{p},
+#' in both path costs and destination weights, and scores only cells with
+#' \eqn{p > 0}. Paths still cross unprotected land. With `pa_to_pa = TRUE`, each
+#' destination in the numerator is also weighted by its protected share, so only
+#' protected destinations count.
+#'
+#' Projected CRS units are converted to metres for the Rust engine.
 #'   Geographic coordinates use degrees. Dispersal bandwidths are kilometres.
 #'   An `outer_window` smaller than `window_size` is increased to match it.
 #'   A missing raster CRS triggers a warning. Coordinates are then assumed to be
@@ -86,11 +122,42 @@
 #' which the connectedness calculations are derived.
 #' @export
 #' @examples
-#' habitat <- terra::rast(nrows = 8, ncols = 9, xmin = 0, xmax = 9000,
-#'                        ymin = 0, ymax = 8000, crs = "EPSG:3857")
-#' terra::values(habitat) <- seq(0.1, 1, length.out = 72)
-#' score <- connectedness(habitat, levels = c(2, 4), outer_window = 5,
-#'                        n_threads = 1)
+#' condition_file <- system.file("extdata", "site_condition.tif", package = "connectivity")
+#' pa_file <- system.file("extdata", "pa_proportion.tif", package = "connectivity")
+#'
+#' \donttest{
+#' # Connectedness
+#' conn <- connectedness(
+#'     condition_file = condition_file,
+#'     lambdas = c(2, 20, 200),
+#'     max_cost = 2,
+#'     window_size = 5,
+#'     outer_window = 9,
+#'     levels = c(2, 4, 8, 16, 32),
+#'     window_mode = "circular",
+#'     option = 1,
+#'     n_threads = 2
+#' )
+#'
+#' # Connected Habitat
+#' habitat <- connectedness(
+#'     condition_file = condition_file,
+#'     lambdas = c(2, 20, 200),
+#'     max_cost = 2,
+#'     window_size = 5,
+#'     outer_window = 9,
+#'     levels = c(2, 4, 8, 16, 32),
+#'     window_mode = "circular",
+#'     option = 3,
+#'     n_threads = 2
+#' )
+#'
+#' # PARC-connectedness with default settings
+#' parc <- connectedness(condition_file, pa_file = pa_file, n_threads = 2)
+#'
+#' terra::plot(c(conn, habitat, parc),
+#'             main = c("Connectedness", "Connected habitat", "PARC-connectedness"))
+#' }
 connectedness <- function(condition_file,
                           pa_file = NULL,
                           pa_to_pa = FALSE,

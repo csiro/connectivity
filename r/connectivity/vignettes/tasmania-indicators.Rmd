@@ -18,9 +18,9 @@ in [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V).
 | Indicator | R call | Interpretation |
 | --- | --- | --- |
 | Connectedness | `connectedness(..., option = 1)` | Connectivity to condition-weighted habitat in the surrounding landscape |
-| Connected habitat | `connectedness(..., option = 3)` | Square root of connectedness multiplied by local habitat condition |
-| PARC-connectedness | `connectedness(..., pa_file = ...)` | Connectedness evaluated at protected cells, optionally restricted to protected destinations |
-| BERI | `beri(...)` | Bioclimatic Ecosystem Resilience Index using compositional turnover under climate scenarios |
+| Connected habitat (a.k.a. connectivity-adjusted condition) | `connectedness(..., option = 3)` | Square root of connectedness multiplied by local habitat condition |
+| Protected Area Connectedness Index (PARC-connectedness) | `connectedness(..., pa_file = ...)` | Connectedness evaluated at protected cells, optionally restricted to protected destinations |
+| Bioclimatic Ecosystem Resilience Index (BERI) | `beri(...)` | Capacity to retain biodiversity under climate change, from connected habitat that stays compositionally similar across climate scenarios |
 
 All indicator results stay in memory as georeferenced `terra::SpatRaster` objects
 and are plotted directly. No indicator output files or data downloads are needed.
@@ -125,7 +125,8 @@ plot(
 
 ## 4. Connected habitat
 
-`option = 3` (the default) calculates `sqrt(connectedness * condition)`, so local
+`option = 3` (the default) calculates Connected Habitat (a.k.a.
+connectivity-adjusted condition), `sqrt(connectedness * condition)`, so local
 habitat condition also affects the score. `option = 2` would return the product
 without the square root.
 
@@ -152,7 +153,8 @@ plot(
 
 ## 5. PARC-connectedness
 
-Supplying `pa_file` calculates protected-area connectedness. The condition used
+Supplying `pa_file` calculates the Protected Area Connectedness Index
+(PARC-connectedness). The condition used
 for habitat and traversal is the maximum of habitat condition and protected
 fraction, and only cells with a positive protected fraction receive scores.
 With `pa_to_pa = FALSE`, destinations may include the surrounding unprotected
@@ -184,8 +186,9 @@ plot(
 
 ## 6. BERI
 
-BERI combines habitat connectedness with compositional turnover under climate
-scenarios. Each climate file contains 19 bands in matching order. `1990.tif`
+The Bioclimatic Ecosystem Resilience Index (BERI) combines habitat
+connectedness with compositional similarity under climate scenarios, derived
+from generalised dissimilarity modelling (GDM). Each climate file contains 19 bands in matching order. `1990.tif`
 is the current baseline; the six other files are future scenarios. Scenario
 identifiers below are the original filenames.
 

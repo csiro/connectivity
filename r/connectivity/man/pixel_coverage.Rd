@@ -40,7 +40,8 @@ Fractions refer to area in the raster's coordinate plane.
 Unions polygon geometries using \code{terra}, then calls the existing Rust core's
 exact per-cell polygon clipping algorithm. Holes and multipart polygons are
 preserved. This does not use sub-cell sampling or rasterize's approximate
-coverage option.
+coverage option. Use it to prepare the protected-area proportions (\code{pa_file})
+for PARC-connectedness in \code{\link[=connectedness]{connectedness()}}.
 }
 \examples{
 grid <- terra::rast(nrows = 2, ncols = 3, xmin = 0, xmax = 30,
