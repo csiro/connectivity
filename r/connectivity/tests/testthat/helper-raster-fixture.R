@@ -39,7 +39,18 @@ raster_fixture <- function(rows = 13L, cols = 14L) {
     ))
 }
 
-workflow_settings <- list(levels = c(2, 4), outer_window = 5,
+# Condition with an empty north-west block, for balanced tile planning.
+tile_fixture <- function(rows = 96L, cols = 104L) {
+    i <- row(matrix(0, rows, cols)) - 1L
+    j <- col(i) - 1L
+    values <- ((i * 7L + j * 13L) %% 10L + 1L) / 10
+    values[i < rows %/% 2L & j < cols %/% 3L] <- NA_real_
+    values[(i * 7L + j * 11L) %% 29L == 0L] <- NA_real_
+    return(fixture_raster(values))
+}
+
+# The frozen references used window_size = 3, Python's default.
+workflow_settings <- list(levels = c(2, 4), window_size = 3, outer_window = 5,
                           lambdas = c(2, 20), max_cost = 20, n_threads = 1)
 
 fixture_polygon <- function() {
@@ -48,6 +59,23 @@ fixture_polygon <- function() {
         "548400 5955200,548400 5957800,544200 5957800,544200 5961800),",
         "(545100 5960900,546900 5960900,546900 5959100,545100 5959100,545100 5960900))"
     ), crs = "EPSG:3857"))
+}
+
+# Bounds fall inside pixels (columns 24.3 to 42.1, rows 21.6 to 39.05).
+offpixel_polygon <- function() {
+    return(terra::vect(paste0(
+        "POLYGON ((524300 5978400,542100 5978400,542100 5960950,",
+        "533000 5960950,524300 5970000,524300 5978400))"
+    ), crs = "EPSG:3857"))
+}
+
+# Infinite resistance, including at valid condition cells.
+infinite_resistance <- function(fixture) {
+    i <- row(matrix(0, nrow(fixture$resistance), ncol(fixture$resistance))) - 1L
+    j <- col(i) - 1L
+    values <- matrix(terra::values(fixture$resistance), nrow(i), byrow = TRUE)
+    values[(i + j * 2L) %% 17L == 0L] <- Inf
+    return(fixture_raster(values))
 }
 
 coverage_polygons <- function() {

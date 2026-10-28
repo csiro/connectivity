@@ -2,8 +2,8 @@
 #'
 #' Reads rasters with [terra::rast()], prepares condition and optional protected
 #' area and resistance inputs, and returns a georeferenced raster.
-#' The defaults match the Python package's scientific
-#' settings, including the Connected Habitat square-root transformation.
+#' By default, it returns Connected Habitat: the square root of connectedness
+#' multiplied by habitat condition.
 #'
 #' @param condition_file Single-layer `terra::SpatRaster` or raster filename.
 #'   Habitat condition must be in `[0, 1]` after scaling. Missing values are
@@ -23,9 +23,6 @@
 #' @param closed_border If `FALSE`, retain surrounding landscape context for
 #'   the analysis before cropping the output. If `TRUE`, exclude the landscape
 #'   outside `polygon_mask` from both paths and habitat contributions.
-#' @param margin_px Extra valid focal-cell margin around polygons in open-border
-#'   analyses, in pixels. Must not exceed `(outer_window + 3) * max(levels)`.
-#'   Ignored without a polygon or with closed borders.
 #' @param lambdas Positive dispersal bandwidths in kilometres. Scores are
 #'   averaged across bandwidths.
 #' @param max_cost Finite relative traversal cost, at least 1.
@@ -34,13 +31,14 @@
 #' @param window_mode Either `"circular"` (default) or `"square"`.
 #' @param levels Aggregation levels. Positive integers are rounded to the
 #'   nearest power of two, with ties rounded down; level 1 is included. The
-#'   result must be a continuous power-of-two sequence. Overviews are computed
-#'   by Rust from base-resolution values; external raster overviews are unused.
+#'   result must be a continuous power-of-two sequence. Aggregated grids are
+#'   computed from the base-resolution values.
 #' @param scale Optional divisor for condition values (`NULL`, 0 or 1 leaves
 #'   values unchanged). A numeric pair or list supplies separate condition and
 #'   protected-area divisors, e.g. `c(100, 100)` or `list(NULL, 100)`.
 #' @param resistance_file Optional single-layer resistance raster or filename.
-#'   After scaling, `1 - resistance` is clipped to `[0, 1]` for path traversal.
+#'   After scaling, `1 - resistance` is clipped to `[0, 1]` for path traversal,
+#'   so resistance of 1 or more, including `Inf`, gives the highest path cost.
 #'   Missing resistance at valid condition cells falls back to condition and
 #'   raises a warning. Resistance does not alter habitat values or the domain.
 #' @param resistance_scale Optional divisor applied only to resistance values.
@@ -54,17 +52,20 @@
 #' @param wopt Named list of [terra::writeRaster()] options.
 #' @return A single-layer `terra::SpatRaster`, optionally written to `filename`.
 #'   Missing and masked cells are `NA`. Computation and habitat post-processing
-#'   use single precision, matching the Python interface.
+#'   use single precision.
 #' @details Projected CRS units are converted to metres for the Rust engine.
 #'   Geographic coordinates use degrees. Dispersal bandwidths are kilometres.
 #'   An `outer_window` smaller than `window_size` is increased to match it.
-#'   A missing raster CRS triggers a warning and the Python reader's coordinate
-#'   heuristic (degrees for sub-degree cells, otherwise metres where clear).
+#'   A missing raster CRS triggers a warning. Coordinates are then assumed to be
+#'   degrees for cells smaller than one unit and metres for larger cells; mixed
+#'   cases are judged from whether the extent fits longitude/latitude bounds.
 #'
 #'   Each call reads the complete analysis window into memory. For large areas,
-#'   call the function with polygon tiles and open borders: the read window is
-#'   padded and aligned to the full raster's coarsest aggregation grid so that
-#'   adjacent results use the same overview cells.
+#'   call the function for each tile from [make_tiles()] with open borders and
+#'   merge the results with [terra::merge()]. The read window is padded by
+#'   `(outer_window + 3) * max(levels)` pixels and aligned to the full raster's
+#'   coarsest aggregation grid, so merged tiles equal a whole-raster result.
+#' @seealso [make_tiles()] to split large rasters into tiles.
 #' @references
 #' Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., and
 #' Ferrier, S. (2026). A scalable multi-resolution framework for
@@ -95,10 +96,9 @@ connectedness <- function(condition_file,
                           pa_to_pa = FALSE,
                           polygon_mask = NULL,
                           closed_border = FALSE,
-                          margin_px = 32L,
                           lambdas = c(2, 20, 200),
                           max_cost = 2,
-                          window_size = 3L,
+                          window_size = 5L,
                           outer_window = 9L,
                           window_mode = "circular",
                           levels = c(2, 4, 8, 16, 32),
@@ -114,16 +114,20 @@ connectedness <- function(condition_file,
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
     .check_integers(option, "option", length = 1L, minimum = 1L)
+    
     if (!option %in% 1:3) stop("option must be one of 1, 2 or 3", call. = FALSE)
     .check_flag(pa_to_pa, "pa_to_pa")
     if (pa_to_pa && is.null(pa_file)) {
         message("pa_to_pa is ignored because pa_file was not supplied")
         pa_to_pa <- FALSE
     }
+    
     scales <- .condition_scales(scale)
     prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border,
-                                   margin_px, settings, scales[[1L]])
+                                   settings, scales[[1L]])
+    
     name <- if (option == 1L) "connectedness" else "connected_habitat"
+    
     if (!is.null(pa_file)) {
         pa <- .read_window(pa_file, prepared, "pa_file", scale = scales[[2L]])
         .check_matrix(pa, "pa_file", unit_interval = TRUE)
@@ -132,16 +136,19 @@ connectedness <- function(condition_file,
         prepared$mask[is.na(prepared$mask)] <- TRUE
         name <- "parc_connectedness"
     }
-    traversal <- .make_traversal(prepared$condition, resistance_file,
-                                 resistance_scale, prepared)
+    
+    traversal <- .make_traversal(prepared$condition, resistance_file, resistance_scale, prepared)
     score <- .run_connectivity(prepared, settings, traversal, pa_to_pa = pa_to_pa)
+    
     if (is.null(pa_file) && option != 1L) {
         score <- .float32(score * prepared$condition)
         if (option == 3L) score <- .float32(sqrt(score))
     }
     
-    return(.raster_result(
-        score, prepared$template, name, filename, overwrite, wopt,
-        prepared$polygons, prepared$output_extent
-    ))
+    return(
+        .raster_result(
+            score, prepared$template, name, filename, overwrite, wopt,
+            prepared$polygons, prepared$output_extent
+        )
+    )
 }

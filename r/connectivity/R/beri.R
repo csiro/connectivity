@@ -17,7 +17,7 @@
 #' @return A single-layer `terra::SpatRaster`, optionally written to `filename`.
 #'   Its values are BERI scores; missing and polygon-masked cells are `NA`.
 #' @seealso [connectedness()] for input units, polygon boundaries, memory use
-#'   and raster alignment requirements.
+#'   and raster alignment requirements; [make_tiles()] for large rasters.
 #' @references
 #' Ferrier, S., Harwood, T. D., Ware, C., and Hoskins, A. J. (2020).
 #' A globally applicable indicator of the capacity of terrestrial ecosystems
@@ -48,10 +48,9 @@ beri <- function(condition_file,
                  future_files = NULL,
                  polygon_mask = NULL,
                  closed_border = FALSE,
-                 margin_px = 32L,
                  lambdas = c(2, 20, 200),
                  max_cost = 2,
-                 window_size = 3L,
+                 window_size = 5L,
                  outer_window = 9L,
                  window_mode = "circular",
                  levels = c(2, 4, 8, 16, 32),
@@ -66,8 +65,7 @@ beri <- function(condition_file,
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
     .check_scale(scale)
-    prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border,
-                                   margin_px, settings, scale)
+    prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border, settings, scale)
     
     if (is.null(future_files)) future_files <- list()
     if (inherits(future_files, "SpatRaster")) future_files <- list(future_files)
@@ -75,6 +73,7 @@ beri <- function(condition_file,
     if (!is.list(future_files)) {
         stop("future_files must be a raster, filenames, a list of rasters or NULL", call. = FALSE)
     }
+    
     scenarios <- c(list(current_file), unname(future_files))
     transgrids <- lapply(seq_along(scenarios), function(i) {
         return(.read_window(
@@ -83,16 +82,19 @@ beri <- function(condition_file,
             single = FALSE
         ))
     })
+    
     bands <- vapply(transgrids, function(x) return(dim(x)[3L]), integer(1))
     if (any(bands != bands[1L])) {
         stop("Every climate scenario must have the same band count as current_file", call. = FALSE)
     }
-    traversal <- .make_traversal(prepared$condition, resistance_file,
-                                 resistance_scale, prepared)
+    
+    traversal <- .make_traversal(prepared$condition, resistance_file, resistance_scale, prepared)
     score <- .run_connectivity(prepared, settings, traversal, transgrids = transgrids)
     
-    return(.raster_result(
-        score, prepared$template, "beri", filename, overwrite, wopt,
-        prepared$polygons, prepared$output_extent
-    ))
+    return(
+        .raster_result(
+            score, prepared$template, "beri", filename, overwrite, wopt,
+            prepared$polygons, prepared$output_extent
+        )
+    )
 }

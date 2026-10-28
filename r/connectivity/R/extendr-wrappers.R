@@ -5,12 +5,12 @@
 #' @useDynLib connectivity, .registration = TRUE
 NULL
 
-#' Internal native connectivity interface.
-#' @keywords internal
+#' Internal native connectivity interface; use connectedness() or beri() from R.
+#' @noRd
 connectivity_matrix_impl <- function(condition, mask, shape, transform, traversal, transgrids, bands, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, window_mode, pa_to_pa, n_threads) .Call(wrap__connectivity_matrix_impl, condition, mask, shape, transform, traversal, transgrids, bands, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, window_mode, pa_to_pa, n_threads)
 
 #' Internal native polygon-coverage interface; use pixel_coverage() from R.
-#' @keywords internal
+#' @noRd
 pixel_coverage_impl <- function(polygons, transform, shape, n_threads) .Call(wrap__pixel_coverage_impl, polygons, transform, shape, n_threads)
 
 # nolint end

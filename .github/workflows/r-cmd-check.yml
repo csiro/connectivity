@@ -28,9 +28,11 @@ jobs:
       - uses: r-lib/actions/setup-r@v2
         with:
           use-public-rspm: true
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ runner.os == 'Windows' && 'x86_64-pc-windows-gnu' || '' }}
+      # Runners ship with rustup; this repository does not allow third-party
+      # setup actions such as dtolnay/rust-toolchain.
+      - name: Add the Rust target used by R on Windows
+        if: runner.os == 'Windows'
+        run: rustup target add x86_64-pc-windows-gnu
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           working-directory: r/connectivity
@@ -42,8 +44,13 @@ jobs:
         run: |
           source("r/connectivity/tools/prepare-source.R")
           prepare_source("r/connectivity")
+      # --as-cran warns without checkbashisms; setup-r installs it on macOS.
+      - name: Install checkbashisms
+        if: runner.os == 'Linux'
+        run: command -v checkbashisms || sudo apt-get install -y --no-install-recommends devscripts
       - uses: r-lib/actions/check-r-package@v2
         with:
           working-directory: r/connectivity
-          args: 'c("--no-manual", "--as-cran")'
+          # Windows has no checkbashisms; Linux and macOS run the CRAN checks.
+          args: ${{ runner.os == 'Windows' && 'c("--no-manual")' || 'c("--no-manual", "--as-cran")' }}
           error-on: '"warning"'

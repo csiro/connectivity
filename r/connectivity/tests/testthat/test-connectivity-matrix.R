@@ -20,7 +20,7 @@ test_that("thread counts preserve complete results, including BERI", {
     for (beri in c(FALSE, TRUE)) {
         args <- multilevel(beri = beri)
         one <- do.call(connectivity_matrix, args)
-        args$n_threads <- 3L
+        args$n_threads <- 2L
         expect_identical(do.call(connectivity_matrix, args), one)
     }
 })

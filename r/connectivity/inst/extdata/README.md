@@ -1,16 +1,12 @@
 # Bundled example data
 
-These are unchanged copies of the Python package's nine Tasmania example
-rasters, used by the `tasmania-indicators` R vignette. The GeoTIFFs are installed
-under `extdata`. Locate them with `system.file()` and read them with `terra`:
+These nine Tasmania example rasters are used by the `tasmania-indicators`
+vignette. Locate them with `system.file()` and read them with `terra`:
 
 ```r
-condition_file <- system.file("extdata", "site_condition.tif",
-                              package = "connectivity", mustWork = TRUE)
-pa_file <- system.file("extdata", "pa_proportion.tif",
-                       package = "connectivity", mustWork = TRUE)
-baseline <- system.file("extdata", "transgrids", "1990.tif",
-                        package = "connectivity", mustWork = TRUE)
+condition_file <- system.file("extdata", "site_condition.tif", package = "connectivity")
+pa_file <- system.file("extdata", "pa_proportion.tif", package = "connectivity")
+baseline <- system.file("extdata", "transgrids", "1990.tif", package = "connectivity")
 condition <- terra::rast(condition_file)
 ```
 
@@ -92,4 +88,4 @@ coverage; it does not silently resample inputs.
 - Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., & Ferrier,
   S. (2026). *A scalable multi-resolution framework for connectivity-based
   biodiversity indicators.* EcoEvoRxiv.
-  [Preprint](https://ecoevorxiv.org/repository/view/12146/)
+  [https://doi.org/10.32942/X2S68V](https://doi.org/10.32942/X2S68V)

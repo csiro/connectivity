@@ -13,7 +13,7 @@
 #' @inheritParams connectedness
 #' @return A single-layer `terra::SpatRaster` of fractions in `[0, 1]` matching
 #'   the full reference grid. Empty polygon input produces zero coverage.
-#'   Fractions refer to area in the raster's coordinate plane, matching Python.
+#'   Fractions refer to area in the raster's coordinate plane.
 #' @export
 #' @examples
 #' grid <- terra::rast(nrows = 2, ncols = 3, xmin = 0, xmax = 30,

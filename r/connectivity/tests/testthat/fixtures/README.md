@@ -2,7 +2,8 @@
 
 `python-workflows.csv` contains frozen float32 cell values from the existing
 Python `connectivity` workflows (2.4.0, Rust core 0.1.0), using one worker,
-`levels = [2, 4]`, `outer_window = 5`, `lambdas = [2, 20]` and `max_cost = 20`.
+`levels = [2, 4]`, `window_size = 3`, `outer_window = 5`, `lambdas = [2, 20]`
+and `max_cost = 20`.
 The `row` and `col` columns use R's one-based indexing. Missing and
 polygon-masked cells are `NA`.
 
@@ -13,7 +14,12 @@ The polygon cases exercise non-zero global offsets, an irregular boundary and
 a hole. Coverage cases include overlapping features and a polygon with a hole.
 Geographic cases use EPSG:4326, affine `(1/120, 0, 144, 0, -1/120, -40)` and
 the same pixel-relative polygon. They check latitude-dependent distances/areas
-and the default planar pixel margin. BERI is also checked with resistance.
+for connectedness and BERI. BERI is also checked with resistance and a closed
+polygon border. `resistance_inf` adds infinite resistance at some valid
+condition cells, and `offpixel_closed` uses a polygon whose bounds fall inside
+pixels. Python crops open-border results for such a polygon to fewer edge rows
+and columns than the polygon touches, so only its closed-border result is a
+reference.
 
 These are end-to-end workflow references, covering raster preparation and
 habitat post-processing as well as the shared Rust engine. Tests compare all

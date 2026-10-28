@@ -10,10 +10,9 @@ beri(
   future_files = NULL,
   polygon_mask = NULL,
   closed_border = FALSE,
-  margin_px = 32L,
   lambdas = c(2, 20, 200),
   max_cost = 2,
-  window_size = 3L,
+  window_size = 5L,
   outer_window = 9L,
   window_mode = "circular",
   levels = c(2, 4, 8, 16, 32),
@@ -51,10 +50,6 @@ are \code{NA}. Cells touched by a polygon are included.}
 the analysis before cropping the output. If \code{TRUE}, exclude the landscape
 outside \code{polygon_mask} from both paths and habitat contributions.}
 
-\item{margin_px}{Extra valid focal-cell margin around polygons in open-border
-analyses, in pixels. Must not exceed \code{(outer_window + 3) * max(levels)}.
-Ignored without a polygon or with closed borders.}
-
 \item{lambdas}{Positive dispersal bandwidths in kilometres. Scores are
 averaged across bandwidths.}
 
@@ -68,13 +63,14 @@ averaged across bandwidths.}
 
 \item{levels}{Aggregation levels. Positive integers are rounded to the
 nearest power of two, with ties rounded down; level 1 is included. The
-result must be a continuous power-of-two sequence. Overviews are computed
-by Rust from base-resolution values; external raster overviews are unused.}
+result must be a continuous power-of-two sequence. Aggregated grids are
+computed from the base-resolution values.}
 
 \item{scale}{Optional condition divisor. Climate bands are not scaled.}
 
 \item{resistance_file}{Optional single-layer resistance raster or filename.
-After scaling, \code{1 - resistance} is clipped to \verb{[0, 1]} for path traversal.
+After scaling, \code{1 - resistance} is clipped to \verb{[0, 1]} for path traversal,
+so resistance of 1 or more, including \code{Inf}, gives the highest path cost.
 Missing resistance at valid condition cells falls back to condition and
 raises a warning. Resistance does not alter habitat values or the domain.}
 
@@ -128,5 +124,5 @@ connectivity-based biodiversity indicators. EcoEvoRxiv, preprint.
 }
 \seealso{
 \code{\link[=connectedness]{connectedness()}} for input units, polygon boundaries, memory use
-and raster alignment requirements.
+and raster alignment requirements; \code{\link[=make_tiles]{make_tiles()}} for large rasters.
 }

@@ -16,3 +16,6 @@ src/rust/vendor-config.toml
 
 # The repository's Python-oriented ignore file excludes directories named man.
 !man/
+
+# The repository ignore file excludes GeoTIFFs; track the bundled examples.
+!inst/extdata/**/*.tif

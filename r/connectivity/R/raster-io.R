@@ -23,10 +23,10 @@
     # There are no coordinates to transform for an empty vector. terra also
     # drops its geometry type when all features are removed.
     if (!nrow(x)) return(x)
-    if (nrow(x) && terra::geomtype(x) != "polygons") {
+    if (terra::geomtype(x) != "polygons") {
         stop(name, " must contain polygon geometries", call. = FALSE)
     }
-    if (nrow(x) && !all(terra::is.valid(x))) {
+    if (!all(terra::is.valid(x))) {
         stop(name, " contains invalid polygons; repair them before analysis", call. = FALSE)
     }
     has_source <- nzchar(terra::crs(x))
@@ -72,7 +72,7 @@
     return(list(transform = transform, is_geo = geographic))
 }
 
-# Match the Python reader's float32 input conversion and arithmetic. R itself
+# Round inputs and post-processing to float32, the engine's precision. R itself
 # stores numeric vectors as doubles, so convert through a four-byte binary buffer.
 .float32 <- function(x) {
     out <- readBin(writeBin(as.double(x), raw(), size = 4L), "double",
@@ -162,24 +162,17 @@
     return(matrix(terra::as.array(covered)[, , 1L] != 0, nrow(template), ncol(template)))
 }
 
-# A pixel margin is planar even on a longitude/latitude grid. Reconstruct a
-# temporary local geometry so terra does not interpret the width as metres on
-# the ellipsoid. The caller's polygon and CRS are never modified.
-.buffer_in_map_units <- function(polygons, width) {
-    buffered <- terra::vect(terra::geom(polygons, wkt = TRUE), crs = "local")
-    buffered <- terra::buffer(buffered, width = width)
-    terra::crs(buffered) <- terra::crs(polygons)
-    return(buffered)
-}
-
+# Open borders read context around the polygon; only cells touched by the
+# polygon are evaluated and returned. Closed borders also remove the outside
+# landscape from paths and habitat.
 .prepare_landscape <- function(condition_file, polygon_mask, closed_border,
-                               margin_px, settings, scale) {
+                               settings, scale) {
     reference <- .as_raster(condition_file, "condition_file")
     .check_flag(closed_border, "closed_border")
-    .check_integers(margin_px, "margin_px", length = 1L, minimum = 0L)
     .check_scale(scale)
     coordinates <- .coordinate_info(reference)
     polygons <- NULL
+    outside <- NULL
     offsets <- c(0L, 0L)
     output_extent <- terra::ext(reference)
     template <- reference
@@ -192,35 +185,22 @@
         output_extent <- .pixel_window(bounds, reference)$extent
         padding <- 0
         if (!closed_border) {
-            limit <- (settings$outer_window + 3) * max(settings$levels)
-            if (margin_px > limit) {
-                stop("margin_px cannot exceed the non-closed read-buffer limit (", limit, ")", call. = FALSE)
-            }
-            padding <- (limit + 0.5) * max(terra::res(reference))
+            context <- (settings$outer_window + 3) * max(settings$levels)
+            padding <- (context + 0.5) * max(terra::res(reference))
         }
         window <- .pixel_window(bounds, reference, padding,
                                 snap = if (closed_border) 1 else max(settings$levels))
         offsets <- window$offsets
         template <- terra::crop(reference, window$extent, snap = "near")
+        outside <- !.polygon_cells(polygons, template)
     }
     prepared <- list(reference = reference, template = template, polygons = polygons,
-                     offsets = offsets, output_extent = output_extent,
+                     outside = outside, offsets = offsets, output_extent = output_extent,
                      transform = coordinates$transform, is_geo = coordinates$is_geo,
                      closed_border = closed_border)
     condition <- .read_window(reference, prepared, "condition_file", scale = scale)
     mask <- is.na(condition)
-    if (!is.null(polygons)) {
-        inside <- .polygon_cells(polygons, template)
-        if (closed_border) {
-            condition[!inside] <- NA_real_
-            mask <- is.na(condition)
-        } else {
-            valid <- if (margin_px == 0) inside else {
-                .polygon_cells(.buffer_in_map_units(polygons, margin_px * max(terra::res(reference))), template)
-            }
-            mask <- mask | !valid
-        }
-    }
+    if (!is.null(outside)) mask <- mask | outside
     prepared$condition <- condition
     prepared$mask <- mask
     return(prepared)
@@ -242,15 +222,9 @@
     values <- .float32(terra::as.array(cropped))
     if (single) values <- matrix(values[, , 1L], nrow(target), ncol(target))
     if (!is.null(scale) && !scale %in% c(0, 1)) values <- .float32(values / scale)
-    if (prepared$closed_border && !is.null(prepared$polygons)) {
-        outside <- !.polygon_cells(prepared$polygons, target)
-        if (single) values[outside] <- NA_real_ else {
-            for (band in seq_len(dim(values)[3])) {
-                layer <- values[, , band, drop = FALSE]
-                layer[outside] <- NA_real_
-                values[, , band] <- layer
-            }
-        }
+    if (prepared$closed_border && !is.null(prepared$outside)) {
+        # Recycle the cell mask over every band.
+        values[rep_len(prepared$outside, length(values))] <- NA_real_
     }
     return(values)
 }
@@ -259,7 +233,7 @@
     .check_scale(resistance_scale, "resistance_scale")
     if (is.null(resistance_file)) return(NULL)
     resistance <- .read_window(resistance_file, prepared, "resistance_file", scale = resistance_scale)
-    if (any(is.infinite(resistance))) stop("resistance_file contains Inf", call. = FALSE)
+    # Infinite resistance clips to zero traversal (impassable).
     traversal <- .float32(1 - resistance)
     traversal[] <- pmin(1, pmax(0, traversal))
     gaps <- is.na(resistance) & !is.na(condition)

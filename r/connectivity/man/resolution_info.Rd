@@ -30,15 +30,13 @@ Invisibly, a data frame with \code{level}, \code{width}, \code{height}, \code{ce
 \code{unit} attribute). \code{reach_km} is \code{NA} when CRS units are unknown.
 }
 \description{
-A planning helper equivalent to the Python package's \code{resolution_info()}.
-Reports raster metadata, candidate grid dimensions, resolutions, cell counts,
-approximate search reach and small-grid flags without reading raster values.
-The Rust engine generates levels internally; external overviews are unused.
+A planning helper that reports raster metadata, candidate grid dimensions,
+resolutions, cell counts, approximate search reach and small-grid flags
+without reading raster values.
 }
 \details{
 Dimensions round up after division by each candidate level. Search
-reach follows Python's planning convention:
-\code{outer_window * level * max(x_resolution, y_resolution)} using base
+reach is \code{outer_window * level * max(x_resolution, y_resolution)} using base
 resolutions. It is an approximate planning span, not a dispersal bandwidth.
 Geographic distances use 111.32 km per degree of latitude and its cosine
 adjustment at the raster's centre latitude for longitude. Projected units

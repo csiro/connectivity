@@ -3,7 +3,7 @@ test_that("Rust polygon coverage matches Python, including overlap and holes", {
     polygons <- coverage_polygons()
     result <- pixel_coverage(polygons, fixture$condition, n_threads = 1)
     expect_python_result(result, "coverage")
-    parallel <- pixel_coverage(polygons, fixture$condition, n_threads = 3)
+    parallel <- pixel_coverage(polygons, fixture$condition, n_threads = 2)
     expect_identical(terra::values(parallel), terra::values(result))
 })
 

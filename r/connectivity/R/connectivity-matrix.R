@@ -1,7 +1,6 @@
 #' Calculate connectivity on an in-memory raster matrix
 #'
-#' Calls the same Rust numerical engine as the Python package. This
-#' low-level interface returns raw connectedness, or BERI when `transgrids` are
+#' Calls the Rust numerical engine directly. This low-level interface returns raw connectedness, or BERI when `transgrids` are
 #' supplied. It does not apply the Connected Habitat condition multiplier or
 #' square root, read raster files, scale inputs, or plan tiles.
 #'
@@ -47,7 +46,7 @@ connectivity_matrix <- function(
     condition, transform, mask = is.na(condition), traversal = NULL,
     transgrids = NULL, levels = c(1, 2, 4, 8, 16, 32),
     lambdas = c(2, 20, 200), is_geo = FALSE, max_cost = 2,
-    window_size = 3L, outer_window = 9L, offsets = c(0L, 0L),
+    window_size = 5L, outer_window = 9L, offsets = c(0L, 0L),
     window_mode = c("circular", "square"), pa_to_pa = FALSE,
     n_threads = NULL) {
     condition <- .check_matrix(condition, "condition", unit_interval = TRUE)

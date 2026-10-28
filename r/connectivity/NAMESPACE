@@ -2,6 +2,8 @@
 
 export(beri)
 export(connectedness)
+export(make_tile)
+export(make_tiles)
 export(pixel_coverage)
 export(resolution_info)
 useDynLib(connectivity, .registration = TRUE)

@@ -1,9 +1,8 @@
 #' Preview raster aggregation levels and search reach
 #'
-#' A planning helper equivalent to the Python package's `resolution_info()`.
-#' Reports raster metadata, candidate grid dimensions, resolutions, cell counts,
-#' approximate search reach and small-grid flags without reading raster values.
-#' The Rust engine generates levels internally; external overviews are unused.
+#' A planning helper that reports raster metadata, candidate grid dimensions,
+#' resolutions, cell counts, approximate search reach and small-grid flags
+#' without reading raster values.
 #'
 #' @param file_path Raster filename or `terra::SpatRaster`. Multiple layers and
 #'   rasters without values are supported; only grid metadata are used.
@@ -17,8 +16,7 @@
 #'   `note`. Resolutions and `reach` use native CRS units (also stored in the
 #'   `unit` attribute). `reach_km` is `NA` when CRS units are unknown.
 #' @details Dimensions round up after division by each candidate level. Search
-#'   reach follows Python's planning convention:
-#'   `outer_window * level * max(x_resolution, y_resolution)` using base
+#'   reach is `outer_window * level * max(x_resolution, y_resolution)` using base
 #'   resolutions. It is an approximate planning span, not a dispersal bandwidth.
 #'   Geographic distances use 111.32 km per degree of latitude and its cosine
 #'   adjustment at the raster's centre latitude for longitude. Projected units

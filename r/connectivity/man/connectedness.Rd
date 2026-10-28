@@ -10,10 +10,9 @@ connectedness(
   pa_to_pa = FALSE,
   polygon_mask = NULL,
   closed_border = FALSE,
-  margin_px = 32L,
   lambdas = c(2, 20, 200),
   max_cost = 2,
-  window_size = 3L,
+  window_size = 5L,
   outer_window = 9L,
   window_mode = "circular",
   levels = c(2, 4, 8, 16, 32),
@@ -51,10 +50,6 @@ are \code{NA}. Cells touched by a polygon are included.}
 the analysis before cropping the output. If \code{TRUE}, exclude the landscape
 outside \code{polygon_mask} from both paths and habitat contributions.}
 
-\item{margin_px}{Extra valid focal-cell margin around polygons in open-border
-analyses, in pixels. Must not exceed \code{(outer_window + 3) * max(levels)}.
-Ignored without a polygon or with closed borders.}
-
 \item{lambdas}{Positive dispersal bandwidths in kilometres. Scores are
 averaged across bandwidths.}
 
@@ -68,15 +63,16 @@ averaged across bandwidths.}
 
 \item{levels}{Aggregation levels. Positive integers are rounded to the
 nearest power of two, with ties rounded down; level 1 is included. The
-result must be a continuous power-of-two sequence. Overviews are computed
-by Rust from base-resolution values; external raster overviews are unused.}
+result must be a continuous power-of-two sequence. Aggregated grids are
+computed from the base-resolution values.}
 
 \item{scale}{Optional divisor for condition values (\code{NULL}, 0 or 1 leaves
 values unchanged). A numeric pair or list supplies separate condition and
 protected-area divisors, e.g. \code{c(100, 100)} or \code{list(NULL, 100)}.}
 
 \item{resistance_file}{Optional single-layer resistance raster or filename.
-After scaling, \code{1 - resistance} is clipped to \verb{[0, 1]} for path traversal.
+After scaling, \code{1 - resistance} is clipped to \verb{[0, 1]} for path traversal,
+so resistance of 1 or more, including \code{Inf}, gives the highest path cost.
 Missing resistance at valid condition cells falls back to condition and
 raises a warning. Resistance does not alter habitat values or the domain.}
 
@@ -98,25 +94,27 @@ in-memory raster. Files default to single-precision floating-point values.}
 \value{
 A single-layer \code{terra::SpatRaster}, optionally written to \code{filename}.
 Missing and masked cells are \code{NA}. Computation and habitat post-processing
-use single precision, matching the Python interface.
+use single precision.
 }
 \description{
 Reads rasters with \code{\link[terra:rast]{terra::rast()}}, prepares condition and optional protected
 area and resistance inputs, and returns a georeferenced raster.
-The defaults match the Python package's scientific
-settings, including the Connected Habitat square-root transformation.
+By default, it returns Connected Habitat: the square root of connectedness
+multiplied by habitat condition.
 }
 \details{
 Projected CRS units are converted to metres for the Rust engine.
 Geographic coordinates use degrees. Dispersal bandwidths are kilometres.
 An \code{outer_window} smaller than \code{window_size} is increased to match it.
-A missing raster CRS triggers a warning and the Python reader's coordinate
-heuristic (degrees for sub-degree cells, otherwise metres where clear).
+A missing raster CRS triggers a warning. Coordinates are then assumed to be
+degrees for cells smaller than one unit and metres for larger cells; mixed
+cases are judged from whether the extent fits longitude/latitude bounds.
 
 Each call reads the complete analysis window into memory. For large areas,
-call the function with polygon tiles and open borders: the read window is
-padded and aligned to the full raster's coarsest aggregation grid so that
-adjacent results use the same overview cells.
+call the function for each tile from \code{\link[=make_tiles]{make_tiles()}} with open borders and
+merge the results with \code{\link[terra:merge]{terra::merge()}}. The read window is padded by
+\code{(outer_window + 3) * max(levels)} pixels and aligned to the full raster's
+coarsest aggregation grid, so merged tiles equal a whole-raster result.
 }
 \examples{
 habitat <- terra::rast(nrows = 8, ncols = 9, xmin = 0, xmax = 9000,
@@ -143,4 +141,7 @@ to retain biological diversity under climate change: The bioclimatic
 ecosystem resilience index. Ecological Indicators, 117, 106554.
 \doi{10.1016/j.ecolind.2020.106554}. Introduces the BERI framework from
 which the connectedness calculations are derived.
+}
+\seealso{
+\code{\link[=make_tiles]{make_tiles()}} to split large rasters into tiles.
 }

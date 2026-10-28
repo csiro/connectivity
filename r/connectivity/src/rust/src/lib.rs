@@ -24,8 +24,8 @@ fn matrix(values: &[f64], rows: usize, cols: usize) -> Result<Array2<f32>> {
     }))
 }
 
-/// Internal native connectivity interface.
-/// @keywords internal
+/// Internal native connectivity interface; use connectedness() or beri() from R.
+/// @noRd
 #[extendr]
 #[allow(clippy::too_many_arguments)]
 fn connectivity_matrix_impl(
@@ -187,7 +187,7 @@ fn read_ring(ring: Robj) -> Result<Vec<(f64, f64)>> {
 }
 
 /// Internal native polygon-coverage interface; use pixel_coverage() from R.
-/// @keywords internal
+/// @noRd
 #[extendr]
 fn pixel_coverage_impl(
     polygons: List,

@@ -40,6 +40,19 @@ test_that("resistance fallback preserves condition nodata and warns", {
     expect_python_result(fallback, "option1")
 })
 
+test_that("infinite resistance is impassable, as in Python", {
+    fixture <- raster_fixture()
+    resistance <- infinite_resistance(fixture)
+    run <- function(surface) {
+        return(do.call(connectedness, c(list(condition_file = fixture$condition,
+                                             resistance_file = surface, option = 1), workflow_settings)))
+    }
+    expect_warning(actual <- run(resistance), "missing resistance")
+    expect_python_result(actual, "resistance_inf")
+    expect_warning(capped <- run(terra::clamp(resistance, upper = 1)), "missing resistance")
+    expect_identical(terra::values(capped), terra::values(actual))
+})
+
 test_that("BERI preserves scenario and band order and current-only results", {
     fixture <- raster_fixture()
     futures <- list(fixture$future)
@@ -61,7 +74,7 @@ test_that("BERI preserves scenario and band order and current-only results", {
                                       current_file = fixture$current, future_files = fixture$future[[1L]]), workflow_settings)), "band count")
 })
 
-test_that("geographic distances and planar pixel margins match Python", {
+test_that("geographic distances and polygon windows match Python", {
     fixture <- geographic_fixture(raster_fixture())
     actual <- do.call(connectedness, c(list(condition_file = fixture$condition, option = 1), workflow_settings))
     expect_python_result(actual, "geographic")
@@ -103,17 +116,42 @@ test_that("open and closed polygon analyses match non-zero-offset Python windows
     polygon <- fixture_polygon()
     for (closed in c(FALSE, TRUE)) {
         actual <- do.call(connectedness, c(list(condition_file = fixture$condition,
-                                                polygon_mask = polygon, closed_border = closed, margin_px = 0, option = 1), workflow_settings))
+                                                polygon_mask = polygon, closed_border = closed, option = 1), workflow_settings))
         expect_python_result(actual, if (closed) "polygon_closed" else "polygon_open")
         expect_equal(unname(as.vector(terra::ext(actual))), c(544000, 551000, 5955000, 5962000))
     }
     parc <- do.call(connectedness, c(list(condition_file = fixture$condition,
-                                          pa_file = fixture$pa, pa_to_pa = TRUE, polygon_mask = polygon, margin_px = 0), workflow_settings))
+                                          pa_file = fixture$pa, pa_to_pa = TRUE, polygon_mask = polygon), workflow_settings))
     expect_python_result(parc, "polygon_parc")
     climate <- do.call(beri, c(list(condition_file = fixture$condition,
                                     current_file = fixture$current, future_files = list(fixture$future),
-                                    polygon_mask = polygon, margin_px = 0), workflow_settings))
+                                    polygon_mask = polygon), workflow_settings))
     expect_python_result(climate, "polygon_beri")
+    closed <- do.call(beri, c(list(condition_file = fixture$condition,
+                                   current_file = fixture$current, future_files = list(fixture$future),
+                                   polygon_mask = polygon, closed_border = TRUE), workflow_settings))
+    expect_python_result(closed, "polygon_beri_closed")
+    geographic <- geographic_fixture(raster_fixture())
+    climate <- do.call(beri, c(list(condition_file = geographic$condition,
+                                    current_file = geographic$current,
+                                    future_files = list(geographic$future)), workflow_settings))
+    expect_python_result(climate, "geographic_beri")
+})
+
+test_that("polygon outputs keep every touched cell when bounds fall inside pixels", {
+    fixture <- raster_fixture(93L, 101L)
+    run <- function(closed) {
+        return(do.call(connectedness, c(list(condition_file = fixture$condition,
+                                             polygon_mask = offpixel_polygon(), closed_border = closed,
+                                             option = 1), workflow_settings)))
+    }
+    closed <- run(TRUE)
+    expect_python_result(closed, "offpixel_closed")
+    # Python's open-border crop drops two touched rows and one touched column.
+    open <- run(FALSE)
+    expect_equal(unname(as.vector(terra::ext(open))), c(524000, 543000, 5960000, 5979000))
+    expect_true(terra::compareGeom(open, closed, stopOnError = FALSE))
+    expect_identical(is.na(terra::values(open)), is.na(terra::values(closed)))
 })
 
 test_that("terra file IO preserves values, metadata and nodata", {
@@ -152,7 +190,7 @@ test_that("empty domains and input validation have predictable results", {
     expect_error(do.call(connectedness, c(list(condition_file = fixture$condition,
                                                pa_file = shifted), workflow_settings)), "same grid")
     for (change in list(list(option = 4), list(scale = -1), list(scale = c(1, 2, 3)),
-                        list(margin_px = -1), list(window_size = 4), list(levels = c(2, 8)))) {
+                        list(window_size = 4), list(levels = c(2, 8)))) {
         args <- utils::modifyList(c(list(condition_file = fixture$condition), workflow_settings), change)
         expect_error(do.call(connectedness, args))
     }

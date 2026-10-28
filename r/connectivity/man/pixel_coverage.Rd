@@ -34,7 +34,7 @@ in-memory raster. Files default to single-precision floating-point values.}
 \value{
 A single-layer \code{terra::SpatRaster} of fractions in \verb{[0, 1]} matching
 the full reference grid. Empty polygon input produces zero coverage.
-Fractions refer to area in the raster's coordinate plane, matching Python.
+Fractions refer to area in the raster's coordinate plane.
 }
 \description{
 Unions polygon geometries using \code{terra}, then calls the existing Rust core's

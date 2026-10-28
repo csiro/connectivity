@@ -11,8 +11,9 @@ vignette: >
 knitr::opts_chunk$set(fig.width = 7, fig.height = 5, collapse = TRUE, comment = "#>")
 ```
 
-This vignette reproduces the Python package's Tasmania notebook using the same
-bundled rasters and numerical settings. It calculates four indicators:
+This vignette calculates four connectivity indicators for Tasmania from the
+bundled rasters. The indicators and the multi-resolution method are described
+in [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V).
 
 | Indicator | R call | Interpretation |
 | --- | --- | --- |
@@ -26,26 +27,16 @@ and are plotted directly. No indicator output files or data downloads are needed
 
 ## 1. Read the bundled data
 
-As in blockCV, external raster files are shipped in `inst/extdata` and located
-with base R's `system.file()`. There is no separate data-reading helper.
-These paths work from any working directory after package installation.
+The example rasters are installed with the package; `system.file()` returns
+their paths.
 
 ```{r inputs}
 library(connectivity)
 library(terra)
 
-condition_file <- system.file("extdata",
-                              "site_condition.tif",
-                              package = "connectivity",
-                              mustWork = TRUE)
-pa_file <- system.file("extdata",
-                       "pa_proportion.tif",
-                       package = "connectivity",
-                       mustWork = TRUE)
-climate_dir <- system.file("extdata",
-                           "transgrids",
-                           package = "connectivity",
-                           mustWork = TRUE)
+condition_file <- system.file("extdata", "site_condition.tif", package = "connectivity")
+pa_file <- system.file("extdata", "pa_proportion.tif", package = "connectivity")
+climate_dir <- system.file("extdata", "transgrids", package = "connectivity")
 
 condition <- rast(condition_file)
 pa <- rast(pa_file)
@@ -72,8 +63,8 @@ plot(
 
 ## 2. Choose resolution levels
 
-The Rust engine builds its aggregation pyramid internally. No precomputed
-GeoTIFF overviews are required. Use `resolution_info()` before calculating the
+Aggregation levels are generated from the base raster during each calculation.
+Use `resolution_info()` before calculating the
 indicators to preview candidate grid dimensions, cell counts, resolutions and
 approximate search reach. It accepts a raster filename or a `SpatRaster` and
 reads only grid metadata.
@@ -103,8 +94,8 @@ For this grid, level 32 leaves 19 columns and 17 rows; level 64 leaves only
 at least 16 cells in each dimension, so the examples use
 `levels = c(2, 4, 8, 16, 32)`. Level 1 is always included by the engine.
 The flags guide review and do not prevent a calculation or select levels
-automatically. `n_threads = NULL` uses the engine's default worker count.
-All calls below use the same settings as the Python notebook.
+automatically. All calls below use two worker threads; `n_threads = NULL` uses
+all available cores.
 
 ## 3. Connectedness
 
@@ -121,13 +112,13 @@ conns <- connectedness(
     levels = c(2, 4, 8, 16, 32),
     option = 1,
     window_mode = "circular",
-    n_threads = NULL
+    n_threads = 2
 )
 
 plot(
-    conns, 
-    main = "Connectedness", 
-    col = hcl.colors(100, "fall", rev = 1), 
+    conns,
+    main = "Connectedness",
+    col = hcl.colors(100, "fall", rev = TRUE),
     range = c(0, 0.8)
 )
 ```
@@ -148,13 +139,13 @@ connhabitat <- connectedness(
     levels = c(2, 4, 8, 16, 32),
     option = 3,
     window_mode = "circular",
-    n_threads = NULL
+    n_threads = 2
 )
 
 plot(
-    connhabitat, 
-    main = "Connected habitat", 
-    col = hcl.colors(100, "fall", rev = 1),
+    connhabitat,
+    main = "Connected habitat",
+    col = hcl.colors(100, "fall", rev = TRUE),
     range = c(0, 0.8)
 )
 ```
@@ -180,12 +171,12 @@ parc <- connectedness(
     outer_window = 7,
     levels = c(2, 4, 8, 16, 32),
     window_mode = "circular",
-    n_threads = NULL
+    n_threads = 2
 )
 
 plot(
-    parc, 
-    main = "PARC-connectedness", 
+    parc,
+    main = "PARC-connectedness",
     col = hcl.colors(100, "viridis"),
     range = c(0, 1)
 )
@@ -231,12 +222,12 @@ beri_map <- beri(
     outer_window = 7,
     levels = c(2, 4, 8, 16, 32),
     window_mode = "circular",
-    n_threads = NULL
+    n_threads = 2
 )
 
 plot(
-    beri_map, 
-    main = "BERI", 
+    beri_map,
+    main = "BERI",
     col = hcl.colors(100, "RdYlGn"),
     range = c(0, 0.8)
 )
@@ -246,8 +237,8 @@ plot(
 
 The five panels show the input habitat condition and four indicator results,
 cropped to the Tasmanian mainland for display. Calculations above use the
-complete bundled landscape. Display ranges match the Python comparison:
-zero to one for the first four panels and zero to 0.8 for BERI.
+complete bundled landscape. Display ranges are zero to one for the first four
+panels and zero to 0.8 for BERI.
 
 ```{r comparison, fig.width=10, fig.height=7, fig.cap="Habitat condition and the four connectivity indicators on the Tasmanian mainland."}
 mainland <- ext(144.4, 148.6, -43.7, -40.6)
@@ -269,28 +260,78 @@ palettes <- list(
 old_par <- par(mfrow = c(2, 3), mar = c(3, 3, 3, 4))
 for (i in seq_along(maps)) {
     plot(
-        terra::crop(maps[[i]], mainland), 
-        main = titles[i], 
+        terra::crop(maps[[i]], mainland),
+        main = titles[i],
         col = palettes[[i]],
         range = c(0, if (i == 5) 0.8 else 1)
     )
 }
 plot.new()
 par(old_par)
+```
 
+## 8. Large rasters in tiles
+
+Each call holds its analysis window in memory. For rasters too large for one
+call, `make_tiles()` splits the grid into rectangular tiles whose internal edges
+fall on multiples of `align_to` pixels; use the largest aggregation level.
+Pass each tile as `polygon_mask` with the default open border, so each tile
+reads its surrounding landscape. With `balanced = TRUE`, tile edges balance the
+number of cells with data instead of tile sizes.
+
+The example below only demonstrates that tiling does not change the result: it
+calculates Connected Habitat in four tiles, merges them in memory and compares
+the mosaic with the untiled result from section 4.
+
+```{r tiles}
+tiles <- make_tiles(condition, nrows = 2, ncols = 2, align_to = 32)
+tiles
+
+tile_maps <- lapply(seq_len(nrow(tiles)), function(i) {
+    return(connectedness(
+        condition_file = condition,
+        polygon_mask = tiles[i],
+        lambdas = c(2, 20, 50),
+        max_cost = 2,
+        window_size = 5,
+        outer_window = 7,
+        levels = c(2, 4, 8, 16, 32),
+        option = 3,
+        window_mode = "circular",
+        n_threads = 2
+    ))
+})
+mosaic <- merge(sprc(tile_maps))
+
+# The merged tiles reproduce the whole-raster calculation.
+all.equal(values(mosaic), values(connhabitat))
+```
+
+In practice, tiles are used when the whole raster is too large to process at
+once, so keeping every tile result in memory defeats the purpose. Write each
+tile to a file instead, for example from separate jobs using `make_tile()`,
+then combine the files with `terra::merge()` or read them as one virtual
+raster with `terra::vrt()`:
+
+```{r tile-files, eval=FALSE}
+tile_files <- sprintf("connected_habitat_tile_%02d.tif", tiles$id)
+for (i in seq_len(nrow(tiles))) {
+    connectedness(condition_file, polygon_mask = tiles[i], filename = tile_files[i])
+}
+
+habitat <- vrt(tile_files)
+# Or write one merged file:
+habitat <- merge(sprc(tile_files), filename = "connected_habitat.tif")
 ```
 
 ## Data sources and licence
 
-The nine GeoTIFFs are unchanged copies of the Python package's example data.
-They are distributed under **CC BY-NC-SA 4.0**, separately from the package's
+The nine GeoTIFFs are distributed under **CC BY-NC-SA 4.0**, separately from the package's
 MIT-licensed code. The installed data README records the grid, layer metadata,
 attribution and licence:
 
 ```{r data-documentation, eval=FALSE}
-file.show(
-    system.file("extdata", "README.md", package = "connectivity", mustWork = TRUE)
-)
+file.show(system.file("extdata", "README.md", package = "connectivity"))
 ```
 
 Ware, C., Valavi, R., Vickers, M., Giljohann, K. M., Mokany, K., Purvis, A.,
@@ -302,5 +343,4 @@ CSIRO Data Collection. <https://doi.org/10.25919/3aka-y730>.
 
 Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., and Ferrier,
 S. (2026). *A scalable multi-resolution framework for connectivity-based
-biodiversity indicators.* EcoEvoRxiv.
-<https://ecoevorxiv.org/repository/view/12146/>.
+biodiversity indicators.* EcoEvoRxiv. <https://doi.org/10.32942/X2S68V>.

@@ -1,5 +1,9 @@
 # connectivity: multi-resolution landscape connectivity in R
 
+[![R CMD check](https://github.com/csiro/connectivity/actions/workflows/r-cmd-check.yml/badge.svg?branch=main)](https://github.com/csiro/connectivity/actions/workflows/r-cmd-check.yml)
+[![R versions](https://img.shields.io/badge/R-%E2%89%A54.2-blue)](https://www.r-project.org/)
+[![DOI](https://img.shields.io/badge/DOI-10.32942%2FX2S68V-blue)](https://doi.org/10.32942/X2S68V)
+
 An R package for calculating **Connected Habitat**, **PARC-connectedness** and
 the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat
 condition, least-cost paths and dispersal kernels to estimate how much
@@ -14,9 +18,8 @@ and conservation planning. See [Valavi et al. (2026)](https://doi.org/10.32942/X
 for the multi-resolution method.
 
 The R interface uses `terra` for spatial input and output and the
-[`connectivity-core`](https://crates.io/crates/connectivity-core) Rust numerical
-engine. Python is not required. This directory contains the development R
-package; the repository root provides the separate Python package.
+[`connectivity-core`](https://docs.rs/connectivity-core) Rust numerical
+engine.
 
 ## Key features
 
@@ -26,6 +29,8 @@ package; the repository root provides the separate Python package.
 - `pixel_coverage()`: exact fractional polygon coverage, preserving holes and
   multipart geometries and unioning overlapping polygons.
 - `resolution_info()`: preview aggregation levels, grid sizes and search reach.
+- `make_tiles()` and `make_tile()`: split large rasters into aligned, optionally
+  cost-balanced tiles whose merged results equal a whole-raster calculation.
 - Raster filenames or `terra::SpatRaster` inputs, georeferenced raster outputs,
   optional resistance surfaces, polygon boundaries and multithreaded computation.
 
@@ -73,7 +78,7 @@ in the installed package with `system.file()`:
 library(connectivity)
 library(terra)
 
-data_dir <- system.file("extdata", package = "connectivity", mustWork = TRUE)
+data_dir <- system.file("extdata", package = "connectivity")
 condition_file <- file.path(data_dir, "site_condition.tif")
 pa_file <- file.path(data_dir, "pa_proportion.tif")
 current_file <- file.path(data_dir, "transgrids", "1990.tif")
@@ -104,8 +109,8 @@ estimate for geographic rasters uses the centre latitude. This planning span
 differs from the dispersal bandwidths in `lambdas`. Small-grid flags guide
 review rather than selecting levels automatically.
 
-The engine generates aggregation levels internally, without precomputed raster
-overviews. Indicator calls include level 1 and require a continuous sequence of
+Aggregation levels are generated from the base raster during each calculation.
+Indicator calls include level 1 and require a continuous sequence of
 powers of two after rounding supplied levels. Both window sizes must be positive
 odd integers; `outer_window` is increased to `window_size` if smaller.
 
@@ -127,7 +132,7 @@ habitat <- connectedness(
     condition_file = condition,
     lambdas = c(2, 20, 200),
     max_cost = 2,
-    window_size = 3,
+    window_size = 5,
     outer_window = 9,
     window_mode = "circular",
     levels = c(2, 4, 8, 16, 32),
@@ -165,7 +170,8 @@ habitat_resistance <- connectedness(
 ```
 
 Use `resistance_scale` for a separate divisor if needed. After scaling,
-`1 - resistance` is clipped to `[0, 1]` for traversal. Missing resistance at valid
+`1 - resistance` is clipped to `[0, 1]` for traversal, so resistance of 1 or
+more, including `Inf`, gives the highest path cost. Missing resistance at valid
 condition cells falls back to condition with a warning. The same arguments are
 available in `beri()`.
 
@@ -233,17 +239,32 @@ region <- as.polygons(ext(146, 147, -42.5, -41.5), crs = crs(condition))
 regional_habitat <- connectedness(
     condition,
     polygon_mask = region,
-    closed_border = FALSE,
-    margin_px = 0
+    closed_border = FALSE
 )
 ```
 
-Each call loads its analysis window into memory. Large jobs can be split using
-user-supplied polygon tiles with open borders. Supply the full condition raster
-so that each tile can read its surrounding landscape. Automatic tile planning
-with `make_tile()`, including balanced tiles, is currently Python-only. R uses
-`system.file()` for bundled data rather than Python's `example_data_path()`.
-The public R API consists of the four functions listed above.
+Each call loads its analysis window into memory. For large rasters, split the
+grid with `make_tiles()`, run each tile with open borders and write it to a
+file, then combine the files. Supply the full condition raster so that each
+tile can read its surrounding landscape; the combined tiles then equal a
+whole-raster calculation:
+
+```r
+tiles <- make_tiles(condition_file, nrows = 2, ncols = 2, align_to = 32)
+tile_files <- sprintf("connected_habitat_tile_%02d.tif", tiles$id)
+for (i in seq_len(nrow(tiles))) {
+    connectedness(condition_file, polygon_mask = tiles[i], filename = tile_files[i])
+}
+habitat_tiled <- vrt(tile_files)
+```
+
+`terra::vrt()` reads the tile files as one virtual raster; use
+`merge(sprc(tile_files), filename = ...)` to write a single merged file.
+
+Set `align_to` to the largest aggregation level. `balanced = TRUE` places tile
+edges to balance the number of cells with data rather than tile sizes, and
+`make_tile()` returns a single tile, e.g. for one job in a batch array. Tile
+numbers and cell ranges are one-based.
 
 For a full worked analysis, see the [Tasmania vignette](vignettes/tasmania-indicators.Rmd),
 or open `vignette("tasmania-indicators", package = "connectivity")` after installation.
@@ -273,8 +294,10 @@ Underlying methods:
 
 Developed at the **Commonwealth Scientific and Industrial Research Organisation
 (CSIRO)**. Copyright © 2026 CSIRO. The code is distributed under the
-[MIT licence](LICENSE.md), shared with the Python package. The R binding uses
-`extendr`/`rextendr` and `terra` for its interface and spatial workflows.
+[MIT licence](LICENSE.md). The R binding uses
+`extendr`/`rextendr` and `terra` for its interface and spatial workflows. The
+authors and licences of the vendored Rust crates are listed in
+[`LICENSE.note`](LICENSE.note).
 
 The bundled Tasmania data are licensed separately under
 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Please cite:
