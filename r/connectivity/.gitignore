@@ -1,0 +1,13 @@
+src/rust/vendor
+src/Makevars
+src/Makevars.win
+
+# Generated from locked registry dependencies by tools/prepare-source.R.
+# Include these in the built R source archive for offline compilation.
+src/rust/vendor.tar.xz
+src/rust/vendor-config.toml
+*.tar.gz
+*.Rcheck/
+
+# The repository's Python-oriented ignore file excludes directories named man.
+!man/

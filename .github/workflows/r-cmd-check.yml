@@ -5,16 +5,10 @@ on:
     branches: [main]
     paths:
       - "r/**"
-      - "crates/connectivity-core/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
       - ".github/workflows/r-cmd-check.yml"
   pull_request:
     paths:
       - "r/**"
-      - "crates/connectivity-core/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
       - ".github/workflows/r-cmd-check.yml"
   workflow_dispatch:
 
@@ -39,17 +33,17 @@ jobs:
           targets: ${{ runner.os == 'Windows' && 'x86_64-pc-windows-gnu' || '' }}
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          working-directory: r/ecoconnectivity
+          working-directory: r/connectivity
           extra-packages: |
             any::rextendr
             any::rcmdcheck
-      - name: Prepare standalone core and vendored Rust dependencies
+      - name: Vendor published Rust dependencies
         shell: Rscript {0}
         run: |
-          source("r/ecoconnectivity/tools/prepare-source.R")
-          prepare_source("r/ecoconnectivity")
+          source("r/connectivity/tools/prepare-source.R")
+          prepare_source("r/connectivity")
       - uses: r-lib/actions/check-r-package@v2
         with:
-          working-directory: r/ecoconnectivity
+          working-directory: r/connectivity
           args: 'c("--no-manual", "--as-cran")'
           error-on: '"warning"'
