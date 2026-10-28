@@ -1,152 +1,290 @@
-# connectivity
+# connectivity: multi-resolution landscape connectivity in R
 
-Development R interface to the published
-[`connectivity-core`](https://crates.io/crates/connectivity-core) Rust engine.
-The R package has an independent version and dependency lock. Python and the
-Rust core retain their current layout and release process.
+An R package for calculating **Connected Habitat**, **PARC-connectedness** and
+the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat
+condition, least-cost paths and dispersal kernels to estimate how much
+surrounding habitat is accessible across dispersal scales. Fine spatial detail
+is retained near each focal cell, while progressively coarser grids represent
+more distant areas, making large-landscape analyses efficient.
 
-## Raster interface
+PARC-connectedness incorporates protected-area coverage; BERI incorporates
+current and future climate-related compositional similarity to assess ecosystem
+resilience under climate change. These indicators support biodiversity monitoring
+and conservation planning. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V)
+for the multi-resolution method.
 
-The public functions use `terra` for raster/vector IO and the existing Rust
-engine for numerical work:
+The R interface uses `terra` for spatial input and output and the
+[`connectivity-core`](https://crates.io/crates/connectivity-core) Rust numerical
+engine. Python is not required. This directory contains the development R
+package; the repository root provides the separate Python package.
 
-- `connectedness()` computes Connected Habitat (the default), raw connectedness,
-  or PARC connectedness from protected-area proportions.
-- `beri()` computes the Bioclimatic Ecosystem Resilience Index from current
-  climate and optional future scenarios, preserving band and scenario order.
-- `pixel_coverage()` computes exact polygon coverage per raster cell, including
-  holes and multipart geometries. Overlapping polygons are unioned first.
+## Key features
 
-Raster inputs can be `terra::SpatRaster` objects or filenames; polygon inputs
-can be `terra::SpatVector` objects, vector filenames or inputs supported by
-`terra::vect()`. Each function returns a georeferenced `SpatRaster` and optionally
-writes it to `filename`. Output files default to float32; existing files require
-`overwrite = TRUE`.
+- `connectedness()`: raw connectedness, condition-adjusted Connected Habitat,
+  and PARC-connectedness, including protected-to-protected destinations.
+- `beri()`: resilience from current climate and optional future scenarios.
+- `pixel_coverage()`: exact fractional polygon coverage, preserving holes and
+  multipart geometries and unioning overlapping polygons.
+- `resolution_info()`: preview aggregation levels, grid sizes and search reach.
+- Raster filenames or `terra::SpatRaster` inputs, georeferenced raster outputs,
+  optional resistance surfaces, polygon boundaries and multithreaded computation.
 
-```r
-library(connectivity)
+## Installation
 
-condition_file <- system.file("extdata", "site_condition.tif",
-                              package = "connectivity", mustWork = TRUE)
-condition <- terra::rast(condition_file)
-habitat <- connectedness(condition)
-terra::plot(habitat, main = "Connected habitat")
+This development package is not yet available on CRAN. Source installation needs
+**R >= 4.2**, **Rust >= 1.86** with Cargo, GNU make, and xz/tar. Windows also
+requires matching Rtools and the Rust GNU target. Building the bundled vignette
+requires Pandoc, `knitr` and `rmarkdown`.
+
+Clone the repository, or use an existing checkout:
+
+```sh
+git clone https://github.com/csiro/connectivity.git
+cd connectivity
 ```
 
-The Tasmania rasters from the Python package are bundled in `inst/extdata`.
-Use `system.file()` to locate them in the installed package, then read them
-with `terra::rast()` or pass their paths directly to the indicator functions.
-Use `resolution_info(condition_file, outer_window = 7)` to preview candidate
-aggregation levels, cell counts, resolutions, approximate search reach in CRS
-units and kilometres, and small-grid flags. It prints the summary and invisibly
-returns a data frame for reuse, accepting either a filename or `SpatRaster`.
-The [Tasmania vignette](vignettes/tasmania-indicators.Rmd) covers resolution
-planning, connectedness, connected habitat, PARC-connectedness and BERI with
-six future scenarios. It plots the returned rasters in memory without saving
-indicator files. After installation, open it with
-`vignette("tasmania-indicators", package = "connectivity")`.
-Data sources, attribution and the CC BY-NC-SA 4.0 data licence are documented
-in `system.file("extdata", "README.md", package = "connectivity")`.
-
-Scientific preparation follows the Python procedures: optional scaling,
-condition/protected-area maxima, protected focal-cell masks, clipped resistance
-inversion with missing-value fallback, and float32 habitat post-processing.
-`connectedness(option = 1)` returns raw connectedness, option 2 multiplies by
-condition, and option 3 (default) takes the square root of that product. PARC
-and BERI are returned directly. Raster overviews are generated by Rust from
-base values rather than read from GDAL overview files.
-
-Polygon analyses default to open borders: read enough surrounding context,
-align the read window to the global aggregation grid, compute, then crop and
-mask to the polygon. `closed_border = TRUE` removes the outside landscape from
-paths and habitat contributions. Geographic pixel margins are buffered in map
-units, preserving the Python procedure rather than terra's metre-based
-geographic buffer convention.
-
-Auxiliary rasters must align with the condition grid and cover the analysis
-window; they are not silently resampled. Polygons are reprojected where needed.
-Projected units are converted to metres internally, and dispersal bandwidths
-remain kilometres. Calls load their analysis window into memory; large jobs can
-be split into polygon tiles with open borders. Automatic tile planning is not
-yet included. This development package is not yet a CRAN release.
-
-## Build and check
-
-Source installation needs R >= 4.2, Rust >= 1.86, Cargo, GNU make, and xz/tar.
-Windows additionally needs a matching Rtools installation and Rust GNU target.
-Development preparation uses `rextendr`; tests use `testthat`, and documentation
-uses `roxygen2`. Building the vignette also needs `knitr`, `rmarkdown` and Pandoc.
-
-From the repository root:
+From the repository root, install the R dependencies, then build and install:
 
 ```r
-install.packages(c("rextendr", "testthat", "roxygen2", "knitr", "rmarkdown"))
+install.packages(c("terra", "rextendr", "knitr", "rmarkdown"))
 ```
 
 ```sh
-Rscript r/connectivity/tools/build-source.R /tmp/connectivity-build
-R CMD INSTALL /tmp/connectivity-build/connectivity_0.0.0.9000.tar.gz
-R CMD check --no-manual /tmp/connectivity-build/connectivity_0.0.0.9000.tar.gz
+Rscript r/connectivity/tools/build-source.R /tmp/connectivity-r-build
+R CMD INSTALL /tmp/connectivity-r-build/connectivity_*.tar.gz
 ```
 
-The R binding depends on the published `connectivity-core = '=0.1.0'` crate
-from crates.io. The build tool vendors all locked registry dependencies,
-including that release, into `vendor.tar.xz`. The resulting R source archive
-includes everything needed for offline Cargo compilation outside this
-repository. Preparation requires access to the Rust dependency registry or a
-populated Cargo cache. Local changes to `crates/connectivity-core` do not affect
-R builds; adopting a newer published release requires updating the R binding's
-dependency version and lockfile, then rerunning preparation.
+Use a fresh output directory for the source archive. Preparation requires access
+to the Rust registry or a populated Cargo cache. The build tool vendors locked
+Rust dependencies, including the published `connectivity-core = '=0.1.0'`, so
+the resulting archive supports offline Cargo compilation. The R package has its
+own version and dependency lock; local edits to the repository's Rust core do
+not affect R builds.
 
-For development in the checkout, run preparation before loading the package:
+## Connectivity analysis
+
+### Example data and input requirements
+
+The package bundles nine Tasmania GeoTIFFs: habitat condition, protected-area
+proportions, and current and six future climate-composition grids. Locate them
+in the installed package with `system.file()`:
 
 ```r
-source("r/connectivity/tools/prepare-source.R")
-prepare_source("r/connectivity")
-devtools::load_all("r/connectivity")
+library(connectivity)
+library(terra)
+
+data_dir <- system.file("extdata", package = "connectivity", mustWork = TRUE)
+condition_file <- file.path(data_dir, "site_condition.tif")
+pa_file <- file.path(data_dir, "pa_proportion.tif")
+current_file <- file.path(data_dir, "transgrids", "1990.tif")
+future_files <- file.path(
+    data_dir, "transgrids", c("IPS50_45.tif", "GFD50_85.tif")
+)
+condition <- rast(condition_file)
 ```
 
-R regression tests reproduce the existing Rust/Python engine fixtures and
-compare all cells in 17 frozen Python raster workflows. They cover habitat
-options, PARC, resistance, BERI, open/closed polygon boundaries with non-zero
-read offsets, geographic distances/margins, polygon union/holes, file IO, nodata
-and thread counts. Python is
-not required to run the R tests.
+Condition and protected-area proportions must be single-layer rasters with
+values in `[0, 1]`; missing condition cells are excluded. Use `scale = 100`
+for condition stored as percentages, or `scale = c(100, 100)` to scale both
+condition and protected fractions in `connectedness()`. Auxiliary rasters must
+share the condition raster's CRS, resolution and pixel grid and cover the
+analysis window. They are not resampled automatically. Supply a valid CRS;
+projected units are converted internally, and `lambdas` always uses kilometres.
 
-## Citation
+### Resolution planning
+
+```r
+plan <- resolution_info(condition, outer_window = 9)
+```
+
+This prints raster metadata and candidate aggregation levels and invisibly
+returns a data frame. Approximate search reach is
+`outer_window * max(levels) * max(res(condition))` in CRS units; the kilometre
+estimate for geographic rasters uses the centre latitude. This planning span
+differs from the dispersal bandwidths in `lambdas`. Small-grid flags guide
+review rather than selecting levels automatically.
+
+The engine generates aggregation levels internally, without precomputed raster
+overviews. Indicator calls include level 1 and require a continuous sequence of
+powers of two after rounding supplied levels. Both window sizes must be positive
+odd integers; `outer_window` is increased to `window_size` if smaller.
+
+<img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/circular_multires_windows.png" alt="Circular multi-resolution neighbourhoods around a focal cell" width="900">
+
+Each coloured neighbourhood represents a different aggregation level. Their
+contributions form one graph for least-cost path calculations. The default
+`window_mode = "circular"` uses circular annuli with fractional boundary support;
+`"square"` uses square annuli. Window mode affects indicator values, so use the
+same mode when comparing analyses.
+
+### Connected Habitat (connectedness)
+
+Only habitat condition is required. The following call shows the default
+scientific settings, also used by the subsequent indicator examples:
+
+```r
+habitat <- connectedness(
+    condition_file = condition,
+    lambdas = c(2, 20, 200),
+    max_cost = 2,
+    window_size = 3,
+    outer_window = 9,
+    window_mode = "circular",
+    levels = c(2, 4, 8, 16, 32),
+    option = 3
+)
+plot(habitat, main = "Connected habitat")
+```
+
+Scores are averaged across dispersal bandwidths. Choose the output with `option`:
+
+| Option | Output |
+| --- | --- |
+| `1` | Raw connectedness |
+| `2` | `connectedness * condition` |
+| `3` (default) | `sqrt(connectedness * condition)` |
+
+Indicator functions and `pixel_coverage()` return a single-layer `SpatRaster`.
+Pass `filename` to write an output, `overwrite = TRUE` to replace an existing
+file, and `wopt` for `terra::writeRaster()` options. Files default to float32.
+Set `n_threads` to control worker count; `NULL` uses the engine's default.
+
+### Optional resistance surface
+
+Condition normally supplies both habitat value and traversal costs. Provide
+`resistance_file` to control movement costs separately, while retaining condition
+as the habitat value. Higher resistance means harder passage. For example:
+
+```r
+# Illustrative surface; replace with an independently prepared resistance raster.
+resistance <- 1 - condition
+habitat_resistance <- connectedness(
+    condition_file = condition,
+    resistance_file = resistance
+)
+```
+
+Use `resistance_scale` for a separate divisor if needed. After scaling,
+`1 - resistance` is clipped to `[0, 1]` for traversal. Missing resistance at valid
+condition cells falls back to condition with a warning. The same arguments are
+available in `beri()`.
+
+### PARC-connectedness
+
+Supply a protected-area proportion raster to calculate PARC-connectedness:
+
+```r
+parc <- connectedness(condition_file, pa_file = pa_file)
+plot(parc, main = "PARC-connectedness")
+```
+
+The calculation uses the maximum of condition and protected fraction, and only
+cells with positive protected fractions receive scores. `pa_to_pa = TRUE`
+restricts destinations to protected cells, weighted by protected fraction at
+coarser levels. PARC returns raw connectedness regardless of `option`.
+
+Use `pixel_coverage()` to prepare protected fractions from polygons. This
+illustrative rectangle shares the example raster's CRS:
+
+```r
+protected_area <- as.polygons(
+    ext(146, 147, -42.5, -41.5), crs = crs(condition)
+)
+coverage <- pixel_coverage(protected_area, condition)
+```
+
+Polygon inputs may also be vector filenames or objects accepted by
+`terra::vect()`. Polygons are reprojected when necessary. Coverage fractions
+refer to area in the raster coordinate plane; reference nodata does not mask
+the coverage result.
+
+### Bioclimatic Ecosystem Resilience Index (BERI)
+
+Provide habitat condition and current transgrids from generalised dissimilarity
+modelling (GDM), with optional future scenarios. Each scenario must have the same
+number and order of bands as the current grid; the bundled climate rasters each
+contain 19 bands.
+
+```r
+beri_map <- beri(
+    condition_file = condition_file,
+    current_file = current_file,
+    future_files = future_files
+)
+plot(beri_map, main = "BERI")
+```
+
+`future_files` accepts a character vector of filenames, a list of rasters or
+filenames, or one `SpatRaster` for a single scenario. The result is one BERI
+raster combining the supplied scenarios, without Connected Habitat
+post-processing. Omit `future_files` for a current-climate index. Climate bands
+are not scaled by `scale`; missing climate bands give a cell similarity of zero.
+
+## Polygon analyses and tiles
+
+Pass `polygon_mask` to `connectedness()` or `beri()` to limit the output area.
+With the default `closed_border = FALSE`, the package reads surrounding context,
+aligns the read window to the full raster's coarsest aggregation grid, then crops
+and masks the result to the polygon. Setting `closed_border = TRUE` excludes
+outside habitat from both paths and contributions.
+
+```r
+region <- as.polygons(ext(146, 147, -42.5, -41.5), crs = crs(condition))
+regional_habitat <- connectedness(
+    condition,
+    polygon_mask = region,
+    closed_border = FALSE,
+    margin_px = 0
+)
+```
+
+Each call loads its analysis window into memory. Large jobs can be split using
+user-supplied polygon tiles with open borders. Supply the full condition raster
+so that each tile can read its surrounding landscape. Automatic tile planning
+with `make_tile()`, including balanced tiles, is currently Python-only. R uses
+`system.file()` for bundled data rather than Python's `example_data_path()`.
+The public R API consists of the four functions listed above.
+
+For a full worked analysis, see the [Tasmania vignette](vignettes/tasmania-indicators.Rmd),
+or open `vignette("tasmania-indicators", package = "connectivity")` after installation.
+
+## Citation and scientific references
 
 Use `citation("connectivity")` for the package citation:
 
-Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., and Ferrier,
-S. (2026). *A scalable multi-resolution framework for connectivity-based
-biodiversity indicators.* EcoEvoRxiv, preprint.
+Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., & Ferrier,
+S. (2026). **A scalable multi-resolution framework for connectivity-based
+biodiversity indicators**. *EcoEvoRxiv*, preprint.
 [doi:10.32942/X2S68V](https://doi.org/10.32942/X2S68V).
 
-The `connectedness()` and `beri()` help pages also cite the underlying methods
-of Ferrier et al. (2020) and Harwood et al. (2022).
+Underlying methods:
 
-## Licence
+- Harwood, T., Love, J., Drielsma, M., Brandon, C., & Ferrier, S. (2022).
+  Staying connected: assessing the capacity of landscapes to retain
+  biodiversity in a changing climate. *Landscape Ecology*, 37, 3123–3139.
+  [doi:10.1007/s10980-022-01534-5](https://doi.org/10.1007/s10980-022-01534-5).
+- Ferrier, S., Harwood, T. D., Ware, C., & Hoskins, A. J. (2020).
+  A globally applicable indicator of the capacity of terrestrial ecosystems
+  to retain biological diversity under climate change: The bioclimatic
+  ecosystem resilience index. *Ecological Indicators*, 117, 106554.
+  [doi:10.1016/j.ecolind.2020.106554](https://doi.org/10.1016/j.ecolind.2020.106554).
 
-The full MIT licence in `LICENSE.md` is an exact copy of the Python package's
-repository-level `LICENSE`, with the same CSIRO copyright. `LICENSE` holds the
-year and copyright metadata required by R's MIT licence template. Development
-source preparation refreshes `LICENSE.md` from the shared repository licence.
+## Acknowledgements and licence
 
-## Development conventions
+Developed at the **Commonwealth Scientific and Industrial Research Organisation
+(CSIRO)**. Copyright © 2026 CSIRO. The code is distributed under the
+[MIT licence](LICENSE.md), shared with the Python package. The R binding uses
+`extendr`/`rextendr` and `terra` for its interface and spatial workflows.
 
-- Use four spaces for R code indentation.
-- Use explicit `return()` calls in R functions, including anonymous functions.
-  Functions used only for validation return `invisible(NULL)` explicitly.
-  Error handlers that always call `stop()` have no successful return path.
-  Generated extendr wrappers retain their generator's implicit returns;
-  rebuilding would overwrite manual `return()` edits.
-- Keep all numerical algorithms in `crates/connectivity-core`; the R binding
-  consumes published releases from crates.io.
-- Put R input preparation and user-facing validation in `R/`.
-- Keep native conversion code under `src/rust/src/` and avoid the R API on workers.
-- Regenerate `R/extendr-wrappers.R` through the native build, then run
-  `roxygen2::roxygenise("r/connectivity")` for `NAMESPACE` and `man/`.
-- Keep versions independent; this development package uses core `0.1.0`.
-- R checks build source archives and publish nothing.
+The bundled Tasmania data are licensed separately under
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Please cite:
 
-Build scaffolding follows [rextendr](https://extendr.rs/rextendr/articles/package.html).
+Ware, C., Valavi, R., Vickers, M., Giljohann, K. M., Mokany, K., Purvis, A.,
+Walkden, P., De Palma, A., Duffin, C., Contu, S., Harwood, T., Hoskins, A., &
+Ferrier, S. (2026). *Global biodiversity indicator data for BHI, BERI,
+PARC-representativeness, PARC-connectedness and ecosystem condition (2000–2024)*.
+Version 4. CSIRO Data Collection.
+[doi:10.25919/3aka-y730](https://doi.org/10.25919/3aka-y730).
+
+See the [example-data README](inst/extdata/README.md) for layer metadata and
+attribution, also installed at `file.path(data_dir, "README.md")`.
