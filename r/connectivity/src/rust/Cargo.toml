@@ -10,12 +10,8 @@ rust-version = '1.86'
 [workspace]
 
 [lib]
-crate-type = [ 'rlib', 'staticlib' ]
+crate-type = [ 'staticlib' ]
 name = 'connectivity'
-
-[[bin]]
-name = 'document'
-path = 'document.rs'
 
 [dependencies]
 connectivity-core = '=0.1.0'

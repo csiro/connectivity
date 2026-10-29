@@ -3,9 +3,9 @@ LIBDIR = $(TARGET_DIR)/@LIBDIR@
 STATLIB = $(LIBDIR)/libconnectivity.a
 PKG_LIBS = -L$(LIBDIR) -lconnectivity
 
-all: $(SHLIB) rust_clean
+all: $(SHLIB) wrappers rust_clean
 
-.PHONY: $(STATLIB)
+.PHONY: $(STATLIB) wrappers
 
 $(SHLIB): $(STATLIB)
 
@@ -38,12 +38,15 @@ $(STATLIB):
 	export PATH="$(PATH):$(HOME)/.cargo/bin" && \
 	@PANIC_EXPORTS@RUSTFLAGS="$(RUSTFLAGS) --print=native-static-libs" cargo build --locked @CRAN_FLAGS@ --lib @PROFILE@ --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR) @TARGET@
 
-	export CARGO_HOME=$(CARGOTMP) && \
-	export PATH="$(PATH):$(HOME)/.cargo/bin" && \
-	cargo run --locked @CRAN_FLAGS@ --bin document --manifest-path=./rust/Cargo.toml --target-dir $(TARGET_DIR) @TARGET@
-
 	# Always clean up CARGOTMP
 	rm -Rf $(CARGOTMP);
+
+# Regenerate R/extendr-wrappers.R from the built library only during roxygen runs
+# (devtools::document(), rextendr::document()), which set ROXYGEN_PKG.
+wrappers: $(SHLIB)
+	if [ -n "$$ROXYGEN_PKG" ]; then \
+		"$(R_HOME)/bin/Rscript" ../tools/document.R $(R_PACKAGE_NAME) $(SHLIB) ../R/extendr-wrappers.R; \
+	fi
 
 rust_clean: $(SHLIB)
 	rm -Rf $(CARGOTMP) $(VENDOR_DIR) @CLEAN_TARGET@

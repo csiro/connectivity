@@ -29,6 +29,18 @@ cargo test -p connectivity-core # the core alone, without Python
 pip install ./python            # build and install the Python package
 ```
 
+## Releases
+
+Each package has its own version and release tags:
+
+| Package | Tag | Release |
+|---|---|---|
+| Python, `eco-connectivity` | `vX.Y.Z` | CI publishes the wheels and sdist to PyPI and creates the GitHub Release |
+| Rust, `connectivity-core` | `connectivity-core-vX.Y.Z` | CI checks the tag; the crate is published with `cargo publish -p connectivity-core` |
+| R, `connectivity` | `r-vX.Y.Z` | Tag only; the package is submitted to CRAN separately |
+
+Only Python releases appear under GitHub Releases. The Python version is set in `python/Cargo.toml`. Changes are listed in [python/NEWS.md](python/NEWS.md), [crates/connectivity-core/CHANGELOG.md](crates/connectivity-core/CHANGELOG.md) and [r/connectivity/NEWS.md](r/connectivity/NEWS.md).
+
 ## Citation
 To cite `connectivity` in publications and reports, please use:
 
