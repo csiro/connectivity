@@ -1,12 +1,14 @@
 //! Multi-resolution landscape connectivity on in-memory raster arrays.
 //!
-//! This is the numerical engine of the [`eco-connectivity`](https://pypi.org/project/eco-connectivity/)
-//! Python package. For every unmasked focal cell of a raster tile, [`connectivity`] computes
+//! This is the numerical engine shared by the Python package
+//! [`eco-connectivity`](https://pypi.org/project/eco-connectivity/) and the R package
+//! [`connectivity`](https://github.com/csiro/connectivity/tree/main/r/connectivity). For every
+//! unmasked focal cell of a raster tile, the [`connectivity`] function computes
 //! - habitat or PARC **connectedness**, when no transgrids are given, or
 //! - the Bioclimatic Ecosystem Resilience Index (**BERI**), when transgrids are given,
 //!
 //! and [`pixel_coverage`] computes the fraction of each pixel covered by polygons, e.g. to
-//! build protected-area proportion rasters. The crate has no Python, GDAL or file I/O
+//! build protected-area proportion rasters. The crate has no Python, R, GDAL or file I/O
 //! dependencies: callers read rasters and pass plain [`ndarray`] arrays.
 //!
 //! # Method

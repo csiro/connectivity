@@ -1,3 +1,7 @@
+# Version 2.4.1
+## Changed
+- Updated PyO3 and rust-numpy to 0.30, clearing the PyO3 security advisories for versions below 0.29 (an out-of-bounds read in `PyList`/`PyTuple` iterators and a missing `Sync` bound on `PyCFunction::new_closure`); the extension uses neither API. PyO3 0.30 has no Python 3.8 stable ABI, so wheels are now tagged `cp310-abi3`, matching the existing `requires-python >= 3.10`. Results are unchanged.
+
 # Version 2.4.0
 ## Changed
 - Rebuilt per-cell graphs with flat node arrays and directly constructed compressed sparse row (CSR) edges, retaining integer Dijkstra. Per-thread buffers eliminate per-cell allocations. Together with the caching and BERI improvements below, these changes are about 4x faster for connectedness and PARC and 3x faster for BERI than v2.3 on the bundled example (8 threads); speedups against v2.2 are about twice as large. CPU/Rayon remains the only execution path.

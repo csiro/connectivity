@@ -4,14 +4,22 @@
 [![crates.io version](https://img.shields.io/crates/v/connectivity-core)](https://crates.io/crates/connectivity-core)
 [![API documentation](https://img.shields.io/docsrs/connectivity-core)](https://docs.rs/connectivity-core)
 
-Multi-resolution landscape connectivity on in-memory raster arrays: habitat and PARC
-connectedness, the Bioclimatic Ecosystem Resilience Index (BERI), and fractional pixel
-coverage of polygons. This crate is the numerical engine of the
-[`eco-connectivity`](https://pypi.org/project/eco-connectivity/) Python package; see
-[Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the method.
+A Rust library for calculating **habitat connectedness**, the **Protected Area Connectedness
+Index (PARC-connectedness)** and the **Bioclimatic Ecosystem Resilience Index (BERI)** on
+in-memory raster arrays, plus the fraction of each pixel covered by polygons. It combines
+habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding
+habitat is accessible across dispersal scales. Fine spatial detail is retained near each
+focal cell, while progressively coarser grids represent more distant areas, making
+large-landscape analyses efficient. PARC-connectedness incorporates protected-area coverage;
+BERI incorporates current and future climate-related compositional similarity to assess
+ecosystem resilience under climate change. This crate is the numerical engine shared by the
+Python package [`eco-connectivity`](https://pypi.org/project/eco-connectivity/) and the R
+package [`connectivity`](https://github.com/csiro/connectivity/tree/main/r/connectivity).
+See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
-It has no Python, GDAL or file I/O dependencies. Callers read rasters, pass `ndarray` arrays
-of one tile, and handle file formats, tiling and post-processing such as Connected Habitat.
+It has no Python, R, GDAL or file I/O dependencies. Callers read rasters, pass `ndarray`
+arrays of one tile, and handle file formats, tiling and post-processing such as Connected
+Habitat.
 
 ```toml
 [dependencies]

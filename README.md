@@ -7,7 +7,7 @@
 [![crates.io](https://img.shields.io/crates/v/connectivity-core)](https://crates.io/crates/connectivity-core)
 [![DOI](https://img.shields.io/badge/DOI-10.32942%2FX2S68V-blue)](https://doi.org/10.32942/X2S68V)
 
-A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across different dispersal scales. The algorithm retains fine spatial detail near each focal cell and represents more distant areas at progressively coarser resolutions, using raster overview layers generated on the fly to make large-landscape analyses efficient. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
+A multi-resolution landscape connectivity algorithm for calculating **Connected Habitat** (a.k.a. connectivity-adjusted condition), the **Protected Area Connectedness Index (PARC-connectedness)** and the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across dispersal scales. Fine spatial detail is retained near each focal cell, while progressively coarser grids represent more distant areas, making large-landscape analyses efficient. PARC-connectedness incorporates protected-area coverage; BERI incorporates current and future climate-related compositional similarity to assess ecosystem resilience under climate change. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
 ## Packages
 

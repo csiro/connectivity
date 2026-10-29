@@ -1,4 +1,4 @@
-# connectivity: a multi-resolution landscape connectivity algorithm
+# connectivity: multi-resolution landscape connectivity in Python
 
 [![Build](https://github.com/csiro/connectivity/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/csiro/connectivity/actions/workflows/publish.yml)
 [![CodeQL](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/csiro/connectivity/actions/workflows/github-code-scanning/codeql)
@@ -7,24 +7,24 @@
 [![Downloads](https://api.pepy.tech/badge/eco-connectivity)](https://pepy.tech/projects/eco-connectivity)
 [![DOI](https://img.shields.io/badge/DOI-10.32942%2FX2S68V-blue)](https://doi.org/10.32942/X2S68V)
 
-- [connectivity: a multi-resolution landscape connectivity algorithm](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
-  - [Installation ](#installation-)
-    - [Install from PyPI ](#install-from-pypi-)
-    - [Install from Source ](#install-from-source-)
-    - [Rust Core Library ](#rust-core-library-)
-  - [Connectivity Analysis ](#connectivity-analysis-)
-    - [Connected Habitat (Connectedness) ](#connected-habitat-connectedness-)
+- [connectivity: multi-resolution landscape connectivity in Python](#connectivity-multi-resolution-landscape-connectivity-in-python)
+  - [Installation](#installation)
+    - [Install from PyPI](#install-from-pypi)
+    - [Install from Source](#install-from-source)
+    - [Rust Core Library](#rust-core-library)
+  - [Connectivity Analysis](#connectivity-analysis)
+    - [Connected Habitat (Connectedness)](#connected-habitat-connectedness)
       - [Optional resistance surface](#optional-resistance-surface)
-    - [PARC-Connectedness ](#parc-connectedness-)
-    - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
-  - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
+    - [PARC-Connectedness](#parc-connectedness)
+    - [Bioclimatic Ecosystem Resilience Index (BERI)](#bioclimatic-ecosystem-resilience-index-beri)
+  - [Running Analysis with Tiles](#running-analysis-with-tiles)
   - [Citation and scientific references](#citation-and-scientific-references)
   - [Acknowledgements and licence](#acknowledgements-and-licence)
       
-A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across different dispersal scales. The algorithm retains fine spatial detail near each focal cell and represents more distant areas at progressively coarser resolutions, using raster overview layers generated on the fly to make large-landscape analyses efficient. PARC Connectedness additionally incorporates protected-area coverage, while BERI incorporates current and future climate-related compositional similarity to assess ecosystem resilience under climate change. Implemented in Rust with a Python interface, the framework supports biodiversity monitoring and conservation planning. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
+A Python package for calculating **Connected Habitat** (a.k.a. connectivity-adjusted condition), the **Protected Area Connectedness Index (PARC-connectedness)** and the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across dispersal scales. Fine spatial detail is retained near each focal cell, while progressively coarser grids represent more distant areas, making large-landscape analyses efficient. PARC-connectedness incorporates protected-area coverage; BERI incorporates current and future climate-related compositional similarity to assess ecosystem resilience under climate change. The package uses `rasterio` and `geopandas` for spatial input and output and the [`connectivity-core`](https://docs.rs/connectivity-core) Rust engine, which it shares with the R package [`connectivity`](https://github.com/csiro/connectivity/tree/main/r/connectivity). See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
-## Installation <a name="install"></a>     
-### Install from PyPI <a name="pypi"></a>     
+## Installation
+### Install from PyPI
 The package is published on PyPI as `eco-connectivity` (NOTE: `pip install connectivity` installs an unrelated package):
 
 ```bash
@@ -37,7 +37,7 @@ The import name is still `connectivity`:
 from connectivity import connectedness, beri
 ```
 
-### Install from Source <a name="source"></a>     
+### Install from Source
 
 To build the latest development version from the [GitHub repository](https://github.com/csiro/connectivity), install [Rust](https://www.rust-lang.org/tools/install) first, then run:
 
@@ -47,11 +47,11 @@ cd connectivity
 pip install ./python
 ```
 
-### Rust Core Library <a name="rust-core"></a>     
+### Rust Core Library
 
 The numerical engine is a separate Rust crate, [`connectivity-core`](https://github.com/csiro/connectivity/tree/main/crates/connectivity-core), which works on in-memory arrays without Python, GDAL or file I/O. Rust programs can use it directly; see its [README](https://github.com/csiro/connectivity/blob/main/crates/connectivity-core/README.md) and crate documentation. `cargo test --workspace` runs every Rust test, and `cargo test -p connectivity-core` needs no Python.
 
-## Connectivity Analysis <a name="analysis"></a>     
+## Connectivity Analysis
 Resolve the bundled example paths once so they can be reused throughout the
 analysis:
 
@@ -124,7 +124,7 @@ a single graph, in which the least-cost path from the focal cell is calculated
 for each aggregated cell.
 See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
-### Connected Habitat (Connectedness) <a name="conn"></a>    
+### Connected Habitat (Connectedness)
 
 To compute connected-habitat (or plain connectedness), you only need a habitat condition raster. Use `option` argument to generate the connected-habitat from connectedness and input condition with:    
 1. `connectedness`
@@ -173,7 +173,7 @@ condition but missing a resistance value fall back to condition for traversal an
 so the analysis domain is never changed silently. The same `resistance_file` / `resistance_scale`
 arguments are available on `beri()`.
 
-### PARC-Connectedness <a name="parc"></a>     
+### PARC-Connectedness
 To compute PARC-connectedness, provide both:
 * a habitat condition raster, and
 * a protected-areas proportion raster.    
@@ -209,7 +209,7 @@ coverage = pixel_coverage(
 )
 ```
 
-### Bioclimatic Ecosystem Resilience Index (BERI) <a name="beri"></a>    
+### Bioclimatic Ecosystem Resilience Index (BERI)
 To compute BERI, you must provide:
 * a condition raster
 * current GDM transgrids
@@ -232,7 +232,7 @@ beris = beri(
 <img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/beri.png" width="385" height="300">
 
 
-## Running Analysis with Tiles <a name="tiles"></a>    
+## Running Analysis with Tiles
 
 To run the model using tiles, create a rectangular tile polygon as a GeoDataFrame
 and pass it to the `polygon_mask` argument. This limits data loading to only the
@@ -349,4 +349,4 @@ See the [example-data README](https://github.com/csiro/connectivity/blob/main/py
 for layer metadata and attribution, also installed with the package as
 `connectivity/data/README.md`.
 
-[Back to top!](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)
+[Back to top!](#connectivity-multi-resolution-landscape-connectivity-in-python)
