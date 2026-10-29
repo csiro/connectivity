@@ -11,7 +11,7 @@ Description: Calculates multi-resolution landscape connectedness, Connected
     The multi-resolution method is described in Valavi, R. et al. (2026)
     <doi:10.32942/X2S68V>. Uses 'terra' for raster and vector input and output, input preparation and
     polygon analysis boundaries, and 'extendr' to call the 'connectivity-core'
-    Rust numerical engine. Calculations load the analysis window into memory,
+    'Rust' numerical engine. Calculations load the analysis window into memory,
     and large rasters can be processed as aligned tiles. Also calculates exact
     fractional polygon coverage of raster cells.
     Bundled example rasters for Tasmania are licensed separately under

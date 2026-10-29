@@ -1,6 +1,9 @@
 ## Test environments
 
 * Local: macOS 27.0 (aarch64), R 4.6.1, rustc 1.99.1.
+* GitHub Actions: ubuntu-latest and macos-latest (R 4.6.1, `--as-cran`), and
+  windows-latest (R 4.6.1, without `--as-cran` because `checkbashisms` is
+  unavailable on Windows).
 
 ## R CMD check results
 
