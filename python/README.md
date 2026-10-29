@@ -18,7 +18,8 @@
     - [PARC-Connectedness ](#parc-connectedness-)
     - [Bioclimatic Ecosystem Resilience Index (BERI) ](#bioclimatic-ecosystem-resilience-index-beri-)
   - [Running Analysis with Tiles ](#running-analysis-with-tiles-)
-  - [Citation](#citation)
+  - [Citation and scientific references](#citation-and-scientific-references)
+  - [Acknowledgements and licence](#acknowledgements-and-licence)
       
 A multi-resolution landscape connectivity algorithm for calculating ***Habitat Connectivity (Connected-Habitat)***, ***PARC Connectedness*** and the ***Bioclimatic Ecosystem Resilience Index (BERI)***. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across different dispersal scales. The algorithm retains fine spatial detail near each focal cell and represents more distant areas at progressively coarser resolutions, using raster overview layers generated on the fly to make large-landscape analyses efficient. PARC Connectedness additionally incorporates protected-area coverage, while BERI incorporates current and future climate-related compositional similarity to assess ecosystem resilience under climate change. Implemented in Rust with a Python interface, the framework supports biodiversity monitoring and conservation planning. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
@@ -296,9 +297,56 @@ some tiles contain mostly ocean or nodata and others contain many valid land
 pixels. Use `balanced = False` (the default) when equal aligned tiles are enough.
 When `balanced = False`, `io_weight` is ignored.
 
-## Citation
-To cite `connectivity` library in publications and reports, please use:
+## Citation and scientific references
 
-Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., & Ferrier, S. (2026). **A scalable multi-resolution framework for connectivity-based biodiversity indicators**. *EcoEvoRxiv*. [https://doi.org/10.32942/X2S68V](https://doi.org/10.32942/X2S68V)
+To cite the `connectivity` library in publications and reports, please use:
+
+Valavi, R., Mokany, K., Ware, C., Vickers, M., Giljohann, K. M., & Ferrier,
+S. (2026). **A scalable multi-resolution framework for connectivity-based
+biodiversity indicators**. *EcoEvoRxiv*, preprint.
+[doi:10.32942/X2S68V](https://doi.org/10.32942/X2S68V).
+
+Underlying methods:
+
+- Drielsma, M., Ferrier, S., & Manion, G. (2007). A raster-based technique
+  for analysing habitat configuration: The cost–benefit approach.
+  *Ecological Modelling*, 202(3–4), 324–332.
+  [doi:10.1016/j.ecolmodel.2006.10.016](https://doi.org/10.1016/j.ecolmodel.2006.10.016).
+- Drielsma, M. J., Love, J., Taylor, S., Thapa, R., & Williams, K. J. (2022).
+  General Landscape Connectivity Model (GLCM): a new way to map whole of
+  landscape biodiversity functional connectivity for operational planning
+  and reporting. *Ecological Modelling*, 465, 109858.
+  [doi:10.1016/j.ecolmodel.2021.109858](https://doi.org/10.1016/j.ecolmodel.2021.109858).
+- Harwood, T., Love, J., Drielsma, M., Brandon, C., & Ferrier, S. (2022).
+  Staying connected: assessing the capacity of landscapes to retain
+  biodiversity in a changing climate. *Landscape Ecology*, 37, 3123–3139.
+  [doi:10.1007/s10980-022-01534-5](https://doi.org/10.1007/s10980-022-01534-5).
+- Ferrier, S., Harwood, T. D., Ware, C., & Hoskins, A. J. (2020).
+  A globally applicable indicator of the capacity of terrestrial ecosystems
+  to retain biological diversity under climate change: The bioclimatic
+  ecosystem resilience index. *Ecological Indicators*, 117, 106554.
+  [doi:10.1016/j.ecolind.2020.106554](https://doi.org/10.1016/j.ecolind.2020.106554).
+
+## Acknowledgements and licence
+
+Developed at the **Commonwealth Scientific and Industrial Research Organisation
+(CSIRO)**. Copyright © 2026 CSIRO. The code is distributed under the
+[MIT licence](https://github.com/csiro/connectivity/blob/main/python/LICENSE).
+The Python binding uses `PyO3`/`maturin` for its interface and `rasterio`,
+`geopandas` and `shapely` for its spatial workflows.
+
+The bundled Tasmania data are licensed separately under
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Please cite:
+
+Ware, C., Valavi, R., Vickers, M., Giljohann, K. M., Mokany, K., Purvis, A.,
+Walkden, P., De Palma, A., Duffin, C., Contu, S., Harwood, T., Hoskins, A., &
+Ferrier, S. (2026). *Global biodiversity indicator data for BHI, BERI,
+PARC-representativeness, PARC-connectedness and ecosystem condition (2000–2024)*.
+Version 4. CSIRO Data Collection.
+[doi:10.25919/3aka-y730](https://doi.org/10.25919/3aka-y730).
+
+See the [example-data README](https://github.com/csiro/connectivity/blob/main/python/connectivity/data/README.md)
+for layer metadata and attribution, also installed with the package as
+`connectivity/data/README.md`.
 
 [Back to top!](#connectivity-a-multi-resolution-landscape-connectivity-algorithm)

@@ -194,18 +194,18 @@ Ferrier, S. (2026). A scalable multi-resolution framework for
 connectivity-based biodiversity indicators. EcoEvoRxiv, preprint.
 \doi{10.32942/X2S68V}. Describes the multi-resolution implementation.
 
-Harwood, T., Love, J., Drielsma, M., Brandon, C., and Ferrier, S. (2022).
-Staying connected: assessing the capacity of landscapes to retain
-biodiversity in a changing climate. Landscape Ecology, 37, 3123--3139.
-\doi{10.1007/s10980-022-01534-5}. Describes the underlying landscape
-connectedness approach.
+Drielsma, M., Ferrier, S., and Manion, G. (2007). A raster-based technique
+for analysing habitat configuration: The cost--benefit approach. Ecological
+Modelling, 202(3--4), 324--332. \doi{10.1016/j.ecolmodel.2006.10.016}.
+Introduces the raster cost-benefit approach to habitat connectedness and
+distance-dependent aggregation.
 
-Ferrier, S., Harwood, T. D., Ware, C., and Hoskins, A. J. (2020).
-A globally applicable indicator of the capacity of terrestrial ecosystems
-to retain biological diversity under climate change: The bioclimatic
-ecosystem resilience index. Ecological Indicators, 117, 106554.
-\doi{10.1016/j.ecolind.2020.106554}. Introduces the BERI framework from
-which the connectedness calculations are derived.
+Drielsma, M. J., Love, J., Taylor, S., Thapa, R., and Williams, K. J.
+(2022). General Landscape Connectivity Model (GLCM): a new way to map whole
+of landscape biodiversity functional connectivity for operational planning
+and reporting. Ecological Modelling, 465, 109858.
+\doi{10.1016/j.ecolmodel.2021.109858}. Extends the approach to
+whole-landscape connectivity mapping across large regions.
 }
 \seealso{
 \code{\link[=make_tiles]{make_tiles()}} to split large rasters into tiles.

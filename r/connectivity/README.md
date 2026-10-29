@@ -395,6 +395,15 @@ biodiversity indicators**. *EcoEvoRxiv*, preprint.
 
 Underlying methods:
 
+- Drielsma, M., Ferrier, S., & Manion, G. (2007). A raster-based technique
+  for analysing habitat configuration: The cost–benefit approach.
+  *Ecological Modelling*, 202(3–4), 324–332.
+  [doi:10.1016/j.ecolmodel.2006.10.016](https://doi.org/10.1016/j.ecolmodel.2006.10.016).
+- Drielsma, M. J., Love, J., Taylor, S., Thapa, R., & Williams, K. J. (2022).
+  General Landscape Connectivity Model (GLCM): a new way to map whole of
+  landscape biodiversity functional connectivity for operational planning
+  and reporting. *Ecological Modelling*, 465, 109858.
+  [doi:10.1016/j.ecolmodel.2021.109858](https://doi.org/10.1016/j.ecolmodel.2021.109858).
 - Harwood, T., Love, J., Drielsma, M., Brandon, C., & Ferrier, S. (2022).
   Staying connected: assessing the capacity of landscapes to retain
   biodiversity in a changing climate. *Landscape Ecology*, 37, 3123–3139.
