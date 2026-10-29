@@ -1,0 +1,3 @@
+# Keep example notebooks out of GitHub's language statistics. Linguist only
+# treats a top-level examples/ directory as documentation by default.
+*.ipynb linguist-documentation
