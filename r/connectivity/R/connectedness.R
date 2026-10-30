@@ -7,10 +7,10 @@
 #' along its least-cost path, which lengthens through degraded habitat. Values
 #' range from 0 (isolated) to 1 (as connected as an intact landscape).
 #'
-#' By default, the function returns Connected Habitat (a.k.a.
-#' connectivity-adjusted condition): the geometric mean of a cell's own habitat
-#' condition and its connectedness, used as an input to the Biodiversity
-#' Habitat Index (BHI). With `pa_file`, it returns the Protected Area
+#' By default, the function returns Connected Habitat (connectivity-adjusted
+#' condition): the geometric mean of a cell's own habitat condition and its
+#' connectedness, used as an input to the Biodiversity Habitat Index (BHI).
+#' With `pa_file`, it returns the Protected Area
 #' Connectedness Index (PARC-connectedness) instead: how well protected cells
 #' are connected to other protected areas and to surrounding intact habitat.
 #'

@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "eco-connectivity"
-description = "A multi-resolution landscape connectivity algorithm written in Rust"
+description = "Efficient multi-resolution least-cost algorithm for connectivity-based biodiversity indicators, including Connected Habitat, PARC-connectedness, and BERI"
 authors = [{ name = "Roozbeh Valavi", email = "roozbeh.valavi@csiro.au" }]
 license = "MIT"
 license-files = ["LICENSE"]

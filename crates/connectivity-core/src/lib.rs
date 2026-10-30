@@ -1,4 +1,5 @@
-//! Multi-resolution landscape connectivity on in-memory raster arrays.
+//! Efficient multi-resolution least-cost algorithm for connectivity-based biodiversity
+//! indicators on in-memory raster arrays.
 //!
 //! This is the numerical engine shared by the Python package
 //! [`eco-connectivity`](https://pypi.org/project/eco-connectivity/) and the R package

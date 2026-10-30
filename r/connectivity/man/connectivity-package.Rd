@@ -6,11 +6,11 @@
 \alias{connectivity-package}
 \title{connectivity: Multi-Resolution Landscape Connectivity}
 \description{
-Calculates multi-resolution landscape connectedness, Connected Habitat (a.k.a. connectivity-adjusted condition), the Protected Area Connectedness Index (PARC-connectedness) and the Bioclimatic Ecosystem Resilience Index (BERI) from raster filenames or 'terra' SpatRaster objects. The multi-resolution method is described in Valavi, R. et al. (2026) \doi{10.32942/X2S68V}. Uses 'terra' for raster and vector input and output, input preparation and polygon analysis boundaries, and 'extendr' to call the 'connectivity-core' Rust numerical engine. Calculations load the analysis window into memory, and large rasters can be processed as aligned tiles. Also calculates exact fractional polygon coverage of raster cells. Bundled example rasters for Tasmania are licensed separately under CC BY-NC-SA 4.0.
+Implements an efficient multi-resolution least-cost algorithm for calculating connectivity-based biodiversity indicators, including Connected Habitat (connectivity-adjusted condition), the Protected Area Connectedness Index (PARC-connectedness), and the Bioclimatic Ecosystem Resilience Index (BERI). The algorithm maintains fine spatial resolution near each focal cell and progressively coarsens with distance, enabling large-scale connectivity calculations. The package accepts raster files and 'terra' SpatRaster objects, supports polygon analysis boundaries and tiled processing of large datasets, and calls the 'connectivity-core' numerical engine, written in 'Rust', through 'extendr'. The methodology is described in Valavi et al. (2026) \doi{10.32942/X2S68V}. Bundled example rasters for Tasmania are separately licensed under CC BY-NC-SA 4.0.
 }
 \details{
 The main functions are \code{\link[=connectedness]{connectedness()}} for habitat connectedness, Connected
-Habitat (a.k.a. connectivity-adjusted condition) and the Protected Area
+Habitat (connectivity-adjusted condition) and the Protected Area
 Connectedness Index (PARC-connectedness), \code{\link[=beri]{beri()}} for the Bioclimatic
 Ecosystem Resilience Index (BERI), \code{\link[=pixel_coverage]{pixel_coverage()}} for protected-area
 fractions from polygons,

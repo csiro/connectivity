@@ -4,22 +4,26 @@
 [![crates.io version](https://img.shields.io/crates/v/connectivity-core)](https://crates.io/crates/connectivity-core)
 [![API documentation](https://img.shields.io/docsrs/connectivity-core)](https://docs.rs/connectivity-core)
 
-A Rust library for calculating **habitat connectedness**, the **Protected Area Connectedness
-Index (PARC-connectedness)** and the **Bioclimatic Ecosystem Resilience Index (BERI)** on
-in-memory raster arrays, plus the fraction of each pixel covered by polygons. It combines
-habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding
-habitat is accessible across dispersal scales. Fine spatial detail is retained near each
-focal cell, while progressively coarser grids represent more distant areas, making
-large-landscape analyses efficient. PARC-connectedness incorporates protected-area coverage;
-BERI incorporates current and future climate-related compositional similarity to assess
-ecosystem resilience under climate change. This crate is the numerical engine shared by the
-Python package [`eco-connectivity`](https://pypi.org/project/eco-connectivity/) and the R
-package [`connectivity`](https://github.com/csiro/connectivity/tree/main/r/connectivity).
-See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
+This Rust library implements the efficient multi-resolution least-cost algorithm underlying
+connectivity-based biodiversity indicators, including **Connected Habitat**
+(connectivity-adjusted condition), the **Protected Area Connectedness Index
+(PARC-connectedness)**, and the **Bioclimatic Ecosystem Resilience Index (BERI)**. It
+combines habitat condition, least-cost paths and dispersal kernels to estimate how much
+surrounding habitat is accessible across dispersal scales. The algorithm retains fine
+spatial resolution near each focal cell and progressively coarsens with distance, enabling
+analysis of large landscapes. PARC-connectedness incorporates protected-area coverage, while
+BERI uses current and future climate-related compositional similarity to assess ecosystem
+resilience under climate change. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V)
+for the full method.
 
-It has no Python, R, GDAL or file I/O dependencies. Callers read rasters, pass `ndarray`
-arrays of one tile, and handle file formats, tiling and post-processing such as Connected
-Habitat.
+The library has no Python, R, GDAL or file I/O dependencies and operates directly on
+in-memory `ndarray` arrays. It also computes the fraction of each pixel covered by polygons,
+for example to build protected-area proportion rasters. It provides the shared numerical
+engine for the R package
+[`connectivity`](https://github.com/csiro/connectivity/tree/main/r/connectivity) and the
+Python package [`eco-connectivity`](https://pypi.org/project/eco-connectivity/), which
+handle spatial data preparation, tiling and post-processing, including the derivation of
+Connected Habitat.
 
 ```toml
 [dependencies]

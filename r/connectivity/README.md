@@ -16,20 +16,22 @@
 - [Citation and scientific references](#citation-and-scientific-references)
 - [Acknowledgements and licence](#acknowledgements-and-licence)
 
-An R package for calculating **Connected Habitat** (a.k.a. connectivity-adjusted
-condition), the **Protected Area Connectedness Index (PARC-connectedness)** and
-the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat
-condition, least-cost paths and dispersal kernels to estimate how much
-surrounding habitat is accessible across dispersal scales. Fine spatial detail
-is retained near each focal cell, while progressively coarser grids represent
-more distant areas, making large-landscape analyses efficient.
-PARC-connectedness incorporates protected-area coverage; BERI incorporates
-current and future climate-related compositional similarity to assess ecosystem
-resilience under climate change. The package uses `terra` for spatial input and
-output and the [`connectivity-core`](https://docs.rs/connectivity-core) Rust
-engine, which it shares with the Python package
-[`eco-connectivity`](https://pypi.org/project/eco-connectivity/). See
-[Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
+The `connectivity` R package implements an efficient multi-resolution least-cost
+algorithm for calculating connectivity-based biodiversity indicators, including
+**Connected Habitat** (connectivity-adjusted condition), the **Protected Area
+Connectedness Index (PARC-connectedness)**, and the **Bioclimatic Ecosystem
+Resilience Index (BERI)**. It combines habitat condition, least-cost paths and
+dispersal kernels to estimate how much surrounding habitat is accessible across
+dispersal scales. The algorithm retains fine spatial resolution near each focal
+cell and progressively coarsens with distance, enabling analysis of large
+landscapes. PARC-connectedness incorporates protected-area coverage, while BERI
+uses current and future climate-related compositional similarity to assess
+ecosystem resilience under climate change. The package uses `terra` for spatial
+data processing and the [`connectivity-core`](https://docs.rs/connectivity-core)
+Rust engine, shared with the Python package
+[`eco-connectivity`](https://pypi.org/project/eco-connectivity/), for numerical
+computations. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for
+the full method.
 
 ## Installation
 

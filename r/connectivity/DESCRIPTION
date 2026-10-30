@@ -1,6 +1,7 @@
 Package: connectivity
 Title: Multi-Resolution Landscape Connectivity
 Version: 0.1.0
+Date: 2026-10-30
 Authors@R: c(
     person(given = "Roozbeh", family = "Valavi", email = "roozbeh.valavi@csiro.au",
            role = c("aut", "cre")))

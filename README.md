@@ -7,11 +7,11 @@
 [![crates.io](https://img.shields.io/crates/v/connectivity-core)](https://crates.io/crates/connectivity-core)
 [![DOI](https://img.shields.io/badge/DOI-10.32942%2FX2S68V-blue)](https://doi.org/10.32942/X2S68V)
 
-A multi-resolution landscape connectivity algorithm for calculating **Connected Habitat** (a.k.a. connectivity-adjusted condition), the **Protected Area Connectedness Index (PARC-connectedness)** and the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across dispersal scales. Fine spatial detail is retained near each focal cell, while progressively coarser grids represent more distant areas, making large-landscape analyses efficient. PARC-connectedness incorporates protected-area coverage; BERI incorporates current and future climate-related compositional similarity to assess ecosystem resilience under climate change. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
+This repository implements an efficient multi-resolution least-cost algorithm for calculating connectivity-based biodiversity indicators, including **Connected Habitat** (connectivity-adjusted condition), the **Protected Area Connectedness Index (PARC-connectedness)**, and the **Bioclimatic Ecosystem Resilience Index (BERI)**. It combines habitat condition, least-cost paths and dispersal kernels to estimate how much surrounding habitat is accessible across dispersal scales. The algorithm retains fine spatial resolution near each focal cell and progressively coarsens with distance, enabling analysis of large landscapes. PARC-connectedness incorporates protected-area coverage, while BERI uses current and future climate-related compositional similarity to assess ecosystem resilience under climate change. The software is built around a shared Rust numerical engine, [`connectivity-core`](crates/connectivity-core/), with R and Python packages for spatial data processing and analysis. See [Valavi et al. (2026)](https://doi.org/10.32942/X2S68V) for the full method.
 
 ## Packages
 
-The numerical engine is written in Rust and shared by the Python and R packages. Each package has its own installation instructions, documentation and changelog:
+Each package has its own installation instructions, documentation and changelog:
 
 | Package | Directory | Install |
 |---|---|---|
