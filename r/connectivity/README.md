@@ -418,7 +418,7 @@ Underlying methods:
 
 Developed at the **Commonwealth Scientific and Industrial Research Organisation
 (CSIRO)**. Copyright © 2026 CSIRO. The code is distributed under the
-[MIT licence](LICENSE.md). The R binding uses
+[MIT licence](https://github.com/csiro/connectivity/blob/main/LICENSE). The R binding uses
 `extendr`/`rextendr` and `terra` for its interface and spatial workflows. The
 authors and licences of the vendored Rust crates are listed in
 [`LICENSE.note`](LICENSE.note).

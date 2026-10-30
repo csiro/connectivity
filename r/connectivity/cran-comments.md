@@ -1,3 +1,10 @@
+## Resubmission
+
+This is a resubmission. In this version I have:
+
+* Replaced the relative `LICENSE.md` link in `README.md`, which pointed to a
+  file not included in the package, with the licence's URL on GitHub.
+
 ## Test environments
 
 * Local: macOS 27.0 (aarch64), R 4.6.1, rustc 1.99.1.
