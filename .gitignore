@@ -18,6 +18,8 @@ __pycache__/
 
 plotting.py
 
+r/*.tar.gz
+
 # Distribution / packaging
 .Python
 .venv/
