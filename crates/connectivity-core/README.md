@@ -4,7 +4,7 @@
 [![crates.io version](https://img.shields.io/crates/v/connectivity-core)](https://crates.io/crates/connectivity-core)
 [![API documentation](https://img.shields.io/docsrs/connectivity-core)](https://docs.rs/connectivity-core)
 
-This Rust library implements the efficient multi-resolution least-cost algorithm underlying
+This Rust library implements an efficient multi-resolution least-cost algorithm underlying
 connectivity-based biodiversity indicators, including **Connected Habitat**
 (connectivity-adjusted condition), the **Protected Area Connectedness Index
 (PARC-connectedness)**, and the **Bioclimatic Ecosystem Resilience Index (BERI)**. It
