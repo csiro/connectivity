@@ -47,6 +47,12 @@ cd connectivity
 pip install ./python
 ```
 
+Or install directly from GitHub without cloning:
+
+```bash
+pip install "git+https://github.com/csiro/connectivity.git#subdirectory=python"
+```
+
 ### Rust Core Library
 
 The numerical engine is a separate Rust crate, [`connectivity-core`](https://github.com/csiro/connectivity/tree/main/crates/connectivity-core), which works on in-memory arrays without Python, GDAL or file I/O. Rust programs can use it directly; see its [README](https://github.com/csiro/connectivity/blob/main/crates/connectivity-core/README.md) and crate documentation. `cargo test --workspace` runs every Rust test, and `cargo test -p connectivity-core` needs no Python.

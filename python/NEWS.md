@@ -1,6 +1,7 @@
 # Version 2.4.1
 ## Changed
 - Updated PyO3 and rust-numpy to 0.30, clearing the PyO3 security advisories for versions below 0.29 (an out-of-bounds read in `PyList`/`PyTuple` iterators and a missing `Sync` bound on `PyCFunction::new_closure`); the extension uses neither API. PyO3 0.30 has no Python 3.8 stable ABI, so wheels are now tagged `cp310-abi3`, matching the existing `requires-python >= 3.10`. Results are unchanged.
+- Moved the Python package into the repository's `python/` directory, beside the R package in `r/connectivity`. Installing from PyPI is unchanged; to build from a clone, run `pip install ./python` instead of `pip install .`, or install directly from GitHub with `pip install "git+https://github.com/csiro/connectivity.git#subdirectory=python"`.
 
 # Version 2.4.0
 ## Changed

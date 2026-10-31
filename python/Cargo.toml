@@ -1,6 +1,6 @@
 [package]
 name = "rust_conn"
-version = "2.4.0"
+version = "2.4.1"
 edition = "2021"
 license = "MIT"
 # Released as the eco-connectivity Python wheels; only connectivity-core goes to crates.io
