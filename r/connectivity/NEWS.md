@@ -1,3 +1,8 @@
+# connectivity (development version)
+
+* Reworded the package description, the README, the vignette and the help for
+  `connectedness()`; results are unchanged.
+
 # connectivity 0.1.0
 
 * First release.
