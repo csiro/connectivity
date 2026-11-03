@@ -2,6 +2,8 @@
 
 * Reworded the package description, the README, the vignette and the help for
   `connectedness()`; results are unchanged.
+* Builds against `connectivity-core` 0.2.0, which checks its inputs before any
+  work. Results and error messages are unchanged.
 
 # connectivity 0.1.0
 
