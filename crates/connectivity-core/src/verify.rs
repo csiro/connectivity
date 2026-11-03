@@ -149,11 +149,11 @@ fn profile_phases() {
             nodes += s.nodes.len();
             let t = Instant::now();
             if s.source != crate::graph::NONE {
-                s.router.route(&s.csr, s.source);
+                s.router.route(&s.csr, s.source).unwrap();
             }
             route += t.elapsed().as_secs_f64();
             let t = Instant::now();
-            std::hint::black_box(s.eval(&ctx, i, j));
+            std::hint::black_box(s.eval(&ctx, i, j).unwrap());
             score += t.elapsed().as_secs_f64();
         }
         // Distance cost alone: the legacy calls for every edge of the sampled cells
@@ -205,10 +205,10 @@ fn resource_report() {
         let cells: Vec<(usize, usize)> =
             f.mask.indexed_iter().filter(|(_, &m)| !m).map(|(c, _)| c).step_by(13).collect();
         let before = alloc::count();
-        cells.iter().for_each(|&(i, j)| _ = std::hint::black_box(scratch.eval(&ctx, i, j)));
+        cells.iter().for_each(|&(i, j)| _ = std::hint::black_box(scratch.eval(&ctx, i, j).unwrap()));
         let growth = alloc::count() - before;
         let before = alloc::count();
-        cells.iter().for_each(|&(i, j)| _ = std::hint::black_box(scratch.eval(&ctx, i, j)));
+        cells.iter().for_each(|&(i, j)| _ = std::hint::black_box(scratch.eval(&ctx, i, j).unwrap()));
         let steady = alloc::count() - before;
         writeln!(
             report,

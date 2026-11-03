@@ -69,8 +69,10 @@
 //! - resistance surfaces: `traversal = clip(1 - resistance, 0, 1)`, falling back to condition
 //!   where resistance is missing and NaN where condition is missing;
 //! - BERI inputs: current-climate transgrid first, then future scenarios, bands last;
-//! - normalising levels (add 1, round to powers of two, require a continuous sequence) and
-//!   `outer_window >= window_size`, which the Python wrappers check before calling;
+//! - normalising levels (add 1, round to powers of two) and requiring
+//!   `outer_window >= window_size`, as the Python wrappers do before calling: the core rejects
+//!   levels that do not form a continuous sequence with an error, but uses `window_size` for a
+//!   smaller `outer_window`;
 //! - post-processing: Connected Habitat for habitat (not PARC) connectedness with Python's
 //!   `option` 1 (connectedness), 2 (condition x connectedness) or 3 (the default,
 //!   sqrt(condition x connectedness)); cropping tiles back to their polygons; writing rasters.
@@ -162,8 +164,8 @@ pub struct Inputs<'a> {
     pub transforms: &'a HashMap<i32, Affine>,
 }
 
-/// Settings of one [`connectivity`] call. `Config::default()` gives the Python defaults,
-/// with level 1 included as the core requires.
+/// Settings of one [`connectivity`] call. `Config::default()` gives the Python and R defaults,
+/// with level 1 included as the core requires, except `window_size`: 3 here, 5 in both APIs.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'a> {
     /// Overview levels in base pixels per overview cell: powers of two forming a continuous
@@ -178,7 +180,7 @@ pub struct Config<'a> {
     /// path weight `(1 - max_cost) * t + max_cost`, so `t = 1` costs 1 and `t = 0` costs
     /// `max_cost`.
     pub max_cost: f32,
-    /// Odd window size of every level but the coarsest. The level-`L` annulus spans
+    /// Positive odd window size of every level but the coarsest. The level-`L` annulus spans
     /// `L * window_size / 2` to `L * window_size` base pixels from the focal pixel centre, and
     /// level 1 is the disc of radius `window_size`; in square mode these are half-widths.
     pub window_size: i32,
@@ -221,24 +223,27 @@ impl Default for Config<'_> {
 /// reaches no destination.
 ///
 /// # Errors
-/// Returns an error when [`Inputs::traversal`] differs in shape from the condition array
-/// (`"Dimension mismatch for key <level>: <traversal shape> vs <condition shape>"`). The
-/// Python binding raises errors as `RuntimeError("Connectivity failed: <message>")`.
+/// Invalid inputs are checked before any work, whatever the mask, and return an error with
+/// one of these messages. The Python binding raises errors as
+/// `RuntimeError("Connectivity failed: <message>")`.
+/// - A mask, traversal or transgrid whose rows and columns differ from the condition array's,
+///   or a transgrid whose band count differs from the first one's, e.g.
+///   `"Dimension mismatch for mask: (12, 14) vs (13, 14)"`,
+///   `"Dimension mismatch for key 1: (12, 14) vs (13, 14)"` for traversal and
+///   `"Dimension mismatch for transgrid 1: (13, 14, 3) vs (13, 14, 2)"`; transgrids without
+///   bands (`"Transgrids must have at least one band"`).
+/// - A level that is not a power of two (`"Level 3 is not a power of 2"`), no level 1
+///   (`"Base condition level not found!"`), or levels that skip a power of two
+///   (`"levels must form a continuous power-of-two sequence"`).
+/// - No level-1 transform (`"Missing base-level transform (key=1)."`) or no transform for
+///   another level (`"Missing level in Affine set."`).
+/// - A `window_size` below 1 (`"Window size must be positive"`) or even
+///   (`"Window size must be odd-numbered"`), or an even `outer_window >= window_size`
+///   (`"Outer window size must be odd-numbered"`).
 ///
-/// # Panics
-/// Invalid settings panic, with messages the Python binding raises as
-/// `pyo3_runtime.PanicException`; panics on worker threads reach the caller through Rayon.
-/// - A level that is not a power of two (`"Failed average resampling.: Level 3 is not a power
-///   of 2"`), or no level-1 transform (`"Missing base-level transform (key=1)."`).
-/// - When at least one cell is unmasked: no level 1 (`"Base condition level not found!"`),
-///   an even `window_size` (`"Window size must be odd-numbered"`) or an even
-///   `outer_window >= window_size` (`"Outer window size must be odd-numbered"`), a level
-///   without a transform (`"Missing level in Affine set."`), or levels that skip a power of
-///   two once a level past the gap has window cells (`"levels must form a continuous
-///   power-of-two sequence"`).
-/// - An integer path cost beyond `u32::MAX`, e.g. from a very large `max_cost` or unscaled
-///   traversal values (`"Path cost overflow; check max_cost and resistance scaling!"`).
-/// - A mask or transgrid smaller than the condition array can panic on indexing.
+/// An integer path cost beyond `u32::MAX`, e.g. from a very large `max_cost` or unscaled
+/// traversal values, stops the work on every thread and returns
+/// `"Path cost overflow; check max_cost and resistance scaling!"`.
 pub fn connectivity(inputs: &Inputs, config: &Config) -> anyhow::Result<Array2<f32>> {
     core::conn(inputs, config)
 }

@@ -128,10 +128,16 @@ def test_no_lambdas():
     (dict(mask=np.zeros((13, 14), dtype=np.int8)), RuntimeError, "Reading mask failed: Failed to extract mask array"),
     (dict(traversal=np.zeros((13, 14))), RuntimeError, "Reading traversal failed: Failed to extract 2D array"),
     (dict(traversal=np.zeros((12, 14), dtype=F32)), RuntimeError,
-     "Connectivity failed: Dimension mismatch for key"),
+     "Connectivity failed: Dimension mismatch for key 1: (12, 14) vs (13, 14)"),
+    (dict(mask=np.zeros((12, 14), dtype=bool)), RuntimeError,
+     "Connectivity failed: Dimension mismatch for mask: (12, 14) vs (13, 14)"),
+    (dict(transgrid_list=[np.zeros((13, 14, 2), F32), np.zeros((13, 14, 3), F32)]), RuntimeError,
+     "Connectivity failed: Dimension mismatch for transgrid 1: (13, 14, 3) vs (13, 14, 2)"),
     (dict(transforms=[(1, (1.0, 0.0, 0.0, 0.0, -1.0, 0.0))]), RuntimeError,
      "Faild getting transform information: AttributeError"),
     (dict(transgrid_list=()), TypeError, "'tuple' object is not an instance of 'list'"),
+    (dict(transgrid_list=[np.zeros((13, 14, 2))]), RuntimeError,
+     "Reading transgrids failed: Failed to extract 3D array"),
 ])
 def test_input_errors(changes, error, message):
     with pytest.raises(error) as info:
@@ -142,23 +148,20 @@ def test_input_errors(changes, error, message):
 
 @pytest.mark.parametrize("changes, message", [
     (dict(window_size=4), "Window size must be odd-numbered"),
+    (dict(window_size=-1, outer_window=-1), "Window size must be positive"),
     (dict(window_size=3, outer_window=6), "Outer window size must be odd-numbered"),
-    (dict(levels=[1, 3]), "Failed average resampling.: Level 3 is not a power of 2"),
+    (dict(levels=[1, 3]), "Level 3 is not a power of 2"),
     (dict(levels=[2, 4]), "Base condition level not found!"),
     (dict(levels=[1, 4]), "levels must form a continuous power-of-two sequence"),
     (dict(transforms={1: (1000.0, 0.0, 0.0, 0.0, -1000.0, 0.0)}), "Missing level in Affine set."),
     (dict(transforms={2: (2000.0, 0.0, 0.0, 0.0, -2000.0, 0.0)}), "Missing base-level transform (key=1)."),
     (dict(max_cost=3.0e7), "Path cost overflow; check max_cost and resistance scaling!"),
-    (dict(transgrid_list=[np.zeros((13, 14, 2))]),
-     "called `Result::unwrap()` on an `Err` value: Failed to extract 3D array"),
 ])
-def test_setting_panics(changes, message):
-    # pyo3_runtime.PanicException derives from BaseException, not Exception
-    with pytest.raises(BaseException) as info:
+def test_setting_errors(changes, message):
+    with pytest.raises(RuntimeError) as info:
         run(**changes)
-    assert type(info.value).__name__ == "PanicException"
-    assert not isinstance(info.value, Exception)
-    assert str(info.value).startswith(message)
+    assert type(info.value) is RuntimeError
+    assert str(info.value) == f"Connectivity failed: {message}"
 
 
 def test_small_outer_window():

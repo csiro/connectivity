@@ -7,6 +7,7 @@ use crate::tables::{Tables, BOUNDED, STATUSES, SYNTHETIC};
 use crate::template::Templates;
 use crate::utils;
 use crate::window::{circle_frac, similarities, similarity, square_frac, WindowMode};
+use anyhow::Result;
 use ndarray::{s, Array2, Array3, ArrayView1};
 
 /// Level-indexed overviews and settings shared by every focal cell of one call.
@@ -179,16 +180,16 @@ impl Scratch {
             + std::mem::size_of_val(&self.counts)
     }
 
-    /// Indicator value of focal cell ij.
-    pub fn eval(&mut self, ctx: &Context, i: usize, j: usize) -> f32 {
+    /// Indicator value of focal cell ij; fails on a path-cost overflow.
+    pub fn eval(&mut self, ctx: &Context, i: usize, j: usize) -> Result<f32> {
         self.build(ctx, i, j);
         if self.source == NONE || (self.isolated && ctx.pa_to_pa) {
             // No destinations: the legacy graph searched from a phantom node, or was emptied
             self.router.clear();
         } else {
-            self.router.route(&self.csr, self.source);
+            self.router.route(&self.csr, self.source)?;
         }
-        self.score(ctx)
+        Ok(self.score(ctx))
     }
 
     /// Nodes and edges of focal cell ij.
@@ -354,10 +355,11 @@ impl Scratch {
         let shapes = &ctx.templates.shapes;
         for l in 0..ctx.levels.len() {
             let shape = &shapes[l];
+            // `core::validate` requires a transform for every level and continuous levels, which
+            // the legacy builder needs for its node mapping
             let transform = ctx.transforms[l].expect("Missing level in Affine set.");
-            // Non-continuous levels have no node mapping in the legacy builder
             let (start, end) = self.ranges[l];
-            assert!(
+            debug_assert!(
                 l == 0 || ctx.fringe[l - 1] || start == end,
                 "levels must form a continuous power-of-two sequence"
             );
@@ -550,7 +552,7 @@ pub mod tests {
         tally: &mut Tally,
     ) -> usize {
         let at = format!("cell ({i}, {j})");
-        let value = s.eval(ctx, i, j);
+        let value = s.eval(ctx, i, j).unwrap();
         let n_scen = ctx.n_scen();
 
         // Nodes: legacy window cells in level order, then row-major
@@ -715,12 +717,12 @@ pub mod tests {
                 f.mask.indexed_iter().filter(|(_, &m)| !m).map(|(c, _)| c).collect();
             let first = alloc::count();
             for &(i, j) in &cells {
-                scratch.eval(&ctx, i, j);
+                scratch.eval(&ctx, i, j).unwrap();
             }
             let growth = alloc::count() - first;
             let start = alloc::count();
             for &(i, j) in &cells {
-                scratch.eval(&ctx, i, j);
+                scratch.eval(&ctx, i, j).unwrap();
             }
             assert_eq!(alloc::count() - start, 0, "seed {seed}: steady-state allocations");
             println!("seed {seed}: {} cells, {growth} growth allocations on the first pass", cells.len());
@@ -742,7 +744,7 @@ pub mod tests {
         f.mask
             .indexed_iter()
             .filter(|(_, &m)| !m)
-            .map(|((i, j), _)| scratch.eval(ctx, i, j).to_bits())
+            .map(|((i, j), _)| scratch.eval(ctx, i, j).unwrap().to_bits())
             .collect()
     }
 
@@ -888,7 +890,7 @@ pub mod tests {
             let cells: Vec<(usize, usize)> = (0..48).map(|k| ((k * 37 + 3) % 256, (k * 91 + 11) % 256)).collect();
             let values = |ctx: &Context| -> Vec<u32> {
                 let mut scratch = Scratch::new(ctx);
-                cells.iter().map(|&(i, j)| scratch.eval(ctx, i, j).to_bits()).collect()
+                cells.iter().map(|&(i, j)| scratch.eval(ctx, i, j).unwrap().to_bits()).collect()
             };
             let mut expected = None;
             for budget in [CACHE_BUDGET, CACHE_BUDGET / 8, 0] {

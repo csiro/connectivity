@@ -16,7 +16,7 @@ checksum = "ace50bade8e6234aa140d9a2f552bbee1db4d353f69b8217bc503490fc1a9f26"
 
 [[package]]
 name = "connectivity-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "ndarray",
@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "rust_conn"
-version = "2.4.1"
+version = "2.5.0"
 dependencies = [
  "anyhow",
  "connectivity-core",

@@ -1,3 +1,12 @@
+# Version 0.2.0
+## Changed
+- `connectivity()` now checks shapes, band counts, levels, transforms and window sizes before any work, whatever the mask, and returns an error instead of panicking. The messages are unchanged, except that a level that is not a power of two no longer starts with `Failed average resampling.:`. Levels that skip a power of two, a missing level 1 or level transform and even window sizes used to pass when every cell was masked, and skipped levels also passed when the levels past the gap had no window cells; they now fail in every case.
+- A path cost beyond `u32::MAX` now stops the work on every thread and returns an error instead of panicking on a worker thread. The message is unchanged.
+- Valid inputs give bit-identical results.
+
+## Fixed
+- A mask or transgrid whose rows and columns differ from the condition array's, and transgrids with different band counts, now return errors (`Dimension mismatch for mask: ...`, `Dimension mismatch for transgrid <k>: ...`). They used to panic on indexing or, for band counts, run without an error and give wrong results. A non-positive `window_size` and transgrids without bands also return errors.
+
 # Version 0.1.0
 ## Added
 - First release of the numerical engine of the `eco-connectivity` Python package as a standalone crate: habitat and PARC connectedness, the Bioclimatic Ecosystem Resilience Index (BERI) and fractional pixel coverage of polygons on in-memory `ndarray` arrays of one raster tile, with no Python, GDAL or file I/O dependencies. `eco-connectivity` 2.4.0 calls it through a thin PyO3 wrapper; earlier changes to the engine are listed under the Python package's versions in the repository's [NEWS.md](https://github.com/csiro/connectivity/blob/main/python/NEWS.md).

@@ -1,7 +1,7 @@
 """Regression tests for the Python workflows on the bundled Tasmania example data.
 
 Exact checks (NaN placement, bit-identical repeats, seamless tiles, Connected Habitat
-post-processing) are platform independent; the frozen means come from the 2.4.0 baseline
+post-processing) are platform independent; the frozen means come from the 2.5.0 build
 and allow for floating-point differences between platforms.
 """
 
@@ -22,15 +22,16 @@ THREADS = 4
 SHAPE = (516, 588)
 RTOL = 1e-5
 
-# Frozen from the 2.4.0 baseline build (default parameters unless noted)
+# Frozen from the 2.5.0 build (default parameters unless noted, window_size 5); the R
+# package 0.1.0 gives the same means to within 1e-7 relative
 FROZEN = {
-    "connectedness": 0.3594061735617171,
-    "parc": 0.6910263746707314,
-    "parc_pa_to_pa": 0.5578077798671234,
-    "beri": 0.40609480758632494,
-    "beri_current": 0.46590158319867997,
-    "resistance": 0.3100888245434447,
-    "square_short": 0.4162536757680946,  # square windows, levels [2, 4, 8], outer_window 5
+    "connectedness": 0.36226272030321477,
+    "parc": 0.6971164168245471,
+    "parc_pa_to_pa": 0.5655157079463478,
+    "beri": 0.4077840752430562,
+    "beri_current": 0.46763685714287495,
+    "resistance": 0.31148093179243047,
+    "square_short": 0.4180251384944627,  # square windows, levels [2, 4, 8], outer_window 5
 }
 
 

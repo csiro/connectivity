@@ -27,7 +27,7 @@ def connectedness(
         margin_px: int = 32,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
-        window_size: int = 3, 
+        window_size: int = 5, 
         outer_window: int = 9,
         window_mode: str = "circular",
         levels: list[int] = [2, 4, 8, 16, 32],
@@ -98,7 +98,7 @@ def connectedness(
         Odd local window width used for non-coarsest levels. For instance,
         window_size=3 produces an effective 6×6 current-level window in the
         multi-resolution framework.
-        Default is 3.
+        Default is 5.
     outer_window : int, optional
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.
@@ -300,7 +300,7 @@ def beri(
         margin_px: int = 32,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
-        window_size: int = 3, 
+        window_size: int = 5, 
         outer_window: int = 9,
         window_mode: str = "circular",
         levels: list[int] = [2, 4, 8, 16, 32],
@@ -360,7 +360,7 @@ def beri(
         Odd local window width used for non-coarsest levels. For instance,
         window_size=3 produces an effective 6x6 current-level window in the
         multi-resolution framework.
-        Default is 3.
+        Default is 5.
     outer_window : int, optional
         Odd coarsest-level window width used to set the long-range search reach.
         Must be greater than or equal to window_size.

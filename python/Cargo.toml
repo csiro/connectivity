@@ -1,6 +1,6 @@
 [package]
 name = "rust_conn"
-version = "2.4.1"
+version = "2.5.0"
 edition = "2021"
 license = "MIT"
 # Released as the eco-connectivity Python wheels; only connectivity-core goes to crates.io
@@ -14,7 +14,7 @@ name = "rust_conn"
 crate-type = ["cdylib"]
 
 [dependencies]
-connectivity-core = { path = "../crates/connectivity-core", version = "0.1.0" }
+connectivity-core = { path = "../crates/connectivity-core", version = "0.2.0" }
 pyo3 = {version = "0.30", default-features = false, features = ["macros", "abi3-py310"]}
 pyo3-built = "0.5"
 numpy = "0.30"

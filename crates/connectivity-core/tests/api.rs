@@ -163,31 +163,63 @@ fn tile_transforms() {
     assert_eq!(base.col_row(500_625.0, 5_999_000.0), (2.5, 4.0));
 }
 
+// Invalid settings fail before any work, also when every cell is masked
 #[test]
-fn traversal_shape() {
+fn setting_errors() {
     let t = tile();
-    let short = t.traversal.slice(connectivity_core::ndarray::s![..12, ..]).to_owned();
-    let mut bad = inputs(&t, false);
-    bad.traversal = Some(&short);
-    let error = connectivity(&bad, &config(WindowMode::Circular, false)).unwrap_err();
-    assert!(error.to_string().starts_with("Dimension mismatch for key"), "{error}");
-}
-
-#[test]
-#[should_panic(expected = "Window size must be odd-numbered")]
-fn even_window_panics() {
-    let t = tile();
-    connectivity(&inputs(&t, false), &Config { window_size: 4, ..config(WindowMode::Circular, false) }).unwrap();
-}
-
-#[test]
-#[should_panic(expected = "Missing base-level transform (key=1).")]
-fn needs_base_transform() {
-    let t = tile();
-    let transforms: HashMap<i32, Affine> = t.transforms.iter().filter(|(&l, _)| l != 1).map(|(&l, &a)| (l, a)).collect();
     let all_masked = Array2::from_elem((13, 14), true);
-    let inputs = Inputs { mask: &all_masked, transforms: &transforms, ..inputs(&t, false) };
-    connectivity(&inputs, &config(WindowMode::Circular, false)).unwrap();
+    let base: HashMap<i32, Affine> = HashMap::from([(1, t.transforms[&1])]);
+    let coarse: HashMap<i32, Affine> = t.transforms.iter().filter(|(&l, _)| l != 1).map(|(&l, &a)| (l, a)).collect();
+    let c = config(WindowMode::Circular, false);
+    for (config, transforms, message) in [
+        (Config { window_size: 4, ..c }, &t.transforms, "Window size must be odd-numbered"),
+        (Config { window_size: -1, outer_window: -1, ..c }, &t.transforms, "Window size must be positive"),
+        (Config { outer_window: 6, ..c }, &t.transforms, "Outer window size must be odd-numbered"),
+        (Config { levels: &[1, 3], ..c }, &t.transforms, "Level 3 is not a power of 2"),
+        (Config { levels: &[2, 4], ..c }, &t.transforms, "Base condition level not found!"),
+        (Config { levels: &[1, 4], ..c }, &t.transforms, "levels must form a continuous power-of-two sequence"),
+        (c, &base, "Missing level in Affine set."),
+        (c, &coarse, "Missing base-level transform (key=1)."),
+    ] {
+        for mask in [&t.mask, &all_masked] {
+            let inputs = Inputs { mask, transforms, ..inputs(&t, false) };
+            assert_eq!(connectivity(&inputs, &config).unwrap_err().to_string(), message);
+        }
+    }
+}
+
+// Arrays that do not match condition fail instead of indexing out of bounds or running
+#[test]
+fn shape_errors() {
+    use connectivity_core::ndarray::s;
+    let t = tile();
+    let mask = t.mask.slice(s![..12, ..]).to_owned();
+    let traversal = t.traversal.slice(s![..12, ..]).to_owned();
+    let short = vec![t.transgrids[0].slice(s![..12, .., ..]).to_owned(), t.transgrids[1].clone()];
+    let bands = vec![t.transgrids[0].clone(), Array3::zeros((13, 14, 3))];
+    let empty = vec![Array3::zeros((13, 14, 0)); 2];
+    for (inputs, message) in [
+        (Inputs { mask: &mask, ..inputs(&t, false) }, "Dimension mismatch for mask: (12, 14) vs (13, 14)"),
+        (Inputs { traversal: Some(&traversal), ..inputs(&t, false) }, "Dimension mismatch for key 1: (12, 14) vs (13, 14)"),
+        (Inputs { transgrids: Some(&short), ..inputs(&t, true) }, "Dimension mismatch for transgrid 0: (12, 14, 2) vs (13, 14, 2)"),
+        (Inputs { transgrids: Some(&bands), ..inputs(&t, true) }, "Dimension mismatch for transgrid 1: (13, 14, 3) vs (13, 14, 2)"),
+        (Inputs { transgrids: Some(&empty), ..inputs(&t, true) }, "Transgrids must have at least one band"),
+    ] {
+        let error = connectivity(&inputs, &config(WindowMode::Circular, false)).unwrap_err();
+        assert_eq!(error.to_string(), message);
+    }
+}
+
+// A path cost beyond u32::MAX on any worker thread comes back as an error
+#[test]
+fn cost_overflow() {
+    let t = tile();
+    let config = Config { max_cost: 3.0e7, ..config(WindowMode::Circular, false) };
+    for threads in [1, 4] {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        let error = pool.install(|| connectivity(&inputs(&t, false), &config)).unwrap_err();
+        assert_eq!(error.to_string(), "Path cost overflow; check max_cost and resistance scaling!");
+    }
 }
 
 #[test]

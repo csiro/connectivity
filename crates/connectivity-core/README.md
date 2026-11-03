@@ -27,7 +27,7 @@ Connected Habitat.
 
 ```toml
 [dependencies]
-connectivity-core = "0.1"
+connectivity-core = "0.2"
 ```
 
 It requires Rust 1.86 or later.
@@ -53,7 +53,8 @@ let connectedness = connectivity(&inputs, &config)?;
   with the condition array's shape, NaN where the mask is `true`.
 - `Inputs`: borrowed condition, mask, optional traversal and transgrids, and level transforms.
 - `Config`: levels, lambdas (km), `is_geo`, `max_cost`, window sizes, global tile offsets,
-  window mode and PARC `pa_to_pa` gating. `Config::default()` matches the Python defaults.
+  window mode and PARC `pa_to_pa` gating. `Config::default()` matches the Python and R
+  defaults except `window_size`, which is 3 here and 5 in both APIs.
 - `pixel_coverage(&[Polygon], &Affine, nrows, ncols)`: fraction of each pixel covered by
   polygons with holes.
 - `Affine` and `level_transforms`: (row, col) to world transforms and the per-level transforms
@@ -62,7 +63,7 @@ let connectedness = connectivity(&inputs, &config)?;
 
 The crate documentation covers array shapes, mask semantics, BERI scenario and band order,
 coordinate units, tile offsets, the preparation and post-processing left to callers, and the
-error and panic conditions. Work runs on the current Rayon thread pool; results are
+errors returned for invalid inputs. Work runs on the current Rayon thread pool; results are
 bit-identical for any number of threads on the same build and platform.
 
 `cargo run --release -p connectivity-core --example synthetic` runs every indicator on
@@ -70,8 +71,8 @@ synthetic arrays.
 
 ## Versioning and releases
 
-The crate is versioned independently of the Python package (`eco-connectivity` 2.4.0 uses
-`connectivity-core` 0.1.0). Core releases are tagged `connectivity-core-vX.Y.Z`; Python
+The crate is versioned independently of the Python package (`eco-connectivity` 2.5.0 uses
+`connectivity-core` 0.2.0). Core releases are tagged `connectivity-core-vX.Y.Z`; Python
 releases keep `vX.Y.Z` tags, and only those publish to PyPI. Changes to the crate are listed
 in [CHANGELOG.md](https://github.com/csiro/connectivity/blob/main/crates/connectivity-core/CHANGELOG.md).
 

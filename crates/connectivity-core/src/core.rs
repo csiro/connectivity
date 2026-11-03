@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use ndarray::parallel::prelude::*;
 use ndarray::{Array2, Array3, Axis};
 use std::collections::HashMap;
@@ -54,11 +54,12 @@ pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stat
     // Initialize output with NaNs so masked cells keep the previous output semantics.
     let ncols = cond_base.ncols();
     let mut outarray = Array2::<f32>::from_elem(cond_base.dim(), f32::NAN);
+    // A path-cost overflow on any worker stops the loop and is returned
     outarray
         .axis_iter_mut(Axis(0))
         .into_par_iter()
         .enumerate()
-        .for_each(|(i, mut row_result)| {
+        .try_for_each(|(i, mut row_result)| -> Result<()> {
             let slot = rayon::current_thread_index().unwrap_or(0) % threads;
             // A panicking cell poisons its scratch, but every cell resets what it uses
             let mut scratch = scratch[slot].lock().unwrap_or_else(PoisonError::into_inner);
@@ -67,9 +68,10 @@ pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stat
                 if mask_array[[i, j]] {
                     continue;
                 }
-                row_result[j] = scratch.eval(&ctx, i, j);
+                row_result[j] = scratch.eval(&ctx, i, j)?;
             }
-        });
+            Ok(())
+        })?;
 
     let stats = Stats {
         scratch: scratch
@@ -93,8 +95,55 @@ pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stat
     Ok((outarray, stats))
 }
 
+/// Shapes, band counts, levels, transforms and window sizes of one call, checked before any
+/// work so invalid inputs fail with an error rather than a panic or a wrong result.
+pub fn validate(inputs: &Inputs, config: &Config) -> Result<()> {
+    let shape = inputs.condition.dim();
+    let mask = inputs.mask.dim();
+    ensure!(mask == shape, "Dimension mismatch for mask: {mask:?} vs {shape:?}");
+    if let Some(traversal) = inputs.traversal {
+        let dim = traversal.dim();
+        ensure!(dim == shape, "Dimension mismatch for key 1: {dim:?} vs {shape:?}");
+    }
+    // Every transgrid has condition's rows and columns and the first one's bands
+    let grids = inputs.transgrids.unwrap_or_default();
+    if let Some(first) = grids.first() {
+        let expected = (shape.0, shape.1, first.dim().2);
+        ensure!(expected.2 > 0, "Transgrids must have at least one band");
+        for (k, grid) in grids.iter().enumerate() {
+            let dim = grid.dim();
+            ensure!(dim == expected, "Dimension mismatch for transgrid {k}: {dim:?} vs {expected:?}");
+        }
+    }
+
+    for &level in config.levels {
+        ensure!(level.is_power_of_two(), "Level {level} is not a power of 2");
+    }
+    let mut levels = config.levels.to_vec();
+    levels.sort_unstable();
+    levels.dedup();
+    ensure!(levels.first() == Some(&1), "Base condition level not found!");
+    ensure!(
+        levels.windows(2).all(|pair| pair[1] == pair[0] * 2),
+        "levels must form a continuous power-of-two sequence"
+    );
+    let transforms = inputs.transforms;
+    ensure!(transforms.contains_key(&1), "Missing base-level transform (key=1).");
+    for &level in &levels {
+        ensure!(transforms.contains_key(&(level as i32)), "Missing level in Affine set.");
+    }
+
+    // Outer windows below window_size use window_size
+    let (window, outer) = (config.window_size, config.outer_window);
+    ensure!(window > 0, "Window size must be positive");
+    ensure!(window % 2 == 1, "Window size must be odd-numbered");
+    ensure!(outer < window || outer % 2 == 1, "Outer window size must be odd-numbered");
+    Ok(())
+}
+
 /// Overviews and settings for one call, indexed by ascending level.
 pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> {
+    validate(inputs, config)?;
     let Inputs {
         condition: cond_base,
         mask: mask_array,
@@ -121,24 +170,19 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
 
     // Generate overviews
     let mut cond_map =
-        overview::make_overview(cond_base, levels, offsets, Resampling::Average, None)
-            .expect("Failed average resampling.");
+        overview::make_overview(cond_base, levels, offsets, Resampling::Average, None)?;
     let weight_method = if is_geo {
         Resampling::Area
     } else {
         Resampling::Count
     };
-    let base_transform = transform_map
-        .get(&1)
-        .expect("Missing base-level transform (key=1).");
     let mut cell_weights = overview::make_overview(
         cond_base,
         levels,
         offsets,
         weight_method,
-        Some(base_transform),
-    )
-    .expect("Failed to build cell weights.");
+        transform_map.get(&1),
+    )?;
     // Ensure cell-counts has the same keys and dimension as condition array map;
     utils::check_dims(&cell_weights, &cond_map)?;
 
@@ -163,8 +207,7 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
             offsets, 
             Resampling::Average, 
             None
-        )
-        .expect("Failed to build PA-membership overview.");
+        )?;
         utils::check_dims(&map, &cond_map)?;
         Some(map)
     } else {
@@ -176,9 +219,7 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
     // condition, so the output is bit-identical to a resistance-free run.
     let trav_map: Option<HashMap<i32, Array2<f32>>> = match trav_array {
         Some(arr) => {
-            let map =
-                overview::make_overview(arr, levels, offsets, Resampling::Average, None)
-                    .expect("Failed average resampling for traversal.");
+            let map = overview::make_overview(arr, levels, offsets, Resampling::Average, None)?;
             utils::check_dims(&map, &cond_map)?;
             Some(map)
         }
@@ -189,11 +230,8 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
     let mut trans_maps: Vec<HashMap<i32, Array3<f32>>> = if let Some(arrays) = trans_arrays {
         arrays
             .iter()
-            .map(|arr| {
-                overview::make_overview_3d(arr, levels, offsets, Resampling::Average)
-                    .expect("Failed average resampling.")
-            })
-            .collect()
+            .map(|arr| overview::make_overview_3d(arr, levels, offsets, Resampling::Average))
+            .collect::<Result<_>>()?
     } else {
         Vec::new() // Empty vec if None
     };
@@ -239,26 +277,8 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
         sorted_levels.iter().map(|l| transform_map.get(l).copied()).collect();
     let base = sorted_levels.iter().position(|&l| l == 1);
 
-    // Window and level checks of the legacy window builder, which ran for each processed cell
-    let mut outer = outer_window;
-    if mask_array.iter().any(|&masked| !masked) {
-        // Ensure neighborhood sizes are odd
-        if window_size % 2 == 0 {
-            panic!("Window size must be odd-numbered");
-        }
-        // If outer_win is lower than win_size, use the regular win_size
-        outer = if outer_window < window_size {
-            window_size
-        } else if outer_window % 2 == 0 {
-            panic!("Outer window size must be odd-numbered");
-        } else {
-            outer_window
-        };
-        base.expect("Base condition level not found!");
-        for transform in &transforms {
-            transform.expect("Missing level in Affine set.");
-        }
-    }
+    // If outer_win is lower than win_size, use the regular win_size
+    let outer = outer_window.max(window_size);
 
     // Tile edges that cut the first or last cells of each level grid
     let clip = sorted_levels

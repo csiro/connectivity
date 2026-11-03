@@ -1,4 +1,5 @@
 use crate::graph::{Csr, Edge, NONE};
+use anyhow::{bail, Result};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
@@ -28,6 +29,9 @@ impl Ord for Queued {
         other.cost.cmp(&self.cost)
     }
 }
+
+/// Error of an integer path cost beyond `u32::MAX`
+pub const OVERFLOW: &str = "Path cost overflow; check max_cost and resistance scaling!";
 
 /// Shortest-path state indexed by node; `parent` is NONE until a node is reached.
 #[derive(Default)]
@@ -60,7 +64,7 @@ fn dijkstra(
     tree: &mut Tree,
     heap: &mut BinaryHeap<Queued>,
     weight: impl Fn(&Edge) -> u32,
-) {
+) -> Result<()> {
     let num_nodes = csr.offsets.len() - 1;
     tree.parent.clear();
     tree.parent.resize(num_nodes, NONE);
@@ -85,9 +89,9 @@ fn dijkstra(
         for pos in start..end {
             let edge = &csr.edges[pos as usize];
             // Checked: a wrapped cost would re-settle nodes and silently double-count them
-            let new_cost = cost
-                .checked_add(weight(edge))
-                .expect("Path cost overflow; check max_cost and resistance scaling!");
+            let Some(new_cost) = cost.checked_add(weight(edge)) else {
+                bail!(OVERFLOW);
+            };
             let next = edge.to as usize;
             // Only a strictly cheaper path replaces the parent
             if tree.parent[next] != NONE && tree.cost[next] <= new_cost {
@@ -102,6 +106,7 @@ fn dijkstra(
             });
         }
     }
+    Ok(())
 }
 
 /// Destinations in adjusted settlement order (source excluded) with the raw adjusted
@@ -140,10 +145,11 @@ pub struct Router {
 }
 
 impl Router {
-    /// Adjusted and intact searches over the same CSR from `source`.
-    pub fn route(&mut self, csr: &Csr, source: u32) {
-        dijkstra(csr, source, &mut self.altered, &mut self.heap, |e| e.adj_cost);
-        dijkstra(csr, source, &mut self.intact, &mut self.heap, |e| e.geo_cost);
+    /// Adjusted and intact searches over the same CSR from `source`; fails when a path cost
+    /// exceeds `u32::MAX`.
+    pub fn route(&mut self, csr: &Csr, source: u32) -> Result<()> {
+        dijkstra(csr, source, &mut self.altered, &mut self.heap, |e| e.adj_cost)?;
+        dijkstra(csr, source, &mut self.intact, &mut self.heap, |e| e.geo_cost)?;
 
         self.sums.clear();
         self.sums.resize(csr.offsets.len() - 1, 0.0);
@@ -160,6 +166,7 @@ impl Router {
             self.paths.adj.push(self.sums[i]);
             self.paths.geo.push(self.intact.cost[i] as f32 / 100.0);
         }
+        Ok(())
     }
 
     /// Capacity for graphs of up to `nodes` nodes and `edges` edges
@@ -245,7 +252,7 @@ mod tests {
             for zero_cost in [false, true] {
                 let graph = random_graph(&mut rng, size, zero_cost);
                 let source = rng.below(size * size) as u32;
-                router.route(&graph, source);
+                router.route(&graph, source).unwrap();
                 for adjusted in [true, false] {
                     let order = RefCell::new(Vec::new());
                     let successors = |&u: &u32| {
@@ -275,27 +282,27 @@ mod tests {
     fn keeps_sum_order() {
         let graph = csr(&[vec![(1, 16_777_216.0)], vec![(2, 1.0)], vec![(3, 1.0)], vec![]]);
         let mut router = Router::default();
-        router.route(&graph, 0);
+        router.route(&graph, 0).unwrap();
         assert_eq!(*router.paths.adj.last().unwrap(), 16_777_216.0);
     }
 
     // Two edges of 3e9 scaled cost exceed u32::MAX; must fail in every build profile
     #[test]
-    #[should_panic(expected = "Path cost overflow")]
     fn rejects_overflow() {
         let graph = csr(&[vec![(1, 3.0e7)], vec![(2, 3.0e7)], vec![]]);
-        Router::default().route(&graph, 0);
+        let error = Router::default().route(&graph, 0).unwrap_err();
+        assert_eq!(error.to_string(), OVERFLOW);
     }
 
     #[test]
     fn empty_and_isolated() {
         let mut router = Router::default();
-        router.route(&csr(&[vec![]]), 0);
+        router.route(&csr(&[vec![]]), 0).unwrap();
         assert!(router.paths.is_empty());
 
         // A source whose only edge leads to its fake copy, plus an unreachable edge
         let graph = csr(&[vec![], vec![(2, 0.987)], vec![], vec![(4, 1.0)], vec![]]);
-        router.route(&graph, 1);
+        router.route(&graph, 1).unwrap();
         assert_eq!(router.paths.node, vec![2]);
         assert_eq!(router.paths.adj[0].to_bits(), 0.987f32.to_bits());
         assert_eq!(router.paths.geo[0].to_bits(), 0.99f32.to_bits());
@@ -307,7 +314,7 @@ mod tests {
         let mut graph = csr(&[vec![(1, 0.0)], vec![], vec![]]);
         graph.edges[0].adj_cost = u32::MAX;
         let mut router = Router::default();
-        router.route(&graph, 0);
+        router.route(&graph, 0).unwrap();
         assert_eq!(router.altered.order, vec![0, 1]);
         assert_eq!(router.altered.cost[1], u32::MAX);
         assert_eq!(router.altered.parent[1], 0);
@@ -320,7 +327,7 @@ mod tests {
         graph.edges[0].adj = 3.0;
         graph.edges[1].adj = 5.0;
         let mut router = Router::default();
-        router.route(&graph, 0);
+        router.route(&graph, 0).unwrap();
         assert_eq!(router.paths.node, vec![1, 2]);
         assert!((router.paths.adj[1] - 8.0).abs() < 1.0e-6);
         assert!((router.paths.geo[1] - 6.0).abs() < 1.0e-6);

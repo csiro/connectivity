@@ -1,3 +1,8 @@
+# Version 2.5.0
+## Changed
+- Changed the default `window_size` of `connectedness()` and `beri()` from 3 to 5, matching the R package and the examples in the README. Results with default settings change, and runs take longer because each focal cell's graph has more nodes. Pass `window_size=3` to reproduce results from earlier versions.
+- Updated to `connectivity-core` 0.2.0, which checks its inputs before any work. Invalid levels, transforms and window sizes, and a path-cost overflow, now raise `RuntimeError("Connectivity failed: <message>")` from the low-level `rust_conn.connectivity()` instead of `pyo3_runtime.PanicException`, with the same messages except `Level <n> is not a power of 2`, which no longer starts with `Failed average resampling.:`. A mask or transgrid whose shape differs from the condition array, and transgrids with different band counts, now raise errors too. A transgrid that is not a float32 array now raises `RuntimeError("Reading transgrids failed: ...")` instead of `PanicException`. `connectedness()` and `beri()` already reject most of these inputs, and results are unchanged.
+
 # Version 2.4.1
 ## Changed
 - Updated PyO3 and rust-numpy to 0.30, clearing the PyO3 security advisories for versions below 0.29 (an out-of-bounds read in `PyList`/`PyTuple` iterators and a missing `Sync` bound on `PyCFunction::new_closure`); the extension uses neither API. PyO3 0.30 has no Python 3.8 stable ABI, so wheels are now tagged `cp310-abi3`, matching the existing `requires-python >= 3.10`. Results are unchanged.

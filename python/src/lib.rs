@@ -71,12 +71,13 @@ fn connectivity(
     let trans_arrays: Option<Vec<Array3<f32>>> = if transgrid_list.is_none() {
         None
     } else {
+        // `None` items are skipped
         let arrays: Vec<Array3<f32>> = transgrid_list
             .cast::<PyList>()?
             .iter()
-            .map(|item| extract::to_array_3d(&item).unwrap())
-            .filter_map(|opt| opt)
-            .collect();
+            .filter_map(|item| extract::to_array_3d(&item).transpose())
+            .collect::<anyhow::Result<_>>()
+            .map_err(|er| PyRuntimeError::new_err(format!("Reading transgrids failed: {er}")))?;
 
         (!arrays.is_empty()).then_some(arrays)
     };
