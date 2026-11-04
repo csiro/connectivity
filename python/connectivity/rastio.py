@@ -10,6 +10,7 @@ from shapely.ops import unary_union
 import math
 import warnings
 import numpy as np
+import pyproj
 import rasterio
 import geopandas as gpd
 from rasterio.errors import CRSError
@@ -46,6 +47,77 @@ def _match_crs(polygon, crs, name="polygon"):
     if crs and polygon.crs != crs:
         polygon = polygon.to_crs(crs)
     return polygon
+
+
+def _same_crs(a, b):
+    """Whether two raster CRSs are equivalent, ignoring axis order; two missing CRSs match."""
+    if not a or not b:
+        return not a and not b
+    if a == b:
+        return True
+    return pyproj.CRS.from_wkt(a.to_wkt()).equals(pyproj.CRS.from_wkt(b.to_wkt()), ignore_axis_order=True)
+
+
+def _input_window(file_path: str, name: str, condition_file: str, window: Window, single: bool = True):
+    """Window of `file_path` covering `window` of the condition grid, checked as R does.
+
+    The raster must have the condition raster's CRS and resolution, lie on its grid and cover
+    `window`; a `single` raster must have one band. Returns the window and the band count.
+    """
+    with rasterio.open(condition_file) as ref, rasterio.open(file_path) as src:
+        if single and src.count != 1:
+            raise ValueError(f"{name} must have exactly one layer")
+        # The same tolerance as R: 1e-8 of a pixel
+        tolerance = 1e-8 * max(abs(ref.transform.a), abs(ref.transform.e))
+        if not _same_crs(src.crs, ref.crs) or any(
+            abs(getattr(src.transform, k) - getattr(ref.transform, k)) > tolerance for k in "abde"
+        ):
+            raise ValueError(f"{name} must have the same CRS, resolution and grid alignment as condition_file")
+        # The window's top-left corner in the raster's pixels must be a whole pixel inside it
+        col, row = ~src.transform * (ref.transform * (window.col_off, window.row_off))
+        col0, row0 = round(col), round(row)
+        if (
+            max(abs(col - col0), abs(row - row0)) > 1e-8
+            or col0 < 0
+            or row0 < 0
+            or col0 + window.width > src.width
+            or row0 + window.height > src.height
+        ):
+            raise ValueError(f"{name} must cover the analysis window on the same grid as condition_file")
+        return Window(col0, row0, window.width, window.height), src.count
+
+
+def _read_window(file_path: str, window: Window, outside=None, scale: float | None = None, single: bool = True):
+    """Read `window` of `file_path` as float32 with NaN for nodata, as `read_raster()` does.
+
+    `outside` (2D bool) marks cells outside a closed-border polygon, set to NaN in every band.
+    Returns (rows, cols) for a `single` raster, else (rows, cols, bands) even for one band.
+    """
+    with rasterio.open(file_path) as src:
+        data = src.read(window=window, masked=True).astype(np.float32).filled(np.nan)
+    if outside is not None:
+        data[:, outside] = np.nan
+    if scale not in (None, 0, 1):
+        data = data / float(scale)
+    return data[0] if single else np.moveaxis(data, 0, -1)
+
+
+def _input_frame(polygon, closed_border, transforms, mask_array, tile_row0, tile_col0):
+    """The window of the condition grid, as `read_raster()` read it, that other inputs are read on.
+
+    For closed borders it also returns the cells that `polygon` does not touch, which are NaN in
+    every input as in `read_raster()`; otherwise None.
+    """
+    window = Window(tile_col0, tile_row0, mask_array.shape[1], mask_array.shape[0])
+    outside = None
+    if closed_border and polygon is not None:
+        outside = geometry_mask(
+            geometries=[mapping(g) for g in polygon.geometry],
+            out_shape=mask_array.shape,
+            transform=Affine(*transforms[1][:6]),
+            all_touched=True,
+        )
+    return window, outside
 
 
 def _coordinate_info(file_path: str):

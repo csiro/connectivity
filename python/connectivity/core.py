@@ -2,9 +2,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import geopandas as gpd
-import rasterio
 from rust_conn import connectivity
-from .rastio import _coordinate_info, _match_crs, read_raster, write_raster
+from .rastio import (
+    _coordinate_info,
+    _input_frame,
+    _input_window,
+    _match_crs,
+    _read_window,
+    read_raster,
+    write_raster,
+)
 from .utils import (
     _normalise_window_mode,
     _make_traversal,
@@ -150,7 +157,9 @@ def connectedness(
 
     Notes
     -----
-    - Ensure that `polygon_mask`, if provided, is spatially aligned with `condition_file`.
+    - `pa_file` and `resistance_file` must have one band and the CRS and resolution of
+      `condition_file`, lie on its grid and cover the analysis window, as in the R package; they
+      may extend beyond it.
     - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
       both omit one.
     - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
@@ -184,15 +193,6 @@ def connectedness(
     if levels is None:
         raise ValueError("levels must be provided")
 
-    # An early check for the overall shapes of grids.
-    if pa_file is not None and polygon_mask is None:
-        # Only check when no masks; grids could have differnce shape but the masked version could be identical.
-        with rasterio.open(condition_file) as ds1, rasterio.open(pa_file) as ds2:
-            if ds1.shape != ds2.shape:
-                raise ValueError(
-                    f"Shape mismatch: {condition_file} {ds1.shape} vs {pa_file} {ds2.shape}"
-                )
-
     # Round to nearest power of 2 (GDAL/rasterio overviews use 2, 4, 8, ...)
     levels = sorted({1, *(_round_to_pow2(x) for x in levels)})
     _check_continuous_levels(levels)
@@ -215,29 +215,21 @@ def connectedness(
         valid_margin_px=0,
     )
 
+    # Other inputs must cover the condition's window on its grid, as in R; check them all first
+    window, outside = _input_frame(polygon_mask, closed_border, affine_dict, mask_array, tile_row0, tile_col0)
+    if pa_file is not None:
+        pa_window, _ = _input_window(pa_file, "pa_file", condition_file, window)
+    if resistance_file is not None:
+        res_window, _ = _input_window(resistance_file, "resistance_file", condition_file, window)
+
     # Return early if the analysis window has no usable condition cells.
     if np.isnan(cond_array).all() or np.all(mask_array):
         out_array = np.full(mask_array.shape, np.nan, dtype=np.float32)
     else:
         # Process PA-array for PARC-connectedness
         if pa_file is not None:
-            # Read PA raster overviews; this checks levels as well
-            pa_array, *_ = read_raster(
-                file_path=pa_file, 
-                polygon=polygon_mask, 
-                levels=levels, 
-                scale=s2, 
-                expand_px=pad_size,
-                valid_margin_px=0,
-            )
-            # Ensure dimension of the arrays the same
-            if cond_array.shape != pa_array.shape:
-                raise ValueError(
-                    "The shape of the condition and trans_grids[0] doesn't match.\n"
-                    f"cond_array shape: {cond_array.shape}\n"
-                    f"trans_grids[0] shape: {pa_array[0].shape}"
-                )
-            
+            pa_array = _read_window(pa_file, pa_window, outside, scale=s2)
+
             # Update the condition dict with the max(c, p) for each cell in each level
             cond_array = np.maximum(cond_array, pa_array)
 
@@ -252,19 +244,7 @@ def connectedness(
             # only for path weighting). None keeps the resistance-free behaviour unchanged.
             res_array = None
             if resistance_file is not None:
-                res_array, *_ = read_raster(
-                    file_path=resistance_file,
-                    polygon=polygon_mask,
-                    levels=levels,
-                    scale=resistance_scale,
-                    expand_px=pad_size,
-                    valid_margin_px=0,
-                )
-                if cond_array.shape != res_array.shape:
-                    raise ValueError(
-                        f"Shape mismatch: condition {cond_array.shape} vs "
-                        f"resistance {res_array.shape}"
-                    )
+                res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale)
             traversal = _make_traversal(cond_array, res_array)
 
             # The base Rust connectivity funciton
@@ -345,7 +325,7 @@ def beri(
         Path to the current compositional turnover layer (e.g., dissimilarity surface under current climate).
     future_files : list of str, optional
         List of file paths representing future compositional turnover layers (scenarios).
-        Each should be aligned with the spatial resolution and extent of `current_file` and `condition_file`.
+        Each must have the same number and order of bands as `current_file`.
     polygon_mask : gpd.GeoDataFrame, optional
         A GeoDataFrame containing polygon geometry that defines the area of
         interest. If provided, analysis is limited to this area; if None,
@@ -409,13 +389,16 @@ def beri(
 
     Returns
     -------
-    None
-        The function processes spatial data to compute BERI and optionally writes the result to a file.
-        No value is returned unless modified to do so.
+    numpy.ndarray
+        2D float32 array of BERI scores, with NaN in missing and polygon-masked cells. With an
+        open-border `polygon_mask`, it covers the polygon bounds on the raster grid. It is also
+        written to `filename` when given.
 
     Notes
     -----
-    - All raster inputs must be spatially aligned and use the same coordinate reference system.
+    - `current_file`, `future_files` and `resistance_file` must have the CRS and resolution of
+      `condition_file`, lie on its grid and cover the analysis window, as in the R package; they
+      may extend beyond it. Scenarios may have one band or more.
     - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
       both omit one.
     - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
@@ -451,16 +434,6 @@ def beri(
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
 
-    # An early check for the overall shapes of grids.
-    if polygon_mask is not None:
-        # Only check when no masks; grids could have differnce shape but the masked version could be identical.
-        for src in future_files:
-            with rasterio.open(condition_file) as ds1, rasterio.open(src) as ds2:
-                if ds1.shape != ds2.shape:
-                    raise ValueError(
-                        f"Shape mismatch: {condition_file} {ds1.shape} vs {src} {ds2.shape}"
-                    )
-
     # Coordinates as in R: the polygon in the raster's CRS, engine units in degrees or metres
     crs, is_geo, metres = _coordinate_info(condition_file)
     if polygon_mask is not None:
@@ -476,55 +449,40 @@ def beri(
         valid_margin_px=0,
     )
 
+    # Other inputs must cover the condition's window on its grid, as in R; check them all first.
+    # Scenarios, current climate first, keep their band axis even with one band.
+    window, outside = _input_frame(polygon_mask, closed_border, affine_dict, mask_array, tile_row0, tile_col0)
+    names = ["current_file", *(f"future_files[{i}]" for i in range(len(future_files)))]
+    scenarios = [
+        (path, *_input_window(path, name, condition_file, window, single=False))
+        for path, name in zip([current_file, *future_files], names)
+    ]
+    if len({bands for *_, bands in scenarios}) > 1:
+        raise ValueError("Every climate scenario must have the same band count as current_file")
+    if resistance_file is not None:
+        res_window, _ = _input_window(resistance_file, "resistance_file", condition_file, window)
+
     # Return early if the analysis window has no usable condition cells.
     if np.isnan(cond_array).all() or np.all(mask_array):
         out_array = np.full(mask_array.shape, np.nan, dtype=np.float32)
     else:
-        # Build scenario list without mutating caller input; current always first.
-        scenario_files = [current_file, *future_files]
-        # Just get the cond_dict for the transgrids; Ignore the affine_dict
-        # the scale parameter is not used here
-        def _read_transgrid(file_path):
-            return read_raster(
-                file_path=file_path,
-                polygon=polygon_mask,
-                levels=levels,
-                expand_px=pad_size,
-                valid_margin_px=0,
-            )[0]
+        # Climate bands are not scaled
+        def _read_transgrid(scenario):
+            path, scenario_window, _ = scenario
+            return _read_window(path, scenario_window, outside, single=False)
 
-        if len(scenario_files) == 1:
-            trans_grids = [_read_transgrid(scenario_files[0])]
+        if len(scenarios) == 1:
+            trans_grids = [_read_transgrid(scenarios[0])]
         else:
-            max_workers = min(len(scenario_files), _MAX_BERI_READ_WORKERS)
+            max_workers = min(len(scenarios), _MAX_BERI_READ_WORKERS)
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                trans_grids = list(executor.map(_read_transgrid, scenario_files))
-        
-        # Ensure rows/cols of the arrays the same
-        if cond_array.shape[:2] != trans_grids[0].shape[:2]:
-            raise ValueError(
-                "The shape of the condition and trans_grids[0] doesn't match.\n"
-                f"cond_array shape: {cond_array.shape}\n"
-                f"trans_grids[0] shape: {trans_grids[0].shape}"
-            )
+                trans_grids = list(executor.map(_read_transgrid, scenarios))
 
         # Optional resistance raster -> traversal values (decoupled from condition; used only
         # for path weighting). None keeps the resistance-free behaviour unchanged.
         res_array = None
         if resistance_file is not None:
-            res_array, *_ = read_raster(
-                file_path=resistance_file,
-                polygon=polygon_mask,
-                levels=levels,
-                scale=resistance_scale,
-                expand_px=pad_size,
-                valid_margin_px=0,
-            )
-            if cond_array.shape[:2] != res_array.shape[:2]:
-                raise ValueError(
-                    f"Shape mismatch: condition {cond_array.shape[:2]} vs "
-                    f"resistance {res_array.shape[:2]}"
-                )
+            res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale)
         traversal = _make_traversal(cond_array, res_array)
 
         # The base Rust connectivity funciton

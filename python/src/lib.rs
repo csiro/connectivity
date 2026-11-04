@@ -47,6 +47,7 @@ mod extract;
 /// A 2D array of connectivity values for each cell at the native resolution.
 #[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false))]
 fn connectivity(
+    py: Python<'_>,
     condition: &Bound<PyAny>,
     mask: &Bound<PyAny>,
     transgrid_list: &Bound<PyAny>,
@@ -133,16 +134,13 @@ fn connectivity(
         pa_to_pa,
     };
 
-    // Core connectivity function
-    let outarray: Array2<f32> = pool
-        .install(|| connectivity_core::connectivity(&inputs, &config))
+    // Core connectivity function. The inputs are owned Rust arrays, so the GIL is released
+    // while it runs and other Python threads keep going.
+    let outarray: Array2<f32> = py
+        .detach(|| pool.install(|| connectivity_core::connectivity(&inputs, &config)))
         .map_err(|er| PyRuntimeError::new_err(format!("Connectivity failed: {er}")))?;
 
-    // Convert the array back to Python with gil
-    Python::attach(|py| {
-        let pyarray = outarray.to_pyarray(py);
-        Ok(pyarray.unbind())
-    })
+    Ok(outarray.to_pyarray(py).unbind())
 }
 
 
@@ -161,6 +159,7 @@ fn connectivity(
 /// A 2D float32 array of shape `shape` with values in [0, 1].
 #[pyfunction(signature = (polygons, transform, shape, n_threads=None))]
 fn pixel_coverage(
+    py: Python<'_>,
     polygons: &Bound<PyAny>,
     transform: (f64, f64, f64, f64, f64, f64),
     shape: (usize, usize),
@@ -176,12 +175,11 @@ fn pixel_coverage(
         .build()
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-    let outarray = pool.install(|| connectivity_core::pixel_coverage(&rings, &tr, nrows, ncols));
+    // The rings are owned Rust data, so the GIL is released during the computation
+    let outarray =
+        py.detach(|| pool.install(|| connectivity_core::pixel_coverage(&rings, &tr, nrows, ncols)));
 
-    Python::attach(|py| {
-        let pyarray = outarray.to_pyarray(py);
-        Ok(pyarray.unbind())
-    })
+    Ok(outarray.to_pyarray(py).unbind())
 }
 
 #[pymodule(gil_used = true)]

@@ -82,9 +82,31 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace --locked
 
+  pytest:
+    # The full Python suite; the wheel jobs above only run a smoke test (test-command)
+    name: Python tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Drop local CPU tuning
+        shell: bash
+        run: rm -f .cargo/config.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Build and install the package
+        run: python -m pip install ./python pytest
+      # From the repository root, so the tests import the installed package, data included
+      - name: Run the Python tests
+        run: python -m pytest python/tests
+
   publish:
     name: Publish to PyPI
-    needs: [wheels, sdist, tests]
+    needs: [wheels, sdist, tests, pytest]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     # Must match the trusted publisher configured on PyPI

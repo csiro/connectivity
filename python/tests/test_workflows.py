@@ -138,6 +138,83 @@ def write_grid(path, crs, transform):
     return str(path)
 
 
+def moved(path, source, cols=0, rows=0, bands=None, pad=0):
+    """`source` moved by (fractional) pixels, with only `bands` and `pad` nodata cells around it."""
+    with rasterio.open(source) as src:
+        values, profile = src.read(bands), src.profile
+    nodata = np.nan if profile["nodata"] is None else profile["nodata"]
+    values = np.pad(values, ((0, 0), (pad, pad), (pad, pad)), constant_values=nodata)
+    profile |= {"transform": profile["transform"] * Affine.translation(cols - pad, rows - pad),
+                "count": values.shape[0], "height": values.shape[1], "width": values.shape[2]}
+    with rasterio.open(path, "w", **profile) as dst:
+        dst.write(values)
+    return str(path)
+
+
+def test_input_grids(tmp_path):
+    # Every input must share the condition grid and cover the analysis window, as in R
+    cover = "must cover the analysis window on the same grid as condition_file$"
+    with pytest.raises(ValueError, match=f"^pa_file {cover}"):
+        cn.connectedness(condition_file=COND, pa_file=moved(tmp_path / "pa.tif", PA, cols=50), **SHORT)
+    future = moved(tmp_path / "future.tif", FUTURES[1], rows=50)
+    with pytest.raises(ValueError, match=f"^future_files\\[1\\] {cover}"):
+        cn.beri(condition_file=COND, current_file=CURRENT, future_files=[FUTURES[0], future], **SHORT)
+    with pytest.raises(ValueError, match=f"^resistance_file {cover}"):
+        cn.connectedness(condition_file=COND, resistance_file=moved(tmp_path / "half.tif", COND, cols=0.5), **SHORT)
+    with rasterio.open(COND) as src:
+        transform, crs = src.transform, src.crs
+    same = "must have the same CRS, resolution and grid alignment as condition_file$"
+    with pytest.raises(ValueError, match=f"^resistance_file {same}"):
+        cn.connectedness(condition_file=COND, resistance_file=write_grid(tmp_path / "3577.tif", "EPSG:3577", transform),
+                         **SHORT)
+    with pytest.raises(ValueError, match=f"^current_file {same}"):
+        cn.beri(condition_file=COND, current_file=write_grid(tmp_path / "coarse.tif", crs, transform * Affine.scale(2)),
+                **SHORT)
+    with pytest.raises(ValueError, match="^pa_file must have exactly one layer$"):
+        cn.connectedness(condition_file=COND, pa_file=CURRENT, **SHORT)
+    fewer = moved(tmp_path / "bands.tif", FUTURES[0], bands=list(range(1, 19)))
+    with pytest.raises(ValueError, match="^Every climate scenario must have the same band count as current_file$"):
+        cn.beri(condition_file=COND, current_file=CURRENT, future_files=[fewer], **SHORT)
+
+
+def test_larger_inputs(tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    # Larger rasters on the condition grid are read on the condition's window
+    with rasterio.open(COND) as src:
+        transform, crs = src.transform, src.crs
+    x0, y0, r = transform.c, transform.f, transform.a
+    polygon = gpd.GeoDataFrame(geometry=[box(x0 + 100.3 * r, y0 - 300.7 * r, x0 + 220.6 * r, y0 - 180.2 * r)], crs=crs)
+    pa = moved(tmp_path / "pa.tif", PA, pad=7)
+    resistance = str(tmp_path / "resistance.tif")
+    write_resistance(resistance)
+    larger = moved(tmp_path / "larger.tif", resistance, pad=5)
+    grids = [moved(tmp_path / f"{k}.tif", f, pad=3 + k) for k, f in enumerate([CURRENT, *FUTURES[:2]])]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # missing resistance cells
+        for border in ({}, dict(polygon_mask=polygon), dict(polygon_mask=polygon, closed_border=True)):
+            args = SHORT | border
+            np.testing.assert_array_equal(
+                bits(cn.connectedness(condition_file=COND, pa_file=pa, resistance_file=larger, **args)),
+                bits(cn.connectedness(condition_file=COND, pa_file=PA, resistance_file=resistance, **args)))
+            np.testing.assert_array_equal(
+                bits(cn.beri(condition_file=COND, current_file=grids[0], future_files=grids[1:], **args)),
+                bits(cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES[:2], **args)))
+
+
+def test_single_band_beri(tmp_path):
+    # Climate rasters with one band keep their band axis, as in R
+    current, future = (moved(tmp_path / f"{k}.tif", f, bands=[1]) for k, f in enumerate([CURRENT, FUTURES[0]]))
+    out = cn.beri(condition_file=COND, current_file=current, future_files=[future], **SHORT)
+    reference = cn.connectedness(condition_file=COND, **SHORT)
+    assert out.dtype == np.float32 and out.shape == SHAPE
+    np.testing.assert_array_equal(np.isnan(out), np.isnan(reference))
+    assert (out[np.isfinite(out)] >= 0).all()
+    assert not np.array_equal(bits(out), bits(cn.beri(condition_file=COND, current_file=CURRENT,
+                                                       future_files=FUTURES[:1], **SHORT)))
+
+
 def test_crs_units(tmp_path):
     # Projected units are converted to metres for the engine, as in R, so one grid in metres,
     # kilometres or US survey feet gives the same result

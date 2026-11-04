@@ -5,6 +5,9 @@ The expected values are the frozen samples of the Rust ``multilevel_values`` tes
 also check how arguments are passed to the core.
 """
 
+import threading
+import time
+
 import numpy as np
 import pytest
 
@@ -162,6 +165,31 @@ def test_setting_errors(changes, message):
         run(**changes)
     assert type(info.value) is RuntimeError
     assert str(info.value) == f"Connectivity failed: {message}"
+
+
+def test_releases_gil():
+    # Another Python thread keeps running while the core computes (about 0.3 s here)
+    n, levels = 96, [1, 2, 4, 8]
+    i, j = np.indices((n, n))
+    args = dict(multilevel(), condition=((i * 7 + j * 13) % 10 + 1).astype(F32) / F32(10),
+                mask=np.zeros((n, n), dtype=bool), traversal=None, levels=levels, offsets=(0, 0),
+                transforms={l: (1000.0 * l, 0.0, 0.0, 0.0, -1000.0 * l, 0.0) for l in levels},
+                window_size=5, outer_window=9, n_threads=1)
+    span, ticks = {}, []
+
+    def compute():
+        span["start"] = time.perf_counter()
+        rust_conn.connectivity(**args)
+        span["end"] = time.perf_counter()
+
+    worker = threading.Thread(target=compute)
+    worker.start()
+    while worker.is_alive():
+        ticks.append(time.perf_counter())
+    worker.join()
+    # A thread holding the GIL lets others run only near the start and end of the call
+    third = (span["end"] - span["start"]) / 3
+    assert any(span["start"] + third < t < span["end"] - third for t in ticks)
 
 
 def test_small_outer_window():
