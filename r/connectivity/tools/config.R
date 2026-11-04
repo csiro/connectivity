@@ -8,8 +8,14 @@ source("tools/msrv.R")
 env_debug <- Sys.getenv("DEBUG")
 env_not_cran <- Sys.getenv("NOT_CRAN")
 
-# check if the vendored zip file exists
-vendor_exists <- file.exists("src/rust/vendor.tar.xz")
+# Vendored crates from tools/prepare-source.R are used only while Cargo.lock
+# matches vendor.lock, the lockfile they were made from. readLines() ignores
+# line endings.
+vendor_files <- file.path("src/rust", c("vendor.tar.xz", "vendor-config.toml", "vendor.lock"))
+vendor_exists <- file.exists(vendor_files[1L])
+vendor_current <- all(file.exists(vendor_files)) &&
+    identical(readLines(vendor_files[3L], warn = FALSE),
+              readLines("src/rust/Cargo.lock", warn = FALSE))
 
 is_not_cran <- env_not_cran != ""
 is_debug <- env_debug != ""
@@ -25,10 +31,25 @@ if (!is_not_cran) {
     message("Building for CRAN.")
 }
 
+# A stale tarball stops CRAN-style builds, which must compile offline;
+# development builds ignore it and download the locked crates instead.
+if (vendor_exists && !vendor_current) {
+    stale <- "src/rust/vendor.tar.xz was not made from the current src/rust/Cargo.lock"
+    if (!is_not_cran) {
+        stop(stale, "; delete it, or refresh it by running ",
+             "Rscript -e 'source(\"tools/prepare-source.R\"); prepare_source(\".\")' ",
+             "in r/connectivity", call. = FALSE)
+    }
+    message(stale, "; ignoring it and downloading the locked crates.")
+}
+
+# used to replace @VENDOR@
+.vendor <- ifelse(vendor_current, "yes", "no")
+
 # we set cran flags only if NOT_CRAN is empty and if
-# the vendored crates are present.
+# the vendored crates are current.
 .cran_flags <- ifelse(
-    !is_not_cran && vendor_exists,
+    !is_not_cran && vendor_current,
     "-j 2 --offline",
     ""
 )
@@ -98,6 +119,7 @@ mv_txt <- readLines(mv_fp)
 
 # replace placeholder values
 new_txt <- gsub("@CRAN_FLAGS@", .cran_flags, mv_txt) |>
+  gsub("@VENDOR@", .vendor, x = _) |>
   gsub("@PROFILE@", .profile, x = _) |>
   gsub("@CLEAN_TARGET@", .clean_targets, x = _) |>
   gsub("@LIBDIR@", .libdir, x = _) |>

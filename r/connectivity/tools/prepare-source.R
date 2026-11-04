@@ -19,6 +19,10 @@ prepare_source <- function(package = "r/connectivity") {
     # cargo vendor --locked uses this binding's lockfile, including the published
     # connectivity-core release, and fails if dependency changes need a lock update.
     rextendr::vendor_crates(package, clean = TRUE)
+    # Record the lockfile the crates came from. tools/config.R uses the tarball
+    # only while Cargo.lock still matches it.
+    stopifnot(file.copy(file.path(rust, "Cargo.lock"), file.path(rust, "vendor.lock"),
+                        overwrite = TRUE))
     # CRAN requires the vendored crates' authors and licences (see DESCRIPTION).
     rextendr::write_license_note(package)
     message("Vendored published Rust dependencies for standalone R installation.")

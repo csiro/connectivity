@@ -44,6 +44,10 @@ jobs:
         run: |
           source("r/connectivity/tools/prepare-source.R")
           prepare_source("r/connectivity")
+      # prepare_source() regenerates these from Cargo.lock; commit any change.
+      - name: Check the generated licence files are committed
+        if: runner.os == 'Linux'
+        run: git diff --exit-code -- r/connectivity/LICENSE.note r/connectivity/LICENSE.md
       # --as-cran warns without checkbashisms; setup-r installs it on macOS.
       - name: Install checkbashisms
         if: runner.os == 'Linux'

@@ -3,9 +3,11 @@ src/Makevars
 src/Makevars.win
 
 # Generated from locked registry dependencies by tools/prepare-source.R.
-# Include these in the built R source archive for offline compilation.
+# Include these in the built R source archive for offline compilation;
+# tools/build-source.R removes them after building it.
 src/rust/vendor.tar.xz
 src/rust/vendor-config.toml
+src/rust/vendor.lock
 *.tar.gz
 *.Rcheck/
 
