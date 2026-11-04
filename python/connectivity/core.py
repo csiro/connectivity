@@ -4,14 +4,16 @@ import numpy as np
 import geopandas as gpd
 import rasterio
 from rust_conn import connectivity
-from .rastio import read_raster, write_raster
+from .rastio import _coordinate_info, _match_crs, read_raster, write_raster
 from .utils import (
     _normalise_window_mode,
     _make_traversal,
     _check_continuous_levels,
     _connected_habitat,
     _crop_array,
+    _metre_transforms,
     _round_to_pow2,
+    _warn_margin_px,
 )
 
 _MAX_BERI_READ_WORKERS = 8
@@ -24,7 +26,7 @@ def connectedness(
         pa_to_pa: bool = False,
         polygon_mask: gpd.GeoDataFrame | None = None,
         closed_border: bool = False,
-        margin_px: int = 32,
+        margin_px: int | None = None,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
         window_size: int = 5, 
@@ -74,17 +76,16 @@ def connectedness(
         A GeoDataFrame containing polygon geometry that defines the area of
         interest. If provided, analysis is limited to this area; if None,
         the entire image is processed. See `closed_border` for boundary behavior.
+        Cells touched by the polygon are computed and returned; the output covers
+        the polygon bounds on the raster grid, with NaN in cells it does not touch.
     closed_border : bool
         Specifies how polygon boundaries are handled when `polygon_mask`
         is provided. If True, only cells inside the polygon are included.
         If False, cells outside the polygon within a buffer are considered for the analysis.
     margin_px : int, optional
-        Extra pixel expansion for the valid analysis mask in non-closed mode.
-        This expands computed (non-masked) context around `polygon_mask` to reduce
-        NaN halo effects before post-filtering. Ignored in closed-border mode.
-        In non-closed mode it must satisfy:
-        `margin_px <= (outer_window + 3) * max(levels)`.
-        Default is 32.
+        Deprecated and ignored, with a `DeprecationWarning`; it will be removed in 3.0.
+        Open-border runs compute only the cells that `polygon_mask` touches. The margin
+        cells it added were never returned and did not change the other cells.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -150,11 +151,19 @@ def connectedness(
     Notes
     -----
     - Ensure that `polygon_mask`, if provided, is spatially aligned with `condition_file`.
+    - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
+      both omit one.
+    - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
+      geographic coordinates use degrees. A missing raster CRS raises a warning, and
+      coordinates are then assumed to be degrees for cells smaller than one unit and metres
+      for larger cells; mixed cases are judged from whether the extent fits longitude/latitude
+      bounds.
     - Appropriate choice of `lambdas` and `levels` significantly affects the output connectedness.
     - This function is suitable for applications in spatial pattern analysis, texture segmentation,
 
     """
     window_mode = _normalise_window_mode(window_mode)
+    _warn_margin_px(margin_px)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -191,14 +200,19 @@ def connectedness(
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
 
+    # Coordinates as in R: the polygon in the raster's CRS, engine units in degrees or metres
+    crs, is_geo, metres = _coordinate_info(condition_file)
+    if polygon_mask is not None:
+        polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
+
     # Read condition raster overviews; this checks levels as well
-    cond_array, mask_array, affine_dict, is_geo, tile_row0, tile_col0 = read_raster(
+    cond_array, mask_array, affine_dict, _, tile_row0, tile_col0 = read_raster(
         file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=s1, # only for condition raster
         expand_px=pad_size,
-        valid_margin_px=margin_px,
+        valid_margin_px=0,
     )
 
     # Return early if the analysis window has no usable condition cells.
@@ -214,7 +228,7 @@ def connectedness(
                 levels=levels, 
                 scale=s2, 
                 expand_px=pad_size,
-                valid_margin_px=margin_px,
+                valid_margin_px=0,
             )
             # Ensure dimension of the arrays the same
             if cond_array.shape != pa_array.shape:
@@ -244,7 +258,7 @@ def connectedness(
                     levels=levels,
                     scale=resistance_scale,
                     expand_px=pad_size,
-                    valid_margin_px=margin_px,
+                    valid_margin_px=0,
                 )
                 if cond_array.shape != res_array.shape:
                     raise ValueError(
@@ -258,7 +272,7 @@ def connectedness(
                 condition = cond_array,
                 mask = mask_array,
                 transgrid_list = None,
-                transforms = affine_dict,
+                transforms = _metre_transforms(affine_dict, metres),
                 levels = levels,
                 lambdas = lambdas,
                 is_geo = is_geo,
@@ -279,9 +293,9 @@ def connectedness(
                 out_array = conn_array
 
     tr = affine_dict[1]
-    # Crop array back to the polygon mask
+    # Crop array back to the cells the polygon touches
     if not closed_border and polygon_mask is not None:
-        out_array, tr = _crop_array(out_array, affine_dict[1], polygon_mask)
+        out_array, tr = _crop_array(out_array, tr, polygon_mask)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
@@ -297,7 +311,7 @@ def beri(
         future_files: list[str] | None = None,
         polygon_mask: gpd.GeoDataFrame | None = None,
         closed_border: bool = False,
-        margin_px: int = 32,
+        margin_px: int | None = None,
         lambdas: list[float] = [2, 20, 200],
         max_cost: float = 2.0, 
         window_size: int = 5, 
@@ -336,17 +350,16 @@ def beri(
         A GeoDataFrame containing polygon geometry that defines the area of
         interest. If provided, analysis is limited to this area; if None,
         the entire image is processed. See `closed_border` for boundary behavior.
+        Cells touched by the polygon are computed and returned; the output covers
+        the polygon bounds on the raster grid, with NaN in cells it does not touch.
     closed_border : bool
         Specifies how polygon boundaries are handled when `polygon_mask`
         is provided. If True, only cells inside the polygon are included.
         If False, cells outside the polygon within a buffer are considered for the analysis.
     margin_px : int, optional
-        Extra pixel expansion for the valid analysis mask in non-closed mode.
-        This expands computed (non-masked) context around `polygon_mask` to reduce
-        NaN halo effects before post-filtering. Ignored in closed-border mode.
-        In non-closed mode it must satisfy:
-        `margin_px <= (outer_window + 3) * max(levels)`.
-        Default is 32.
+        Deprecated and ignored, with a `DeprecationWarning`; it will be removed in 3.0.
+        Open-border runs compute only the cells that `polygon_mask` touches. The margin
+        cells it added were never returned and did not change the other cells.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -403,10 +416,18 @@ def beri(
     Notes
     -----
     - All raster inputs must be spatially aligned and use the same coordinate reference system.
+    - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
+      both omit one.
+    - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
+      geographic coordinates use degrees. A missing raster CRS raises a warning, and
+      coordinates are then assumed to be degrees for cells smaller than one unit and metres
+      for larger cells; mixed cases are judged from whether the extent fits longitude/latitude
+      bounds.
     - BERI is derived by aggregating scenario results to capture the capacity of the ecosystem to maintain biodiversity.
 
     """
     window_mode = _normalise_window_mode(window_mode)
+    _warn_margin_px(margin_px)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -440,14 +461,19 @@ def beri(
                         f"Shape mismatch: {condition_file} {ds1.shape} vs {src} {ds2.shape}"
                     )
 
+    # Coordinates as in R: the polygon in the raster's CRS, engine units in degrees or metres
+    crs, is_geo, metres = _coordinate_info(condition_file)
+    if polygon_mask is not None:
+        polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
+
     # Read raster overview as a dictionary; this checks levels as well.
-    cond_array, mask_array, affine_dict, is_geo, tile_row0, tile_col0  = read_raster(
+    cond_array, mask_array, affine_dict, _, tile_row0, tile_col0  = read_raster(
         file_path=condition_file,
         polygon=polygon_mask, 
         levels=levels, 
         scale=scale, # only for condition raster
         expand_px=pad_size,
-        valid_margin_px=margin_px,
+        valid_margin_px=0,
     )
 
     # Return early if the analysis window has no usable condition cells.
@@ -464,7 +490,7 @@ def beri(
                 polygon=polygon_mask,
                 levels=levels,
                 expand_px=pad_size,
-                valid_margin_px=margin_px,
+                valid_margin_px=0,
             )[0]
 
         if len(scenario_files) == 1:
@@ -492,7 +518,7 @@ def beri(
                 levels=levels,
                 scale=resistance_scale,
                 expand_px=pad_size,
-                valid_margin_px=margin_px,
+                valid_margin_px=0,
             )
             if cond_array.shape[:2] != res_array.shape[:2]:
                 raise ValueError(
@@ -506,7 +532,7 @@ def beri(
             condition = cond_array,
             mask = mask_array,
             transgrid_list = trans_grids,
-            transforms = affine_dict,
+            transforms = _metre_transforms(affine_dict, metres),
             levels = levels,
             lambdas = lambdas,
             is_geo = is_geo,
@@ -520,9 +546,9 @@ def beri(
         )
 
     tr = affine_dict[1]
-    # Crop array back to the polygon mask
+    # Crop array back to the cells the polygon touches
     if not closed_border and polygon_mask is not None:
-        out_array, tr = _crop_array(out_array, affine_dict[1], polygon_mask)
+        out_array, tr = _crop_array(out_array, tr, polygon_mask)
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)

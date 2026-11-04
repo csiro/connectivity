@@ -1,6 +1,6 @@
+import math
 import numpy as np
 import warnings
-from rasterio.windows import from_bounds
 from rasterio.transform import Affine
 from rasterio.features import geometry_mask
 
@@ -48,9 +48,32 @@ def _check_continuous_levels(levels: list[int]) -> None:
             )
 
 
+def _warn_margin_px(margin_px) -> None:
+    if margin_px is not None:
+        warnings.warn(
+            "'margin_px' is deprecated and ignored: open-border runs compute only the cells "
+            "that polygon_mask touches. It will be removed in 3.0.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+
+
+def _metre_transforms(transforms: dict, metres: float) -> dict:
+    """Scale level transforms from projected CRS units to metres, the engine's units."""
+    if metres == 1.0:
+        return transforms
+    scale = Affine.scale(metres)
+    return {level: tuple(scale * Affine(*t[:6]))[:6] for level, t in transforms.items()}
+
+
 def _crop_array(array, transform, polygon):
     """
-    Crop a numpy array to the polygon bounding box AND mask to polygon geometry.
+    Crop an array to the cells the polygon touches; other cells become NaN.
+
+    The window is the polygon bounds rounded outwards to the pixel grid, and the mask uses
+    ``all_touched=True``: the rule ``read_raster()`` uses to choose the computed cells (and R's
+    ``.pixel_window()`` and ``touches = TRUE``). The polygon must be in the raster's CRS.
+    Returns a float32 array and the transform of the window.
     """
     # Normalise transform
     if isinstance(transform, (tuple, list)):
@@ -58,16 +81,15 @@ def _crop_array(array, transform, polygon):
     elif not isinstance(transform, Affine):
         raise TypeError("transform must be an affine.Affine or a 6-element tuple/list")
 
-    # Get bounds and window
+    # Bounds -> pixel window, rounded outwards (floor start, ceil stop) like R's
+    # .pixel_window(); the tolerance stops float noise on a pixel edge adding a row or column
     minx, miny, maxx, maxy = polygon.total_bounds
-    window = from_bounds(minx, miny, maxx, maxy, transform)
-    window = window.round_offsets().round_lengths()
-
-    # Window -> integer slices
-    row_start = int(window.row_off)
-    row_stop  = int(window.row_off + window.height)
-    col_start = int(window.col_off)
-    col_stop  = int(window.col_off + window.width)
+    inverse = ~transform
+    cols, rows = zip(*(inverse * (x, y) for x in (minx, maxx) for y in (miny, maxy)))
+    row_start = math.floor(min(rows) + 1e-9)
+    row_stop  = math.ceil(max(rows) - 1e-9)
+    col_start = math.floor(min(cols) + 1e-9)
+    col_stop  = math.ceil(max(cols) - 1e-9)
 
     # Clip to array bounds
     nrows = array.shape[-2]
@@ -102,13 +124,11 @@ def _crop_array(array, transform, polygon):
         invert=False,  # False means pixels outside polygon are True (masked)
     )
 
-    # Apply mask (broadcast across bands if needed)
-    if cropped.ndim == 3:
-        masked = np.ma.array(cropped, mask=np.broadcast_to(mask_outside, cropped.shape))
-    else:
-        masked = np.ma.array(cropped, mask=mask_outside)
+    # NaN outside the polygon (across bands if needed), like every other run's output
+    out = cropped.astype(np.float32)
+    out[..., mask_outside] = np.nan
 
-    return masked, cropped_transform
+    return out, cropped_transform
 
 
 def _make_traversal(cond_array: np.ndarray, res_array: np.ndarray | None) -> np.ndarray | None:

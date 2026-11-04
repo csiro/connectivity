@@ -5,9 +5,12 @@ post-processing) are platform independent; the frozen means come from the 2.5.0 
 and allow for floating-point differences between platforms.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 import rasterio
+from affine import Affine
 
 import connectivity as cn
 from connectivity import example_data_path
@@ -21,6 +24,7 @@ FUTURES = [example_data_path(f"transgrids/{n}") for n in ("ACC50_85", "GFD50_85"
 THREADS = 4
 SHAPE = (516, 588)
 RTOL = 1e-5
+SHORT = dict(levels=[2, 4], outer_window=3, window_size=3, n_threads=THREADS)
 
 # Frozen from the 2.5.0 build (default parameters unless noted, window_size 5); the R
 # package 0.1.0 gives the same means to within 1e-7 relative
@@ -36,11 +40,11 @@ FROZEN = {
 
 
 def bits(a):
-    return np.ascontiguousarray(np.ma.getdata(a)).view(np.uint32)
+    return np.ascontiguousarray(a).view(np.uint32)
 
 
 def nanmean(a):
-    return float(np.nanmean(np.asarray(np.ma.getdata(a), dtype=np.float64)))
+    return float(np.nanmean(np.asarray(a, dtype=np.float64)))
 
 
 @pytest.fixture(scope="module")
@@ -124,6 +128,67 @@ def write_resistance(path):
     return int((valid[300:303]).sum())
 
 
+def write_grid(path, crs, transform):
+    """The condition values with another CRS (None for none) and transform."""
+    with rasterio.open(COND) as src:
+        profile = src.profile | {"crs": crs, "transform": transform}
+        values = src.read(1)
+    with rasterio.open(path, "w", **profile) as dst:
+        dst.write(values, 1)
+    return str(path)
+
+
+def test_crs_units(tmp_path):
+    # Projected units are converted to metres for the engine, as in R, so one grid in metres,
+    # kilometres or US survey feet gives the same result
+    aea = "+proj=aea +lat_1=-18 +lat_2=-36 +lat_0=0 +lon_0=132 +ellps=GRS80 +units={} +no_defs"
+    out = {}
+    for units, metres in (("m", 1.0), ("km", 1000.0), ("us-ft", 1200 / 3937)):
+        transform = Affine(1000 / metres, 0, 1e6 / metres, 0, -1000 / metres, -4e6 / metres)
+        grid = write_grid(tmp_path / f"{units}.tif", aea.format(units), transform)
+        out[units] = cn.connectedness(condition_file=grid, **SHORT)
+    np.testing.assert_array_equal(bits(out["km"]), bits(out["m"]))
+    np.testing.assert_allclose(out["us-ft"], out["m"], rtol=1e-6)  # feet are inexact in binary
+
+
+def test_missing_crs(tmp_path):
+    with rasterio.open(COND) as src:
+        transform = src.transform
+    # Cells smaller than one unit are taken as degrees, larger cells as metres
+    with pytest.warns(UserWarning, match="^Raster CRS is missing; assuming longitude/latitude degrees$"):
+        geo = cn.connectedness(condition_file=write_grid(tmp_path / "geo.tif", None, transform), **SHORT)
+    np.testing.assert_array_equal(bits(geo), bits(cn.connectedness(condition_file=COND, **SHORT)))
+    metric = Affine(1000, 0, 1e6, 0, -1000, -4e6)
+    with pytest.warns(UserWarning, match="^Raster CRS is missing; assuming projected metres$"):
+        proj = cn.connectedness(condition_file=write_grid(tmp_path / "proj.tif", None, metric), **SHORT)
+    albers = cn.connectedness(condition_file=write_grid(tmp_path / "m.tif", "EPSG:3577", metric), **SHORT)
+    np.testing.assert_array_equal(bits(proj), bits(albers))
+
+
+def test_polygon_crs(tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    with rasterio.open(COND) as src:
+        transform, crs = src.transform, src.crs
+    x0, y0, r = transform.c, transform.f, transform.a
+    naive = gpd.GeoDataFrame(geometry=[box(x0 + 100.3 * r, y0 - 300.7 * r, x0 + 220.6 * r, y0 - 180.2 * r)])
+    # The polygon and the raster must both have a CRS, or both omit one, as in R
+    rule = "and the raster must both have a CRS, or both omit one$"
+    with pytest.raises(ValueError, match=f"^polygon_mask {rule}"):
+        cn.connectedness(condition_file=COND, polygon_mask=naive, **SHORT)
+    with pytest.raises(ValueError, match=f"^polygon {rule}"):
+        cn.pixel_coverage(naive, COND)
+    no_crs = write_grid(tmp_path / "no_crs.tif", None, transform)
+    with pytest.warns(UserWarning, match="Raster CRS is missing"), pytest.raises(ValueError, match=rule):
+        cn.beri(condition_file=no_crs, current_file=CURRENT, polygon_mask=naive.set_crs(crs), **SHORT)
+    # Without either CRS, the polygon is in the raster's coordinates
+    with pytest.warns(UserWarning, match="Raster CRS is missing"):
+        out = cn.connectedness(condition_file=no_crs, polygon_mask=naive, **SHORT)
+    expected = cn.connectedness(condition_file=COND, polygon_mask=naive.set_crs(crs), **SHORT)
+    np.testing.assert_array_equal(bits(out), bits(expected))
+
+
 def test_resistance_surface(tmp_path, connectedness):
     res_file = str(tmp_path / "resistance.tif")
     gaps = write_resistance(res_file)
@@ -144,13 +209,51 @@ def test_seamless_tiles():
         tile = tiles.iloc[[k]]
         out = cn.connectedness(condition_file=COND, polygon_mask=tile, n_threads=THREADS)
         expected, _ = _crop_array(whole, transform, tile)
-        assert np.ma.isMaskedArray(out) and out.shape == expected.shape
-        np.testing.assert_array_equal(np.ma.getmaskarray(out), np.ma.getmaskarray(expected))
+        assert type(out) is np.ndarray and out.dtype == np.float32 and out.shape == expected.shape
         # Open-border tiles see the same overview cells and windows as the whole raster
-        inside = ~np.ma.getmaskarray(out)
+        inside = np.isfinite(expected)
+        np.testing.assert_array_equal(np.isfinite(out), inside)
         np.testing.assert_array_equal(bits(out)[inside], bits(expected)[inside])
         closed = cn.connectedness(condition_file=COND, polygon_mask=tile, closed_border=True, n_threads=THREADS)
         assert np.isfinite(closed).any()
+
+
+def test_polygon_cells(connectedness):
+    import geopandas as gpd
+    from rasterio.features import geometry_mask
+    from shapely.geometry import Point, box
+
+    with rasterio.open(COND) as src:
+        transform, crs = src.transform, src.crs
+    x0, y0, r = transform.c, transform.f, transform.a
+    shapes = [box(x0 + 100.3 * r, y0 - 300.7 * r, x0 + 220.6 * r, y0 - 180.2 * r),  # off pixel edges
+              box(x0 + 40 * r, y0 - 160 * r, x0 + 130 * r, y0 - 70 * r),  # on pixel edges
+              Point(x0 + 300.45 * r, y0 - 250.55 * r).buffer(60.3 * r)]
+    for shape in shapes:
+        polygon = gpd.GeoDataFrame(geometry=[shape], crs=crs)
+        out = cn.connectedness(condition_file=COND, polygon_mask=polygon, option=1, n_threads=THREADS)
+        assert type(out) is np.ndarray and out.dtype == np.float32
+        # Open borders return every valid cell the polygon touches, as the whole raster scores
+        # it; R's connectedness() returns the same cells and values
+        touched = ~geometry_mask([shape], SHAPE, transform, all_touched=True)
+        assert np.isfinite(out).sum() == (touched & np.isfinite(connectedness)).sum()
+        expected, _ = _crop_array(connectedness, transform, polygon)
+        np.testing.assert_array_equal(bits(out), bits(expected))
+    # The crop reprojects a polygon in another CRS, as the read does
+    polygon = gpd.GeoDataFrame(geometry=shapes[:1], crs=crs)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)  # no margin is used internally
+        out = cn.connectedness(condition_file=COND, polygon_mask=polygon, option=1, n_threads=THREADS)
+    projected = cn.connectedness(condition_file=COND, polygon_mask=polygon.to_crs(3577), option=1,
+                                 n_threads=THREADS)
+    np.testing.assert_array_equal(bits(projected), bits(out))
+    # Deprecated margins: margin_px is ignored, read_raster's margin still applies until 3.0
+    with pytest.warns(DeprecationWarning, match="'margin_px' is deprecated and ignored"):
+        margin = cn.connectedness(condition_file=COND, polygon_mask=polygon, margin_px=32, option=1,
+                                  n_threads=THREADS)
+    np.testing.assert_array_equal(bits(margin), bits(out))
+    with pytest.warns(DeprecationWarning, match="'valid_margin_px' is deprecated"):
+        read_raster(COND, polygon=polygon, levels=[1, 2, 4, 8], expand_px=3)
 
 
 def test_pixel_coverage(tmp_path):

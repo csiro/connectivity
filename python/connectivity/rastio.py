@@ -8,9 +8,11 @@ from shapely.geometry import mapping
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
 import math
+import warnings
 import numpy as np
 import rasterio
 import geopandas as gpd
+from rasterio.errors import CRSError
 from rust_conn import pixel_coverage as _rust_pixel_coverage
 
 
@@ -37,6 +39,43 @@ def _guess_geographic(src):
     return False  # default to projected if unsure
 
 
+def _match_crs(polygon, crs, name="polygon"):
+    """Reproject `polygon` to the raster `crs`, requiring both or neither to have a CRS (as R)."""
+    if (polygon.crs is not None) != bool(crs):
+        raise ValueError(f"{name} and the raster must both have a CRS, or both omit one")
+    if crs and polygon.crs != crs:
+        polygon = polygon.to_crs(crs)
+    return polygon
+
+
+def _coordinate_info(file_path: str):
+    """CRS of a raster, whether it is geographic, and metres per projected unit (as R).
+
+    A missing CRS is guessed with `_guess_geographic()` and warned about; projected units
+    are converted to metres for the engine, whose projected distances are in metres.
+    """
+    with rasterio.open(file_path) as src:
+        crs = src.crs
+        if not crs:
+            is_geo = _guess_geographic(src)
+            warnings.warn(
+                "Raster CRS is missing; assuming "
+                + ("longitude/latitude degrees" if is_geo else "projected metres"),
+                UserWarning,
+                stacklevel=3,
+            )
+            return None, is_geo, 1.0
+    if crs.is_geographic:
+        return crs, True, 1.0
+    try:
+        metres = float(crs.linear_units_factor[1])
+    except CRSError:
+        metres = math.nan
+    if not math.isfinite(metres) or metres <= 0:
+        raise ValueError("Cannot determine the projected CRS units in metres")
+    return crs, False, metres
+
+
 # reading full or masked raster
 def read_raster(
     file_path: str,
@@ -55,9 +94,10 @@ def read_raster(
         - scale (float or None): Scaling factor. If None, 0, or 1, data returned unchanged; otherwise divided by scale.
         - expand_px (int): Number of pixels to buffer the polygon for read-window context.
           0 means closed boundary (tight crop).
-        - valid_margin_px (int): Extra pixels to buffer the polygon for valid analysis area
-          in non-closed mode. This reduces NaN halo before filtering while preserving final
-          crop to the original polygon.
+        - valid_margin_px (int): Deprecated; it will be removed in 3.0. Extra pixels to buffer
+          the polygon for the valid analysis area in non-closed mode. A non-zero margin raises
+          a DeprecationWarning; pass 0 to mark only cells the polygon touches as valid, as
+          `connectedness()` and `beri()` do and as 3.0 will.
     
     Modes:
       - closed (expand_px == 0): crop to polygon extent AND mask outside polygon
@@ -112,8 +152,7 @@ def read_raster(
             tile_row0, tile_col0 = 0, 0
 
         else:
-            if polygon.crs != src.crs:
-                polygon = polygon.to_crs(src.crs)
+            polygon = _match_crs(polygon, src.crs)
 
             closed = (expand_px == 0)
 
@@ -196,6 +235,13 @@ def read_raster(
             if closed or valid_margin_px == 0:
                 valid_geom_mask = core_geom_mask
             else:
+                warnings.warn(
+                    "'valid_margin_px' is deprecated and will be removed in 3.0, when the mask "
+                    "marks only cells the polygon touches as valid. Pass valid_margin_px=0 for "
+                    "that behaviour now.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 valid_pad = float(valid_margin_px) * float(max(base_res_x, base_res_y))
                 valid_geoms = [geom.buffer(valid_pad) for geom in polygon.geometry]
                 valid_geom_mask = geometry_mask(
@@ -275,6 +321,7 @@ def pixel_coverage(
     raster_file : str
         Path to the reference raster file. The output array matches the raster's
         shape and transform; the polygon is reprojected to the raster's CRS if needed.
+        The polygon and the raster must both have a CRS, or both omit one.
     n_threads : int, optional
         Number of CPU threads for the Rust computation. Default is None (all cores).
     filename : str, optional
@@ -298,8 +345,7 @@ def pixel_coverage(
         raster_shape = (src.height, src.width)
         raster_crs = src.crs
 
-    if raster_crs is not None and polygon.crs is not None and polygon.crs != raster_crs:
-        polygon = polygon.to_crs(raster_crs)
+    polygon = _match_crs(polygon, raster_crs)
 
     geom = unary_union(list(polygon.geometry.values))
     rings = _polygon_to_rings(geom)

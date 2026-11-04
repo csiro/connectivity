@@ -269,7 +269,6 @@ connd = connectedness(
     condition_file = condition_file,
     polygon_mask = tile_poly,
     closed_border = False,
-    margin_px = 32,
     lambdas = [2, 20, 200],
     max_cost = 2.0, 
     window_size = 5, 
