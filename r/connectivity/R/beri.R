@@ -42,6 +42,12 @@
 #'   climate. `NULL` or an empty list computes the current-climate index only.
 #'   Missing climate bands give the cell a similarity of zero.
 #' @param scale Optional condition divisor. Climate bands are not scaled.
+#' @param band Optional layer of `condition_file` to use, numbered from 1 as in
+#'   GDAL, rasterio and terra, for a filename or a `SpatRaster` alike. A
+#'   multi-layer `resistance_file` uses the same layer, and a single-layer one
+#'   is used as it is. `current_file` and `future_files` are not affected:
+#'   their layers are environmental variables. `NULL` (default) requires a
+#'   single-layer `condition_file` and `resistance_file`.
 #' @inheritParams connectedness
 #' @return A single-layer `terra::SpatRaster`, optionally written to `filename`.
 #'   Its values are BERI scores; missing and polygon-masked cells are `NA`.
@@ -105,12 +111,13 @@ beri <- function(condition_file,
                  n_threads = NULL,
                  filename = "",
                  overwrite = FALSE,
-                 wopt = list())
+                 wopt = list(),
+                 band = NULL)
 {
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
     .check_scale(scale)
-    prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border, settings, scale)
+    prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border, settings, scale, band)
     
     if (is.null(future_files)) future_files <- list()
     if (inherits(future_files, "SpatRaster")) future_files <- list(future_files)

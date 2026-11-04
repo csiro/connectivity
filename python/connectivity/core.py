@@ -4,6 +4,8 @@ import numpy as np
 import geopandas as gpd
 from rust_conn import connectivity
 from .rastio import (
+    _check_band,
+    _condition_band,
     _coordinate_info,
     _input_frame,
     _input_window,
@@ -46,6 +48,7 @@ def connectedness(
         option: int = 3,
         n_threads: int | None = None,
         filename: str = "",
+        band: int | None = None,
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics
     
@@ -148,8 +151,14 @@ def connectedness(
         The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
     filename : str, optional
-        Path to save the output file. If empty, the result is not written to disk.
+        Path to save the output file as a GeoTIFF. If empty, the result is not written to disk.
         Default is "".
+    band : int, optional
+        The 1-based band of `condition_file` to use, numbered as in GDAL, rasterio and terra,
+        e.g. one year of a condition time series stored as a multi-band raster. A `pa_file` or
+        `resistance_file` with more than one band uses the same band; a single-band one is used
+        as it is, e.g. a fixed protected-area layer. If None (default), every input must have
+        one band.
 
     Returns
     -------
@@ -157,9 +166,9 @@ def connectedness(
 
     Notes
     -----
-    - `pa_file` and `resistance_file` must have one band and the CRS and resolution of
-      `condition_file`, lie on its grid and cover the analysis window, as in the R package; they
-      may extend beyond it.
+    - `pa_file` and `resistance_file` must have the CRS and resolution of `condition_file`, lie
+      on its grid and cover the analysis window, as in the R package; they may extend beyond it.
+      They must have one band unless `band` is given.
     - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
       both omit one.
     - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
@@ -173,6 +182,7 @@ def connectedness(
     """
     window_mode = _normalise_window_mode(window_mode)
     _warn_margin_px(margin_px)
+    _check_band(band)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -200,7 +210,9 @@ def connectedness(
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
 
-    # Coordinates as in R: the polygon in the raster's CRS, engine units in degrees or metres
+    # The condition band, then coordinates as in R: the polygon in the raster's CRS, engine
+    # units in degrees or metres
+    cond_band = _condition_band(condition_file, band)
     crs, is_geo, metres = _coordinate_info(condition_file)
     if polygon_mask is not None:
         polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
@@ -213,14 +225,15 @@ def connectedness(
         scale=s1, # only for condition raster
         expand_px=pad_size,
         valid_margin_px=0,
+        band=cond_band,
     )
 
     # Other inputs must cover the condition's window on its grid, as in R; check them all first
     window, outside = _input_frame(polygon_mask, closed_border, affine_dict, mask_array, tile_row0, tile_col0)
     if pa_file is not None:
-        pa_window, _ = _input_window(pa_file, "pa_file", condition_file, window)
+        pa_window, pa_band = _input_window(pa_file, "pa_file", condition_file, window, band)
     if resistance_file is not None:
-        res_window, _ = _input_window(resistance_file, "resistance_file", condition_file, window)
+        res_window, res_band = _input_window(resistance_file, "resistance_file", condition_file, window, band)
 
     # Return early if the analysis window has no usable condition cells.
     if np.isnan(cond_array).all() or np.all(mask_array):
@@ -228,7 +241,7 @@ def connectedness(
     else:
         # Process PA-array for PARC-connectedness
         if pa_file is not None:
-            pa_array = _read_window(pa_file, pa_window, outside, scale=s2)
+            pa_array = _read_window(pa_file, pa_window, outside, scale=s2, band=pa_band)
 
             # Update the condition dict with the max(c, p) for each cell in each level
             cond_array = np.maximum(cond_array, pa_array)
@@ -244,7 +257,8 @@ def connectedness(
             # only for path weighting). None keeps the resistance-free behaviour unchanged.
             res_array = None
             if resistance_file is not None:
-                res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale)
+                res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale,
+                                         band=res_band)
             traversal = _make_traversal(cond_array, res_array)
 
             # The base Rust connectivity funciton
@@ -303,6 +317,7 @@ def beri(
         resistance_scale: float | None = None,
         n_threads: int | None = None,
         filename: str = "",
+        band: int | None = None,
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -384,8 +399,15 @@ def beri(
         The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
     filename : str, optional
-        Path to save the resulting BERI raster. If empty, the output is not written to disk.
-        Default is "".
+        Path to save the resulting BERI raster as a GeoTIFF. If empty, the output is not written
+        to disk. Default is "".
+    band : int, optional
+        The 1-based band of `condition_file` to use, numbered as in GDAL, rasterio and terra,
+        e.g. one year of a condition time series stored as a multi-band raster. A
+        `resistance_file` with more than one band uses the same band; a single-band one is used
+        as it is. `current_file` and `future_files` are not affected: their bands are
+        environmental variables. If None (default), `condition_file` and `resistance_file` must
+        have one band.
 
     Returns
     -------
@@ -398,7 +420,8 @@ def beri(
     -----
     - `current_file`, `future_files` and `resistance_file` must have the CRS and resolution of
       `condition_file`, lie on its grid and cover the analysis window, as in the R package; they
-      may extend beyond it. Scenarios may have one band or more.
+      may extend beyond it. Scenarios may have one band or more; `resistance_file` must have one
+      band unless `band` is given.
     - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
       both omit one.
     - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
@@ -411,6 +434,7 @@ def beri(
     """
     window_mode = _normalise_window_mode(window_mode)
     _warn_margin_px(margin_px)
+    _check_band(band)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -434,7 +458,9 @@ def beri(
     # For closed border there'll be no padding
     pad_size = 0 if closed_border else outer_window
 
-    # Coordinates as in R: the polygon in the raster's CRS, engine units in degrees or metres
+    # The condition band, then coordinates as in R: the polygon in the raster's CRS, engine
+    # units in degrees or metres
+    cond_band = _condition_band(condition_file, band)
     crs, is_geo, metres = _coordinate_info(condition_file)
     if polygon_mask is not None:
         polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
@@ -447,6 +473,7 @@ def beri(
         scale=scale, # only for condition raster
         expand_px=pad_size,
         valid_margin_px=0,
+        band=cond_band,
     )
 
     # Other inputs must cover the condition's window on its grid, as in R; check them all first.
@@ -460,7 +487,7 @@ def beri(
     if len({bands for *_, bands in scenarios}) > 1:
         raise ValueError("Every climate scenario must have the same band count as current_file")
     if resistance_file is not None:
-        res_window, _ = _input_window(resistance_file, "resistance_file", condition_file, window)
+        res_window, res_band = _input_window(resistance_file, "resistance_file", condition_file, window, band)
 
     # Return early if the analysis window has no usable condition cells.
     if np.isnan(cond_array).all() or np.all(mask_array):
@@ -469,7 +496,7 @@ def beri(
         # Climate bands are not scaled
         def _read_transgrid(scenario):
             path, scenario_window, _ = scenario
-            return _read_window(path, scenario_window, outside, single=False)
+            return _read_window(path, scenario_window, outside)
 
         if len(scenarios) == 1:
             trans_grids = [_read_transgrid(scenarios[0])]
@@ -482,7 +509,7 @@ def beri(
         # for path weighting). None keeps the resistance-free behaviour unchanged.
         res_array = None
         if resistance_file is not None:
-            res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale)
+            res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale, band=res_band)
         traversal = _make_traversal(cond_array, res_array)
 
         # The base Rust connectivity funciton

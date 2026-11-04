@@ -237,6 +237,31 @@ beris = beri(
 ```
 <img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/beri.png" width="385" height="300">
 
+### Condition time series
+Use `band` to select one band of a multi-band condition raster, such as one
+year of a time series stored as a multi-band GeoTIFF. Bands are numbered from
+1, as in GDAL, rasterio and terra. A `pa_file` or `resistance_file` with one
+band is used with every band, while a multi-band one uses the same band as the
+condition raster. The climate rasters of `beri()` are not affected: their bands
+are environmental variables. Without `band`, a multi-band condition raster
+raises an error.
+
+```python
+import rasterio
+
+series_file = "./data/condition_2001_2020.tif"  # one band per year
+with rasterio.open(series_file) as src:
+    n_years = src.count
+
+for band, year in enumerate(range(2001, 2001 + n_years), start=1):
+    connectedness(
+        condition_file = series_file,
+        band = band,
+        pa_file = pa_file,  # one band: the same protected areas every year
+        filename = f"./results/parc_{year}.tif",
+    )
+```
+
 
 ## Running Analysis with Tiles
 

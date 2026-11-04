@@ -1,5 +1,6 @@
 # Raster preparation stays in R; numerical aggregation and routing stay in Rust.
-.as_raster <- function(x, name, single = TRUE, values = TRUE) {
+# A `single` raster is reduced to one layer with `band`; see .select_layer().
+.as_raster <- function(x, name, single = TRUE, values = TRUE, band = NULL, fixed = TRUE) {
     if (is.character(x) && length(x) == 1L && !is.na(x) && nzchar(x)) {
         x <- terra::rast(x)
     }
@@ -9,13 +10,28 @@
     if (any(terra::is.rotated(x))) {
         stop(name, " has a rotated grid; rectify it before analysis", call. = FALSE)
     }
-    if (single && terra::nlyr(x) != 1L) {
-        stop(name, " must have exactly one layer", call. = FALSE)
-    }
+    if (single) x <- .select_layer(x, name, band, fixed)
     if (values && !terra::hasValues(x)) {
         stop(name, " has no raster values", call. = FALSE)
     }
     return(x)
+}
+
+# Layer `band` of a raster, as Python's _select_band(). A multi-layer raster
+# needs `band` in range. A single-layer raster is used as it is when `band` is
+# NULL or the raster is `fixed`, such as a protected-area layer used with every
+# layer of a condition time series.
+.select_layer <- function(x, name, band, fixed) {
+    layers <- terra::nlyr(x)
+    if (layers == 1L && (is.null(band) || fixed)) return(x)
+    if (is.null(band)) {
+        stop(name, " must have exactly one layer; choose one with band", call. = FALSE)
+    }
+    if (band > layers) {
+        stop("band must be between 1 and ", layers, ", the number of layers in ", name,
+             call. = FALSE)
+    }
+    return(if (layers == 1L) x else x[[band]])
 }
 
 .as_polygons <- function(x, reference, name = "polygon_mask") {
@@ -166,8 +182,9 @@
 # polygon are evaluated and returned. Closed borders also remove the outside
 # landscape from paths and habitat.
 .prepare_landscape <- function(condition_file, polygon_mask, closed_border,
-                               settings, scale) {
-    reference <- .as_raster(condition_file, "condition_file")
+                               settings, scale, band = NULL) {
+    if (!is.null(band)) .check_integers(band, "band", length = 1L, minimum = 1L)
+    reference <- .as_raster(condition_file, "condition_file", band = band, fixed = FALSE)
     .check_flag(closed_border, "closed_border")
     .check_scale(scale)
     coordinates <- .coordinate_info(reference)
@@ -197,7 +214,7 @@
     prepared <- list(reference = reference, template = template, polygons = polygons,
                      outside = outside, offsets = offsets, output_extent = output_extent,
                      transform = coordinates$transform, is_geo = coordinates$is_geo,
-                     closed_border = closed_border)
+                     closed_border = closed_border, band = band)
     condition <- .read_window(reference, prepared, "condition_file", scale = scale)
     mask <- is.na(condition)
     if (!is.null(outside)) mask <- mask | outside
@@ -207,7 +224,7 @@
 }
 
 .read_window <- function(x, prepared, name, scale = NULL, single = TRUE) {
-    raster <- .as_raster(x, name, single = single)
+    raster <- .as_raster(x, name, single = single, band = prepared$band)
     target <- prepared$template
     tolerance <- terra::res(target) * 1e-8
     if (!terra::same.crs(raster, target) ||

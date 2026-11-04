@@ -22,14 +22,16 @@ beri(
   n_threads = NULL,
   filename = "",
   overwrite = FALSE,
-  wopt = list()
+  wopt = list(),
+  band = NULL
 )
 }
 \arguments{
-\item{condition_file}{Single-layer \code{terra::SpatRaster} or raster filename.
-Habitat condition must be in \verb{[0, 1]} after scaling. Missing values are
-excluded. All raster inputs must share a CRS, resolution and pixel grid;
-auxiliary rasters must cover the analysis window. They are not resampled.}
+\item{condition_file}{Single-layer \code{terra::SpatRaster} or raster filename,
+or a multi-layer one with \code{band}. Habitat condition must be in \verb{[0, 1]}
+after scaling. Missing values are excluded. All raster inputs must share a
+CRS, resolution and pixel grid; auxiliary rasters must cover the analysis
+window. They are not resampled.}
 
 \item{current_file}{Current-climate \code{terra::SpatRaster} or raster filename
 of GDM-transformed environmental layers (transgrids). One or more layers
@@ -69,11 +71,12 @@ computed from the base-resolution values.}
 
 \item{scale}{Optional condition divisor. Climate bands are not scaled.}
 
-\item{resistance_file}{Optional single-layer resistance raster or filename.
-After scaling, \code{1 - resistance} is clipped to \verb{[0, 1]} for path traversal,
-so resistance of 1 or more, including \code{Inf}, gives the highest path cost.
-Missing resistance at valid condition cells falls back to condition and
-raises a warning. Resistance does not alter habitat values or the domain.}
+\item{resistance_file}{Optional single-layer resistance raster or filename;
+see \code{band} for a multi-layer one. After scaling, \code{1 - resistance} is
+clipped to \verb{[0, 1]} for path traversal, so resistance of 1 or more,
+including \code{Inf}, gives the highest path cost. Missing resistance at valid
+condition cells falls back to condition and raises a warning. Resistance
+does not alter habitat values or the domain.}
 
 \item{resistance_scale}{Optional divisor applied only to resistance values.}
 
@@ -86,6 +89,13 @@ in-memory raster. Files default to single-precision floating-point values.}
 \item{overwrite}{Whether an existing output file may be overwritten.}
 
 \item{wopt}{Named list of \code{\link[terra:writeRaster]{terra::writeRaster()}} options.}
+
+\item{band}{Optional layer of \code{condition_file} to use, numbered from 1 as in
+GDAL, rasterio and terra, for a filename or a \code{SpatRaster} alike. A
+multi-layer \code{resistance_file} uses the same layer, and a single-layer one
+is used as it is. \code{current_file} and \code{future_files} are not affected:
+their layers are environmental variables. \code{NULL} (default) requires a
+single-layer \code{condition_file} and \code{resistance_file}.}
 }
 \value{
 A single-layer \code{terra::SpatRaster}, optionally written to \code{filename}.

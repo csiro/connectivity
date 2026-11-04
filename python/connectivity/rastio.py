@@ -8,6 +8,7 @@ from shapely.geometry import mapping
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.ops import unary_union
 import math
+import numbers
 import warnings
 import numpy as np
 import pyproj
@@ -58,15 +59,45 @@ def _same_crs(a, b):
     return pyproj.CRS.from_wkt(a.to_wkt()).equals(pyproj.CRS.from_wkt(b.to_wkt()), ignore_axis_order=True)
 
 
-def _input_window(file_path: str, name: str, condition_file: str, window: Window, single: bool = True):
+def _check_band(band) -> None:
+    """Check `band`, the 1-based band of `condition_file` to use, or None."""
+    if band is not None and (isinstance(band, bool) or not isinstance(band, numbers.Integral) or band < 1):
+        raise ValueError("band must be a positive integer")
+
+
+def _select_band(count: int, name: str, band: int | None, fixed: bool = False) -> int:
+    """The 1-based band to read from a raster with `count` bands, as R's `.select_layer()`.
+
+    A multi-band raster needs `band` in range. A one-band raster is read as it is when `band`
+    is None or the raster is `fixed`, such as a protected-area layer used with every band of a
+    condition time series.
+    """
+    if count == 1 and (band is None or fixed):
+        return 1
+    if band is None:
+        raise ValueError(f"{name} must have exactly one layer; choose one with band")
+    if band > count:
+        raise ValueError(f"band must be between 1 and {count}, the number of layers in {name}")
+    return int(band)
+
+
+def _condition_band(file_path: str, band: int | None) -> int:
+    """The band of `condition_file` to read; see `_select_band()`."""
+    with rasterio.open(file_path) as src:
+        return _select_band(src.count, "condition_file", band)
+
+
+def _input_window(
+    file_path: str, name: str, condition_file: str, window: Window, band: int | None = None, single: bool = True
+):
     """Window of `file_path` covering `window` of the condition grid, checked as R does.
 
     The raster must have the condition raster's CRS and resolution, lie on its grid and cover
-    `window`; a `single` raster must have one band. Returns the window and the band count.
+    `window`. Returns the window and, for a `single` raster, the band to read, chosen with
+    `band` as `_select_band()` does for a `fixed` raster; otherwise the band count.
     """
     with rasterio.open(condition_file) as ref, rasterio.open(file_path) as src:
-        if single and src.count != 1:
-            raise ValueError(f"{name} must have exactly one layer")
+        bands = _select_band(src.count, name, band, fixed=True) if single else src.count
         # The same tolerance as R: 1e-8 of a pixel
         tolerance = 1e-8 * max(abs(ref.transform.a), abs(ref.transform.e))
         if not _same_crs(src.crs, ref.crs) or any(
@@ -84,22 +115,23 @@ def _input_window(file_path: str, name: str, condition_file: str, window: Window
             or row0 + window.height > src.height
         ):
             raise ValueError(f"{name} must cover the analysis window on the same grid as condition_file")
-        return Window(col0, row0, window.width, window.height), src.count
+        return Window(col0, row0, window.width, window.height), bands
 
 
-def _read_window(file_path: str, window: Window, outside=None, scale: float | None = None, single: bool = True):
+def _read_window(file_path: str, window: Window, outside=None, scale: float | None = None, band: int | None = None):
     """Read `window` of `file_path` as float32 with NaN for nodata, as `read_raster()` does.
 
     `outside` (2D bool) marks cells outside a closed-border polygon, set to NaN in every band.
-    Returns (rows, cols) for a `single` raster, else (rows, cols, bands) even for one band.
+    Returns 1-based `band` as (rows, cols), or every band as (rows, cols, bands) even for one.
     """
     with rasterio.open(file_path) as src:
-        data = src.read(window=window, masked=True).astype(np.float32).filled(np.nan)
+        data = src.read(None if band is None else [band], window=window, masked=True)
+    data = data.astype(np.float32).filled(np.nan)
     if outside is not None:
         data[:, outside] = np.nan
     if scale not in (None, 0, 1):
         data = data / float(scale)
-    return data[0] if single else np.moveaxis(data, 0, -1)
+    return np.moveaxis(data, 0, -1) if band is None else data[0]
 
 
 def _input_frame(polygon, closed_border, transforms, mask_array, tile_row0, tile_col0):
@@ -156,6 +188,7 @@ def read_raster(
     scale: float | None = None,
     expand_px: int = 0,
     valid_margin_px: int = 32,
+    band: int | None = None,
 ):
     """Reads data from a multi-band GeoTIFF (base resolution) and returns NaN-filled array + transforms + masks + offsets.
 
@@ -170,7 +203,9 @@ def read_raster(
           the polygon for the valid analysis area in non-closed mode. A non-zero margin raises
           a DeprecationWarning; pass 0 to mark only cells the polygon touches as valid, as
           `connectedness()` and `beri()` do and as 3.0 will.
-    
+        - band (int or None): 1-based band to read, numbered as in GDAL, rasterio and terra,
+          giving a single-band result. None (default) reads every band.
+
     Modes:
       - closed (expand_px == 0): crop to polygon extent AND mask outside polygon
       - non-closed (expand_px > 0): crop to bounding box of buffered polygon, DO NOT mask outside polygon
@@ -190,6 +225,7 @@ def read_raster(
         raise ValueError(f"levels must be positive ints, got: {levels}")
     if valid_margin_px < 0:
         raise ValueError(f"valid_margin_px must be >= 0, got: {valid_margin_px}")
+    _check_band(band)
 
     # ensure levels contain 1
     levels = sorted({1, *levels})
@@ -213,9 +249,11 @@ def read_raster(
 
         base_transform = src.transform
         base_res_x, base_res_y = src.res
+        # A list of one band keeps the (bands, rows, cols) shape of a full read
+        indexes = None if band is None else [_select_band(src.count, "file_path", band)]
 
         if polygon is None:
-            data_ma = src.read(masked=True).astype(np.float32)  # (bands, rows, cols)
+            data_ma = src.read(indexes, masked=True).astype(np.float32)  # (bands, rows, cols)
             out_transform = base_transform
             out_image_data = np.ma.getdata(data_ma)
             data_mask = np.ma.getmaskarray(data_ma)
@@ -287,10 +325,11 @@ def read_raster(
                     crop=True,
                     filled=False,
                     all_touched=True,
+                    indexes=indexes,
                 )
             else:
                 # Non-closed mode: read snapped window directly; keep all pixels for context
-                out_ma = src.read(window=read_win, masked=True).astype(np.float32)
+                out_ma = src.read(indexes, window=read_win, masked=True).astype(np.float32)
                 out_transform = src.window_transform(read_win)
 
             out_image_data = np.ma.getdata(out_ma).astype(np.float32)
@@ -471,10 +510,11 @@ def write_raster(
     ):
     """Write a numpy array to a GeoTIFF file using the geographic transformation
     from the transform argument and projection/other metadata from a template raster file.
+    The output is a GeoTIFF whatever the template's format, e.g. a VRT or `vrt://` template.
     Args:
         - np.array: input array to write to disk
         - str: output path to the file
-        - str: a file to be used as tempalte for getting the meta data for writing
+        - str: a file to be used as template for getting the meta data for writing
         - tuple: a tuple of transform information for croping the file when writing
     """
     array = np.asanyarray(in_array)
@@ -491,6 +531,7 @@ def write_raster(
         
         # Update metadata with new array dimensions and datatype
         meta.update(
+            driver="GTiff",
             dtype=array.dtype,
             count=1 if array.ndim == 2 else array.shape[0],
             width=array.shape[-1],

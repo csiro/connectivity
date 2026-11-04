@@ -170,7 +170,7 @@ def test_input_grids(tmp_path):
     with pytest.raises(ValueError, match=f"^current_file {same}"):
         cn.beri(condition_file=COND, current_file=write_grid(tmp_path / "coarse.tif", crs, transform * Affine.scale(2)),
                 **SHORT)
-    with pytest.raises(ValueError, match="^pa_file must have exactly one layer$"):
+    with pytest.raises(ValueError, match="^pa_file must have exactly one layer; choose one with band$"):
         cn.connectedness(condition_file=COND, pa_file=CURRENT, **SHORT)
     fewer = moved(tmp_path / "bands.tif", FUTURES[0], bands=list(range(1, 19)))
     with pytest.raises(ValueError, match="^Every climate scenario must have the same band count as current_file$"):
@@ -213,6 +213,83 @@ def test_single_band_beri(tmp_path):
     assert (out[np.isfinite(out)] >= 0).all()
     assert not np.array_equal(bits(out), bits(cn.beri(condition_file=COND, current_file=CURRENT,
                                                        future_files=FUTURES[:1], **SHORT)))
+
+
+def write_series(path, source, count=3):
+    """`source` as a `count`-band series whose band k holds source ** (k / 2)."""
+    with rasterio.open(source) as src:
+        values, profile = src.read(1, masked=True), src.profile
+    series = np.ma.stack([values ** np.float32(k / 2) for k in range(1, count + 1)])
+    nodata = np.nan if profile["nodata"] is None else profile["nodata"]
+    with rasterio.open(path, "w", **(profile | {"count": count})) as dst:
+        dst.write(series.astype(np.float32).filled(nodata))
+    return str(path)
+
+
+def test_band(tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    resistance = str(tmp_path / "resistance.tif")
+    write_resistance(resistance)
+    cond, pa, res = (write_series(tmp_path / f"{n}_series.tif", f)
+                     for n, f in (("cond", COND), ("pa", PA), ("res", resistance)))
+    k = 3
+    one = {n: moved(tmp_path / f"{n}{k}.tif", f, bands=[k]) for n, f in (("cond", cond), ("pa", pa), ("res", res))}
+    with rasterio.open(COND) as src:
+        transform, crs = src.transform, src.crs
+    x0, y0, r = transform.c, transform.f, transform.a
+    polygon = gpd.GeoDataFrame(geometry=[box(x0 + 100.3 * r, y0 - 300.7 * r, x0 + 220.6 * r, y0 - 180.2 * r)], crs=crs)
+    climate = dict(current_file=CURRENT, future_files=FUTURES[:1])
+    # Band k of a series gives the result of a single-band copy of band k, bit for bit; a
+    # multi-band PA or resistance raster uses the same band, transgrids keep all theirs
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # missing resistance cells
+        for border in ({}, dict(polygon_mask=polygon), dict(polygon_mask=polygon, closed_border=True)):
+            args = SHORT | border
+            out_file = str(tmp_path / "out.tif")
+            out = cn.connectedness(condition_file=cond, band=k, filename=out_file, **args)
+            np.testing.assert_array_equal(bits(out), bits(cn.connectedness(condition_file=one["cond"], **args)))
+            with rasterio.open(out_file) as written:
+                np.testing.assert_array_equal(bits(written.read(1)), bits(out))
+            np.testing.assert_array_equal(
+                bits(cn.connectedness(condition_file=cond, pa_file=pa, resistance_file=res, band=k, **args)),
+                bits(cn.connectedness(condition_file=one["cond"], pa_file=one["pa"], resistance_file=one["res"],
+                                      **args)))
+            np.testing.assert_array_equal(
+                bits(cn.beri(condition_file=cond, resistance_file=res, band=k, **climate, **args)),
+                bits(cn.beri(condition_file=one["cond"], resistance_file=one["res"], **climate, **args)))
+        # Single-band PA and resistance rasters are used as they are with every band
+        np.testing.assert_array_equal(
+            bits(cn.connectedness(condition_file=cond, pa_file=PA, resistance_file=resistance, band=k, **SHORT)),
+            bits(cn.connectedness(condition_file=one["cond"], pa_file=PA, resistance_file=resistance, **SHORT)))
+    # A single-band condition raster is band 1
+    np.testing.assert_array_equal(bits(cn.connectedness(condition_file=COND, band=1, **SHORT)),
+                                  bits(cn.connectedness(condition_file=COND, **SHORT)))
+    # GDAL's vrt:// strings read one band too, and the output is still a GeoTIFF
+    out_file = str(tmp_path / "vrt.tif")
+    out = cn.connectedness(condition_file=f"vrt://{cond}?bands={k}", filename=out_file, **SHORT)
+    np.testing.assert_array_equal(bits(out), bits(cn.connectedness(condition_file=cond, band=k, **SHORT)))
+    with rasterio.open(out_file) as written:
+        assert written.driver == "GTiff"
+        np.testing.assert_array_equal(bits(written.read(1)), bits(out))
+    # Errors
+    choose = "must have exactly one layer; choose one with band$"
+    with pytest.raises(ValueError, match=f"^condition_file {choose}"):
+        cn.connectedness(condition_file=cond, **SHORT)
+    with pytest.raises(ValueError, match=f"^resistance_file {choose}"):
+        cn.beri(condition_file=COND, current_file=CURRENT, resistance_file=res, **SHORT)
+    for count, name, args in ((3, "condition_file", dict(condition_file=cond, band=4)),
+                              (1, "condition_file", dict(condition_file=COND, band=2)),
+                              (2, "pa_file", dict(condition_file=cond, pa_file=write_series(tmp_path / "pa2.tif", PA, 2),
+                                                  band=3))):
+        with pytest.raises(ValueError, match=f"^band must be between 1 and {count}, the number of layers in {name}$"):
+            cn.connectedness(**args, **SHORT)
+    for band in (0, -1, 1.0, True, "1"):
+        with pytest.raises(ValueError, match="^band must be a positive integer$"):
+            cn.beri(condition_file=cond, current_file=CURRENT, band=band, **SHORT)
+    with pytest.raises(ValueError, match="^band must be between 1 and 3, the number of layers in file_path$"):
+        read_raster(cond, levels=[1], band=4)
 
 
 def test_crs_units(tmp_path):

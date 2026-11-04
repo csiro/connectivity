@@ -1,5 +1,14 @@
 # connectivity (development version)
 
+* `connectedness()` and `beri()` gain a `band` argument that selects one layer
+  of a multi-layer `condition_file`, such as one year of a condition time
+  series, for filenames and `SpatRaster` objects alike. A multi-layer
+  `pa_file` or `resistance_file` uses the same layer, and a single-layer one is
+  used as it is. The `beri()` climate rasters keep all their layers. Without
+  `band`, the error for a multi-layer input now reads `<name> must have
+  exactly one layer; choose one with band`, and a `band` outside a raster's
+  layers raises an error. Only the selected layer is read, and results without
+  `band` are unchanged.
 * Reworded the package description, the README, the vignette and the help for
   `connectedness()`; results are unchanged.
 * Builds against `connectivity-core` 0.2.0, which checks its inputs before any

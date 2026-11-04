@@ -175,6 +175,72 @@ test_that("terra file IO preserves values, metadata and nodata", {
     expect_python_result(climate, "beri")
 })
 
+test_that("band selects one layer of condition, PA and resistance rasters", {
+    fixture <- raster_fixture(93L, 101L)
+    series <- function(raster) return(c(raster^0.5, raster, raster^1.5))
+    condition <- series(fixture$condition)
+    pa <- series(fixture$pa)
+    resistance <- series(fixture$resistance)
+    k <- 3L
+    path <- tempfile(fileext = ".tif")
+    single <- tempfile(fileext = ".tif")
+    terra::writeRaster(condition, path)
+    terra::writeRaster(condition[[k]], single)
+    climate <- list(current_file = fixture$current, future_files = list(fixture$future))
+    analyse <- function(fun, ...) {
+        # The fixture's resistance is missing at some valid condition cells.
+        return(suppressWarnings(do.call(fun, c(list(...), workflow_settings))))
+    }
+    run <- function(fun, ...) return(terra::values(analyse(fun, ...)))
+    polygon <- fixture_polygon()
+    for (border in list(list(), list(polygon_mask = polygon),
+                        list(polygon_mask = polygon, closed_border = TRUE))) {
+        # Layer k of a series, a file or a SpatRaster, gives the result of layer k alone.
+        expected <- do.call(run, c(list(connectedness, condition_file = condition[[k]], option = 1), border))
+        for (input in list(condition, path, terra::rast(path))) {
+            expect_identical(do.call(run, c(list(connectedness, condition_file = input, band = k,
+                                                 option = 1), border)), expected)
+        }
+        expect_identical(do.call(run, c(list(connectedness, condition_file = single, option = 1), border)),
+                         expected)
+        # Multi-layer PA and resistance rasters use the same layer; transgrids keep theirs.
+        expect_identical(
+            do.call(run, c(list(connectedness, condition_file = condition, pa_file = pa,
+                                resistance_file = resistance, band = k), border)),
+            do.call(run, c(list(connectedness, condition_file = condition[[k]], pa_file = pa[[k]],
+                                resistance_file = resistance[[k]]), border)))
+        expect_identical(
+            do.call(run, c(list(beri, condition_file = condition, resistance_file = resistance,
+                                band = k), climate, border)),
+            do.call(run, c(list(beri, condition_file = condition[[k]],
+                                resistance_file = resistance[[k]]), climate, border)))
+    }
+    # Single-layer PA and resistance rasters are used as they are with every layer.
+    expect_identical(
+        run(connectedness, condition_file = condition, pa_file = fixture$pa,
+            resistance_file = fixture$resistance, band = k),
+        run(connectedness, condition_file = condition[[k]], pa_file = fixture$pa,
+            resistance_file = fixture$resistance))
+    expect_identical(run(connectedness, condition_file = fixture$condition, band = 1),
+                     run(connectedness, condition_file = fixture$condition))
+    # Errors
+    expect_error(analyse(connectedness, condition_file = condition),
+                 "^condition_file must have exactly one layer; choose one with band$")
+    expect_error(analyse(beri, condition_file = fixture$condition, current_file = fixture$current,
+                     resistance_file = resistance),
+                 "^resistance_file must have exactly one layer; choose one with band$")
+    expect_error(analyse(connectedness, condition_file = condition, band = 4),
+                 "^band must be between 1 and 3, the number of layers in condition_file$")
+    expect_error(analyse(connectedness, condition_file = fixture$condition, band = 2),
+                 "^band must be between 1 and 1, the number of layers in condition_file$")
+    expect_error(analyse(connectedness, condition_file = condition, pa_file = pa[[1:2]], band = 3),
+                 "^band must be between 1 and 2, the number of layers in pa_file$")
+    for (band in list(0, -1, 1.5, TRUE, "1", c(1, 2), NA)) {
+        expect_error(analyse(beri, condition_file = condition, current_file = fixture$current, band = band),
+                     "^band must contain")
+    }
+})
+
 test_that("empty domains and input validation have predictable results", {
     fixture <- raster_fixture()
     blank <- fixture$condition

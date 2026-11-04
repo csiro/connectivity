@@ -19,14 +19,16 @@
 #' 2026). Inputs are raster filenames or `terra` SpatRaster objects, and the
 #' result is a georeferenced raster.
 #'
-#' @param condition_file Single-layer `terra::SpatRaster` or raster filename.
-#'   Habitat condition must be in `[0, 1]` after scaling. Missing values are
-#'   excluded. All raster inputs must share a CRS, resolution and pixel grid;
-#'   auxiliary rasters must cover the analysis window. They are not resampled.
+#' @param condition_file Single-layer `terra::SpatRaster` or raster filename,
+#'   or a multi-layer one with `band`. Habitat condition must be in `[0, 1]`
+#'   after scaling. Missing values are excluded. All raster inputs must share a
+#'   CRS, resolution and pixel grid; auxiliary rasters must cover the analysis
+#'   window. They are not resampled.
 #' @param pa_file Optional single-layer protected-area proportion raster or
-#'   filename. Values must be in `[0, 1]` after scaling. The analysis uses the
-#'   maximum of condition and protected fraction and evaluates protected cells
-#'   only. PARC output is raw connectedness, independent of `option`.
+#'   filename; see `band` for a multi-layer one. Values must be in `[0, 1]`
+#'   after scaling. The analysis uses the maximum of condition and protected
+#'   fraction and evaluates protected cells only. PARC output is raw
+#'   connectedness, independent of `option`.
 #' @param pa_to_pa Restrict PARC destinations to protected cells, weighted by
 #'   protected fraction at coarser levels. Ignored if `pa_file` is `NULL`.
 #' @param polygon_mask Optional polygon `terra::SpatVector`, vector filename or
@@ -50,11 +52,12 @@
 #' @param scale Optional divisor for condition values (`NULL`, 0 or 1 leaves
 #'   values unchanged). A numeric pair or list supplies separate condition and
 #'   protected-area divisors, e.g. `c(100, 100)` or `list(NULL, 100)`.
-#' @param resistance_file Optional single-layer resistance raster or filename.
-#'   After scaling, `1 - resistance` is clipped to `[0, 1]` for path traversal,
-#'   so resistance of 1 or more, including `Inf`, gives the highest path cost.
-#'   Missing resistance at valid condition cells falls back to condition and
-#'   raises a warning. Resistance does not alter habitat values or the domain.
+#' @param resistance_file Optional single-layer resistance raster or filename;
+#'   see `band` for a multi-layer one. After scaling, `1 - resistance` is
+#'   clipped to `[0, 1]` for path traversal, so resistance of 1 or more,
+#'   including `Inf`, gives the highest path cost. Missing resistance at valid
+#'   condition cells falls back to condition and raises a warning. Resistance
+#'   does not alter habitat values or the domain.
 #' @param resistance_scale Optional divisor applied only to resistance values.
 #' @param option Habitat output: 1 returns connectedness, 2 multiplies by
 #'   condition, and 3 (default) takes the square root of that product.
@@ -64,6 +67,11 @@
 #'   in-memory raster. Files default to single-precision floating-point values.
 #' @param overwrite Whether an existing output file may be overwritten.
 #' @param wopt Named list of [terra::writeRaster()] options.
+#' @param band Optional layer of `condition_file` to use, numbered from 1 as in
+#'   GDAL, rasterio and terra, for a filename or a `SpatRaster` alike: for
+#'   example, one year of a condition time series. A multi-layer `pa_file` or
+#'   `resistance_file` uses the same layer, and a single-layer one is used as
+#'   it is. `NULL` (default) requires single-layer inputs.
 #' @return A single-layer `terra::SpatRaster`, optionally written to `filename`.
 #'   Missing and masked cells are `NA`. Computation and habitat post-processing
 #'   use single precision.
@@ -176,7 +184,8 @@ connectedness <- function(condition_file,
                           n_threads = NULL,
                           filename = "",
                           overwrite = FALSE,
-                          wopt = list()) 
+                          wopt = list(),
+                          band = NULL) 
 {
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
@@ -191,7 +200,7 @@ connectedness <- function(condition_file,
     
     scales <- .condition_scales(scale)
     prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border,
-                                   settings, scales[[1L]])
+                                   settings, scales[[1L]], band)
     
     name <- if (option == 1L) "connectedness" else "connected_habitat"
     
