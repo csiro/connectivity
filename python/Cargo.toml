@@ -1,7 +1,6 @@
 [package]
 name = "rust_conn"
-# PEP 440 2.5.0.dev0 until the 2.5.0 release
-version = "2.5.0-dev0"
+version = "2.5.0"
 edition = "2021"
 license = "MIT"
 # Released as the eco-connectivity Python wheels; only connectivity-core goes to crates.io
