@@ -4,17 +4,18 @@
 [![R versions](https://img.shields.io/badge/R-%E2%89%A54.2-blue)](https://www.r-project.org/)
 [![DOI](https://img.shields.io/badge/DOI-10.32942%2FX2S68V-blue)](https://doi.org/10.32942/X2S68V)
 
-- [Installation](#installation)
-  - [Install from GitHub](#install-from-github)
-  - [Build a source archive](#build-a-source-archive)
-- [Connectivity analysis](#connectivity-analysis)
-  - [Connected Habitat (connectedness)](#connected-habitat-connectedness)
-    - [Optional resistance surface](#optional-resistance-surface)
-  - [PARC-connectedness](#parc-connectedness)
-  - [Bioclimatic Ecosystem Resilience Index (BERI)](#bioclimatic-ecosystem-resilience-index-beri)
-- [Running analysis with tiles](#running-analysis-with-tiles)
-- [Citation and scientific references](#citation-and-scientific-references)
-- [Acknowledgements and licence](#acknowledgements-and-licence)
+- [connectivity: multi-resolution landscape connectivity in R](#connectivity-multi-resolution-landscape-connectivity-in-r)
+  - [Installation](#installation)
+    - [Install from GitHub](#install-from-github)
+    - [Build a source archive](#build-a-source-archive)
+  - [Connectivity analysis](#connectivity-analysis)
+    - [Connected Habitat (connectedness)](#connected-habitat-connectedness)
+      - [Optional resistance surface](#optional-resistance-surface)
+    - [PARC-connectedness](#parc-connectedness)
+    - [Bioclimatic Ecosystem Resilience Index (BERI)](#bioclimatic-ecosystem-resilience-index-beri)
+  - [Running analysis with tiles](#running-analysis-with-tiles)
+  - [Citation and scientific references](#citation-and-scientific-references)
+  - [Acknowledgements and licence](#acknowledgements-and-licence)
 
 The `connectivity` R package implements an efficient multi-resolution least-cost
 algorithm for calculating connectivity-based biodiversity indicators, including
@@ -198,10 +199,14 @@ habitat <- connectedness(
     levels = c(2, 4, 8, 16, 32),
     option = 3
 )
-plot(habitat, main = "Connected habitat")
+
+plot(habitat, col = hcl.colors(100, "fall", rev = TRUE))
 ```
 
 ![Habitat condition, connectedness and connected habitat in Tasmania](man/figures/README-connectedness.png)
+
+The maps show the input habitat condition, connectedness (`option = 1`) and
+Connected Habitat (`option = 3`).
 
 Results stay in memory unless you pass `filename`; use `overwrite = TRUE` to
 replace an existing file and `wopt` for `terra::writeRaster()` options. Files
@@ -252,7 +257,8 @@ parc <- connectedness(
     window_mode = "circular",
     levels = c(2, 4, 8, 16, 32)
 )
-plot(parc, main = "PARC-connectedness")
+
+plot(parc, main = "PARC-connectedness", col = hcl.colors(100, "viridis"))
 ```
 
 <img src="man/figures/README-parc.png" alt="PARC-connectedness in Tasmania" width="385">
@@ -298,7 +304,8 @@ beri_map <- beri(
     window_mode = "circular",
     levels = c(2, 4, 8, 16, 32)
 )
-plot(beri_map, main = "BERI")
+
+plot(beri_map, main = "BERI", col = hcl.colors(100, "RdYlGn"))
 ```
 
 <img src="man/figures/README-beri.png" alt="BERI in Tasmania" width="385">
