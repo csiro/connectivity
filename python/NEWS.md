@@ -1,3 +1,10 @@
+# Version 2.6.0 (development version)
+## Added
+- Added run logs. When `filename` is given, `connectedness()` and `beri()` also write a small TOML file of the run's indicator, settings, inputs and output beside it, `result.tif` getting `result.toml`, in the format the R package and Eco-Connectivity Studio write. Dropping a log on Studio's window restores its settings. Logs are on by default: `save_log=False` turns them off for one call, and the environment variable `CONNECTIVITY_SAVE_LOG` set to `0`, `false`, `no` or `off` for a session or job, in the R package as well. An existing run log is replaced, but another file of that name is kept, with a warning. Not writing a log is a warning, never an error. Results are unchanged.
+
+## Changed
+- Builds against `connectivity-core` 0.2.1, whose `VERSION` the run logs record. Results are unchanged.
+
 # Version 2.5.0
 ## Added
 - Added a `band` argument to `connectedness()`, `beri()` and `read_raster()` that selects one band of a multi-band raster, such as one year of a condition time series. Bands are numbered from 1, as in GDAL, rasterio and terra. In `connectedness()` and `beri()`, `band` selects a band of `condition_file`. A `pa_file` or `resistance_file` with more than one band uses the same band, and a single-band one is used as it is. The `beri()` climate rasters keep all their bands. Without `band`, a multi-band `condition_file` now raises `ValueError("condition_file must have exactly one layer; choose one with band")` instead of `RuntimeError("Reading condition failed: ...")`. A `band` outside a raster's bands raises `ValueError("band must be between 1 and <n>, the number of layers in <name>")`. Only the selected band is read, and the default, `band=None`, gives the same results as before.

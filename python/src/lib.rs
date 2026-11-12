@@ -186,5 +186,7 @@ fn pixel_coverage(
 fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(connectivity, m)?)?;
     m.add_function(wrap_pyfunction!(pixel_coverage, m)?)?;
+    // The engine's version, which run logs record
+    m.add("CORE_VERSION", connectivity_core::VERSION)?;
     Ok(())
 }

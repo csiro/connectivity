@@ -71,8 +71,8 @@ synthetic arrays.
 
 ## Versioning and releases
 
-The crate is versioned independently of the Python package (`eco-connectivity` 2.5.0 uses
-`connectivity-core` 0.2.0). Core releases are tagged `connectivity-core-vX.Y.Z`; Python
+The crate is versioned independently of the Python package (`eco-connectivity` 2.6.0 uses
+`connectivity-core` 0.2.1). Core releases are tagged `connectivity-core-vX.Y.Z`; Python
 releases keep `vX.Y.Z` tags, and only those publish to PyPI. Changes to the crate are listed
 in [CHANGELOG.md](https://github.com/csiro/connectivity/blob/main/crates/connectivity-core/CHANGELOG.md).
 

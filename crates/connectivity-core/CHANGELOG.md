@@ -1,3 +1,7 @@
+# Version 0.2.1
+## Added
+- Added `VERSION`, the crate's version as a string, so that callers can record which engine produced a result, as the run logs of the Python and R packages do. Results are unchanged.
+
 # Version 0.2.0
 ## Changed
 - `connectivity()` now checks shapes, band counts, levels, transforms and window sizes before any work, whatever the mask, and returns an error instead of panicking. The messages are unchanged, except that a level that is not a power of two no longer starts with `Failed average resampling.:`. Levels that skip a power of two, a missing level 1 or level transform and even window sizes used to pass when every cell was masked, and skipped levels also passed when the levels past the gap had no window cells; they now fail in every case.

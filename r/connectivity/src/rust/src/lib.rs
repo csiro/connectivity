@@ -247,8 +247,16 @@ fn pixel_coverage_impl(
     Ok(result)
 }
 
+/// Internal version of the connectivity-core engine, which run logs record.
+/// @noRd
+#[extendr]
+fn core_version_impl() -> &'static str {
+    env!("CONNECTIVITY_CORE_VERSION")
+}
+
 extendr_module! {
     mod connectivity;
     fn connectivity_matrix_impl;
     fn pixel_coverage_impl;
+    fn core_version_impl;
 }

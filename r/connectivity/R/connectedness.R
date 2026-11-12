@@ -72,6 +72,16 @@
 #'   example, one year of a condition time series. A multi-layer `pa_file` or
 #'   `resistance_file` uses the same layer, and a single-layer one is used as
 #'   it is. `NULL` (default) requires single-layer inputs.
+#' @param save_log Whether to write a run log beside `filename` once it is
+#'   written: a small text file of the settings, inputs and output of the run,
+#'   with the output's extension replaced by `.toml` (`result.tif` gets
+#'   `result.toml`). Eco-Connectivity Studio restores the settings of a log
+#'   dropped on its window. An existing run log is replaced, but another file
+#'   of that name is kept, with a warning. Not writing the log is a warning,
+#'   never an error, and nothing is written when `filename` is empty. The
+#'   default is the `connectivity.save_log` option, or when it is unset, `TRUE`
+#'   unless the environment variable `CONNECTIVITY_SAVE_LOG` is `0`, `false`,
+#'   `no` or `off`, which also turns off the Python package's logs.
 #' @return A single-layer `terra::SpatRaster`, optionally written to `filename`.
 #'   Missing and masked cells are `NA`. Computation and habitat post-processing
 #'   use single precision.
@@ -185,8 +195,11 @@ connectedness <- function(condition_file,
                           filename = "",
                           overwrite = FALSE,
                           wopt = list(),
-                          band = NULL) 
+                          band = NULL,
+                          save_log = getOption("connectivity.save_log", .log_by_env()))
 {
+    started <- proc.time()[["elapsed"]]
+    .check_flag(save_log, "save_log")
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
     .check_integers(option, "option", length = 1L, minimum = 1L)
@@ -221,10 +234,20 @@ connectedness <- function(condition_file,
         if (option == 3L) score <- .float32(sqrt(score))
     }
     
-    return(
-        .raster_result(
-            score, prepared$template, name, filename, overwrite, wopt,
-            prepared$polygons, prepared$output_extent
-        )
+    out <- .raster_result(
+        score, prepared$template, name, filename, overwrite, wopt,
+        prepared$polygons, prepared$output_extent
     )
+    .save_log(
+        filename, save_log, started,
+        indicator = if (is.null(pa_file)) "connected_habitat" else "parc",
+        settings = settings, option = option, pa_to_pa = pa_to_pa,
+        condition_scale = scales[[1L]], protected_areas_scale = scales[[2L]],
+        resistance_scale = resistance_scale, closed_border = closed_border,
+        condition = .log_condition(condition_file, prepared$reference, band),
+        resistance = if (!is.null(resistance_file)) .log_input(resistance_file),
+        protected_areas = if (!is.null(pa_file)) .log_input(pa_file),
+        polygon_mask = polygon_mask
+    )
+    return(out)
 }

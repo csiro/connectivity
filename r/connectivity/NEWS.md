@@ -9,6 +9,19 @@
   exactly one layer; choose one with band`, and a `band` outside a raster's
   layers raises an error. Only the selected layer is read, and results without
   `band` are unchanged.
+* `connectedness()` and `beri()` write a run log beside `filename`: a small
+  TOML file of the run's indicator, settings, inputs and output, `result.tif`
+  getting `result.toml`, in the format the Python package and Eco-Connectivity
+  Studio write. Dropping a log on Studio's window restores its settings. Logs
+  are on by default: `save_log = FALSE` turns them off for one call,
+  `options(connectivity.save_log = FALSE)` for a session, and the environment
+  variable `CONNECTIVITY_SAVE_LOG` set to `0`, `false`, `no` or `off` for a
+  job, in the Python package as well. A `SpatRaster` input is logged by its
+  source file, and a layer of a multi-layer file also by its band; one held in
+  memory is logged as `<in memory>`. An existing run log is replaced, but
+  another file of that name is kept, with a warning. Not writing a log is a
+  warning, never an error, and in-memory results (`filename = ""`) never
+  write one.
 * Reworded the package description, the README, the vignette and the help for
   `connectedness()`; results are unchanged.
 * Builds against `connectivity-core` 0.2.0, which checks its inputs before any

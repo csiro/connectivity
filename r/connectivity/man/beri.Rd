@@ -23,7 +23,8 @@ beri(
   filename = "",
   overwrite = FALSE,
   wopt = list(),
-  band = NULL
+  band = NULL,
+  save_log = getOption("connectivity.save_log", .log_by_env())
 )
 }
 \arguments{
@@ -96,6 +97,12 @@ multi-layer \code{resistance_file} uses the same layer, and a single-layer one
 is used as it is. \code{current_file} and \code{future_files} are not affected:
 their layers are environmental variables. \code{NULL} (default) requires a
 single-layer \code{condition_file} and \code{resistance_file}.}
+
+\item{save_log}{Whether to write a run log beside \code{filename} once it is
+written, as in \code{\link[=connectedness]{connectedness()}}: \code{result.tif} gets \code{result.toml}. The
+default is the \code{connectivity.save_log} option, or when it is unset, \code{TRUE}
+unless the environment variable \code{CONNECTIVITY_SAVE_LOG} is \code{0}, \code{false},
+\code{no} or \code{off}.}
 }
 \value{
 A single-layer \code{terra::SpatRaster}, optionally written to \code{filename}.

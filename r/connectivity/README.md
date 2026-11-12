@@ -318,6 +318,18 @@ supplied scenarios; omit `future_files` for a current-climate index. Climate
 bands are not scaled by `scale`, and missing climate bands give a cell
 similarity of zero.
 
+### Run logs
+
+When `filename` is given, `connectedness()` and `beri()` also write a run log
+beside the output: `result.tif` gets `result.toml`, a small text file of the
+indicator, settings, input paths and output of the run. The Python package and
+Eco-Connectivity Studio write the same format, and dropping a log on Studio's
+window restores its settings. Pass `save_log = FALSE` to skip the log for one
+call, set `options(connectivity.save_log = FALSE)` for a session, or set the
+environment variable `CONNECTIVITY_SAVE_LOG=0` (or `false`, `no`, `off`) for a
+batch job, which turns off the Python package's logs too. An existing run log
+is replaced, but another file of that name is kept, with a warning.
+
 ## Running analysis with tiles
 
 Pass `polygon_mask` to `connectedness()` or `beri()` to limit the output area.
@@ -352,7 +364,8 @@ habitat_tile <- connectedness(
 ```
 
 `make_tiles()` returns every tile. The combined tiles equal a whole-raster
-calculation, and `terra::vrt()` reads the tile files as one virtual raster:
+calculation, and `terra::vrt()` reads the tile files as one virtual raster.
+`save_log = FALSE` leaves out a run log beside each tile:
 
 ```r
 tiles <- make_tiles(condition_file, nrows = 2, ncols = 2, align_to = max(levels))
@@ -363,7 +376,8 @@ for (i in seq_len(nrow(tiles))) {
         polygon_mask = tiles[i],
         levels = levels,
         filename = tile_files[i],
-        overwrite = TRUE
+        overwrite = TRUE,
+        save_log = FALSE
     )
 }
 habitat_tiled <- vrt(tile_files)

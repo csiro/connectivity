@@ -262,6 +262,17 @@ for band, year in enumerate(range(2001, 2001 + n_years), start=1):
     )
 ```
 
+### Run logs
+When `filename` is given, `connectedness()` and `beri()` also write a run log
+beside the output: `result.tif` gets `result.toml`, a small text file of the
+indicator, settings, input paths and output of the run. The R package and
+Eco-Connectivity Studio write the same format, and dropping a log on Studio's
+window restores its settings. Pass `save_log=False` to skip the log for one
+call, or set the environment variable `CONNECTIVITY_SAVE_LOG=0` (or `false`,
+`no`, `off`) for a whole session or batch job, which turns off the R package's
+logs too. An existing run log is replaced, but another file of that name is
+kept, with a warning.
+
 
 ## Running Analysis with Tiles
 

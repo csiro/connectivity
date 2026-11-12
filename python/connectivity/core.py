@@ -1,3 +1,4 @@
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -14,6 +15,7 @@ from .rastio import (
     read_raster,
     write_raster,
 )
+from .runlog import _save_log
 from .utils import (
     _normalise_window_mode,
     _make_traversal,
@@ -49,6 +51,7 @@ def connectedness(
         n_threads: int | None = None,
         filename: str = "",
         band: int | None = None,
+        save_log: bool | None = None,
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics
     
@@ -159,6 +162,15 @@ def connectedness(
         `resistance_file` with more than one band uses the same band; a single-band one is used
         as it is, e.g. a fixed protected-area layer. If None (default), every input must have
         one band.
+    save_log : bool, optional
+        Whether to write a run log beside `filename` once it is written: a small text file of
+        the settings, inputs and output of the run, with the output's extension replaced by
+        `.toml` (`result.tif` gets `result.toml`). Eco-Connectivity Studio restores the
+        settings of a log dropped on its window. An existing run log is replaced, but another
+        file of that name is kept, with a warning. Not writing the log is a warning, never an
+        error. If None (default), logs are written unless the environment variable
+        `CONNECTIVITY_SAVE_LOG` is `0`, `false`, `no` or `off`, which also turns off the R
+        package's logs. Nothing is written when `filename` is empty.
 
     Returns
     -------
@@ -180,6 +192,7 @@ def connectedness(
     - This function is suitable for applications in spatial pattern analysis, texture segmentation,
 
     """
+    started = time.perf_counter()
     window_mode = _normalise_window_mode(window_mode)
     _warn_margin_px(margin_px)
     _check_band(band)
@@ -293,6 +306,16 @@ def connectedness(
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
+        _save_log(
+            filename, save_log, started,
+            indicator="connected_habitat" if pa_file is None else "parc",
+            option=option, pa_to_pa=pa_to_pa, lambdas=lambdas, levels=levels,
+            max_cost=max_cost, window_size=window_size, outer_window=outer_window,
+            window_mode=window_mode, condition_scale=s1, protected_areas_scale=s2,
+            resistance_scale=resistance_scale, band=band, closed_border=closed_border,
+            condition=condition_file, resistance=resistance_file, protected_areas=pa_file,
+            polygon_mask=polygon_mask, threads=n_threads,
+        )
 
     return out_array
 
@@ -318,6 +341,7 @@ def beri(
         n_threads: int | None = None,
         filename: str = "",
         band: int | None = None,
+        save_log: bool | None = None,
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -408,6 +432,10 @@ def beri(
         as it is. `current_file` and `future_files` are not affected: their bands are
         environmental variables. If None (default), `condition_file` and `resistance_file` must
         have one band.
+    save_log : bool, optional
+        Whether to write a run log beside `filename` once it is written, as in
+        `connectedness()`: `result.tif` gets `result.toml`. If None (default), logs are written
+        unless the environment variable `CONNECTIVITY_SAVE_LOG` is `0`, `false`, `no` or `off`.
 
     Returns
     -------
@@ -432,6 +460,7 @@ def beri(
     - BERI is derived by aggregating scenario results to capture the capacity of the ecosystem to maintain biodiversity.
 
     """
+    started = time.perf_counter()
     window_mode = _normalise_window_mode(window_mode)
     _warn_margin_px(margin_px)
     _check_band(band)
@@ -537,5 +566,14 @@ def beri(
 
     if len(filename) > 3:
         write_raster(out_array, outfile=filename, template=condition_file, transform=tr)
+        _save_log(
+            filename, save_log, started,
+            indicator="beri", lambdas=lambdas, levels=levels, max_cost=max_cost,
+            window_size=window_size, outer_window=outer_window, window_mode=window_mode,
+            condition_scale=scale, resistance_scale=resistance_scale, band=band,
+            closed_border=closed_border, condition=condition_file, resistance=resistance_file,
+            current_climate=current_file, future_climates=future_files,
+            polygon_mask=polygon_mask, threads=n_threads,
+        )
 
     return out_array

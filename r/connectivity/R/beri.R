@@ -48,6 +48,11 @@
 #'   is used as it is. `current_file` and `future_files` are not affected:
 #'   their layers are environmental variables. `NULL` (default) requires a
 #'   single-layer `condition_file` and `resistance_file`.
+#' @param save_log Whether to write a run log beside `filename` once it is
+#'   written, as in [connectedness()]: `result.tif` gets `result.toml`. The
+#'   default is the `connectivity.save_log` option, or when it is unset, `TRUE`
+#'   unless the environment variable `CONNECTIVITY_SAVE_LOG` is `0`, `false`,
+#'   `no` or `off`.
 #' @inheritParams connectedness
 #' @return A single-layer `terra::SpatRaster`, optionally written to `filename`.
 #'   Its values are BERI scores; missing and polygon-masked cells are `NA`.
@@ -112,8 +117,11 @@ beri <- function(condition_file,
                  filename = "",
                  overwrite = FALSE,
                  wopt = list(),
-                 band = NULL)
+                 band = NULL,
+                 save_log = getOption("connectivity.save_log", .log_by_env()))
 {
+    started <- proc.time()[["elapsed"]]
+    .check_flag(save_log, "save_log")
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
                                     outer_window, window_mode, n_threads)
     .check_scale(scale)
@@ -143,10 +151,19 @@ beri <- function(condition_file,
     traversal <- .make_traversal(prepared$condition, resistance_file, resistance_scale, prepared)
     score <- .run_connectivity(prepared, settings, traversal, transgrids = transgrids)
     
-    return(
-        .raster_result(
-            score, prepared$template, "beri", filename, overwrite, wopt,
-            prepared$polygons, prepared$output_extent
-        )
+    out <- .raster_result(
+        score, prepared$template, "beri", filename, overwrite, wopt,
+        prepared$polygons, prepared$output_extent
     )
+    .save_log(
+        filename, save_log, started,
+        indicator = "beri", settings = settings, condition_scale = scale,
+        resistance_scale = resistance_scale, closed_border = closed_border,
+        condition = .log_condition(condition_file, prepared$reference, band),
+        resistance = if (!is.null(resistance_file)) .log_input(resistance_file),
+        current_climate = .log_input(current_file),
+        future_climates = lapply(unname(future_files), .log_input),
+        polygon_mask = polygon_mask
+    )
+    return(out)
 }

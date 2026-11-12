@@ -24,7 +24,8 @@ connectedness(
   filename = "",
   overwrite = FALSE,
   wopt = list(),
-  band = NULL
+  band = NULL,
+  save_log = getOption("connectivity.save_log", .log_by_env())
 )
 }
 \arguments{
@@ -100,6 +101,17 @@ GDAL, rasterio and terra, for a filename or a \code{SpatRaster} alike: for
 example, one year of a condition time series. A multi-layer \code{pa_file} or
 \code{resistance_file} uses the same layer, and a single-layer one is used as
 it is. \code{NULL} (default) requires single-layer inputs.}
+
+\item{save_log}{Whether to write a run log beside \code{filename} once it is
+written: a small text file of the settings, inputs and output of the run,
+with the output's extension replaced by \code{.toml} (\code{result.tif} gets
+\code{result.toml}). Eco-Connectivity Studio restores the settings of a log
+dropped on its window. An existing run log is replaced, but another file
+of that name is kept, with a warning. Not writing the log is a warning,
+never an error, and nothing is written when \code{filename} is empty. The
+default is the \code{connectivity.save_log} option, or when it is unset, \code{TRUE}
+unless the environment variable \code{CONNECTIVITY_SAVE_LOG} is \code{0}, \code{false},
+\code{no} or \code{off}, which also turns off the Python package's logs.}
 }
 \value{
 A single-layer \code{terra::SpatRaster}, optionally written to \code{filename}.

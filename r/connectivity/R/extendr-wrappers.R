@@ -13,4 +13,8 @@ connectivity_matrix_impl <- function(condition, mask, shape, transform, traversa
 #' @noRd
 pixel_coverage_impl <- function(polygons, transform, shape, n_threads) .Call(wrap__pixel_coverage_impl, polygons, transform, shape, n_threads)
 
+#' Internal version of the connectivity-core engine, which run logs record.
+#' @noRd
+core_version_impl <- function() .Call(wrap__core_version_impl)
+
 # nolint end

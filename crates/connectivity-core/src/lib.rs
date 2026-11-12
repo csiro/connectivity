@@ -134,6 +134,10 @@ pub use coverage::{pixel_coverage, Polygon};
 pub use ndarray;
 pub use window::WindowMode;
 
+/// This crate's version, such as `"0.2.1"`, for callers that record which engine produced a
+/// result, as the run logs of the Python and R packages do.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use ndarray::{Array2, Array3};
 use std::collections::HashMap;
 
