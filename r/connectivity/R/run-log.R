@@ -173,7 +173,7 @@
 .log_quote <- function(text) {
     text <- enc2utf8(text)
     codes <- utf8ToInt(text)
-    if (anyNA(codes)) codes <- utf8ToInt(iconv(text, "UTF-8", "UTF-8", sub = "�"))
+    if (anyNA(codes)) codes <- utf8ToInt(iconv(text, "UTF-8", "UTF-8", sub = "\uFFFD"))
     chars <- vapply(codes, function(code) {
         return(switch(as.character(code),
             "92" = "\\\\", "34" = "\\\"", "9" = "\\t", "10" = "\\n", "13" = "\\r",

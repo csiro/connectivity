@@ -37,6 +37,7 @@ def lines(text):
     return text.splitlines()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows makes the example's paths C:\\...")
 def test_documented_example():
     # The documented example of the format, as R and Eco-Connectivity Studio write it from
     # [parameters] to the end of [output]
@@ -196,7 +197,8 @@ def test_existing_files(tmp_path):
     # An older run log is replaced
     log.write_bytes(b"# Connectivity run log\r\nformat = 1\r\n")
     with warnings.catch_warnings():
-        warnings.simplefilter("error")
+        # Only run-log warnings: dependencies may warn of their own deprecations
+        warnings.filterwarnings("error", message="Run log")
         cn.connectedness(condition_file=COND, filename=out, **SHORT)
     assert "levels = [1, 2, 4]" in read_log(log)
     # An unwritable log only warns

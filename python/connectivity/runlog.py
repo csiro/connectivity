@@ -194,7 +194,7 @@ def _quoted(text: str) -> str:
             out.append(f"\\u{code:04X}")
         elif 0xD800 <= code <= 0xDFFF:
             # Undecodable bytes of a file name, which UTF-8 cannot hold
-            out.append("�")
+            out.append("\ufffd")
         else:
             out.append(c)
     out.append('"')
