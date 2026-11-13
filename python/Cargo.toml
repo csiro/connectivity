@@ -15,7 +15,7 @@ name = "rust_conn"
 crate-type = ["cdylib"]
 
 [dependencies]
-connectivity-core = { path = "../crates/connectivity-core", version = "0.2.1" }
+connectivity-core = { path = "../crates/connectivity-core", version = "0.3.0" }
 pyo3 = {version = "0.30", default-features = false, features = ["macros", "abi3-py310"]}
 pyo3-built = "0.5"
 numpy = "0.30"

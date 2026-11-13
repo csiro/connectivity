@@ -169,6 +169,20 @@ def test_beri_log(tmp_path):
     check_toml(text)
 
 
+def test_crossing_log(tmp_path):
+    out = str(tmp_path / "crossing.tif")
+    cn.connectedness(condition_file=COND, filename=out, nodata_crossing="strict", crossing_width=1.5,
+                     crossing_traversal=0.25, **SHORT)
+    text = read_log(tmp_path / "crossing.toml")
+    i = lines(text).index('window_mode = "circular"')
+    assert lines(text)[i + 1:i + 5] == [
+        'nodata_crossing = "strict"', "crossing_width_km = 1.5", "crossing_traversal = 0.25", "condition_scale = 1",
+    ]
+    check_toml(text)
+    cn.connectedness(condition_file=COND, filename=out, **SHORT)
+    assert "nodata_crossing" not in read_log(tmp_path / "crossing.toml")
+
+
 def test_turning_logs_off(tmp_path, monkeypatch):
     out = str(tmp_path / "x.tif")
     log = tmp_path / "x.toml"

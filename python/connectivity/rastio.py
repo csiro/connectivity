@@ -180,6 +180,24 @@ def _coordinate_info(file_path: str):
     return crs, False, metres
 
 
+def _crossing_pad(file_path: str, width_km: float, is_geo: bool, metres: float, max_level: int) -> int:
+    """Coarsest-level cells to add to an open-border read so that NoData gaps up to `width_km`
+    wide near the edge of the analysed cells are judged as in the whole raster: the width in
+    the raster's narrowest cells, plus one cell."""
+    if width_km <= 0:
+        return 0
+    with rasterio.open(file_path) as src:
+        a, e = abs(src.transform.a), abs(src.transform.e)
+        if is_geo:
+            # Arc lengths on the engine's 6371 km sphere; cells are narrowest nearest a pole
+            km = 6371.0 * math.pi / 180.0
+            lat = min(max(abs(src.bounds.top), abs(src.bounds.bottom)), 89.0)
+            cell = min(e * km, a * km * math.cos(math.radians(lat)))
+        else:
+            cell = min(a, e) * metres / 1000.0
+    return math.ceil((math.ceil(width_km / cell) + 1) / max_level)
+
+
 # reading full or masked raster
 def read_raster(
     file_path: str,

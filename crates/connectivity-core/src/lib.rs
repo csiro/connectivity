@@ -34,6 +34,27 @@
 //! numerators are aggregated as `0.5 * (mean + min)` over all scenarios, current climate
 //! included. The output is the mean over [`Config::lambdas`].
 //!
+//! # NoData
+//! NaN condition cells (NoData, e.g. sea, lakes or rivers in global condition data) never carry
+//! habitat area. [`Config::crossing`] sets how the graph treats them:
+//! - `None` (the default, as in earlier versions): NoData is left out at level 1, but an
+//!   overview cell is valid when any of its base cells is finite and coarse cells are linked by
+//!   position alone, so coarse levels link land on both sides of a gap narrower than about twice
+//!   their size, at no cost. Whether a focal cell uses such a link depends on its window, so a
+//!   compact island near other land can have a linked part and a sealed part.
+//! - [`CrossingMode::Landmass`]: separate landmasses are linked only across gaps at most
+//!   [`Crossing::width`] kilometres wide; within one landmass the graph is as with `None`.
+//! - [`CrossingMode::Strict`]: no gap wider than the width is crossed anywhere, including rivers
+//!   and inlets inside one landmass; routes around a barrier within the window are kept.
+//!
+//! In both modes NoData in permitted gaps is crossed at the cost of [`Crossing::traversal`] and
+//! adds no habitat area, protected fraction or climate similarity, and outputs without NoData are
+//! bit-identical to `None`. See [`Crossing`] for how gaps are measured and how tiles behave.
+//! The modes cost extra setup and memory: group labels for the cells of every level (about
+//! 5.3 bytes per base cell) in landmass mode, two bytes per coarse cell plus a table of cells
+//! holding several pieces in strict mode, and with permitted gaps the traversal overview. Strict mode also builds
+//! graphs more slowly (about a quarter longer on a 450 m test raster).
+//!
 //! # Inputs
 //! All 2-D arrays are `(rows, cols)` grids of one tile with the same shape, indexed
 //! `[[row, col]]` from the tile's top-left pixel; NaN marks missing values. Transgrids add a
@@ -112,13 +133,16 @@ mod affine;
 mod builder;
 mod core;
 mod coverage;
+mod crossing;
 mod distances;
+mod gate;
 mod graph;
 #[cfg(test)]
 mod legacy;
 mod metrics;
 mod overview;
 mod routing;
+mod strict;
 mod tables;
 mod template;
 #[cfg(test)]
@@ -126,6 +150,8 @@ mod testkit;
 mod utils;
 #[cfg(test)]
 mod verify;
+#[cfg(test)]
+mod island;
 mod window;
 
 pub use affine::{level_transforms, Affine};
@@ -147,8 +173,9 @@ use std::collections::HashMap;
 pub struct Inputs<'a> {
     /// Habitat condition, expected in [0, 1] with higher values for better condition. It sets
     /// each destination's value and habitat area, and the path weights unless `traversal` is
-    /// given. NaN cells are left out of habitat area and of the graph; coarser overview cells
-    /// average the finite cells they contain.
+    /// given. NaN cells (NoData) carry no habitat area and coarser overview cells average the
+    /// finite cells they contain; how the graph treats NoData is set by [`Config::crossing`]
+    /// (see the crate docs, NoData).
     pub condition: &'a Array2<f32>,
     /// `true` skips a focal cell, whose output stays NaN. Masked cells with finite condition
     /// still serve as destinations and path cells. Under [`Config::pa_to_pa`], `false` also
@@ -166,6 +193,60 @@ pub struct Inputs<'a> {
     pub transgrids: Option<&'a [Array3<f32>]>,
     /// Transform of each level's grid, keyed by level; see [`level_transforms`].
     pub transforms: &'a HashMap<i32, Affine>,
+}
+
+/// How NoData cells may be crossed; see [`Crossing`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrossingMode {
+    /// Landmasses: land and crossable NoData that touch form groups, and a focal cell reaches
+    /// only cells of its own group. Groups farther apart than the width are never linked;
+    /// within a group the graph is as without a crossing mode, so coarse levels still link
+    /// land across wider water inside one landmass (an inlet, or a river whose banks join).
+    Landmass,
+    /// Strict gap width: every overview cell is split into pieces, the 8-connected groups of
+    /// its land and crossable cells, and pieces are linked only where their base cells touch
+    /// (or, diagonally, both touch one piece of a cell sharing their corner). Every path then
+    /// follows a base-resolution route that crosses no gap wider than the width, inside a
+    /// landmass as well as between landmasses; routes around a barrier are kept.
+    Strict,
+}
+
+impl CrossingMode {
+    /// Parse `"landmass"` or `"strict"`, ignoring case and surrounding whitespace. The error is
+    /// the message the Python binding raises as `ValueError`.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "landmass" => Ok(Self::Landmass),
+            "strict" => Ok(Self::Strict),
+            other => Err(format!("Invalid nodata_crossing '{other}'. Expected 'landmass' or 'strict'.")),
+        }
+    }
+}
+
+/// NoData crossing settings for [`Config::crossing`].
+///
+/// NoData cells (NaN condition) in gaps at most `width` kilometres wide are crossable: they are
+/// traversable at traversal value `traversal`, carry no habitat area, are never destinations
+/// and have no protected fraction or climate similarity. A gap's width is tested once at base
+/// resolution as the closing of the land cells by a disc of diameter `width`, with distances in
+/// kilometres (on geographic grids each row's cells are `cos(latitude)` narrower). It is exact
+/// for straight channels along rows or columns, and also fills concave corners of a coastline
+/// within about a fifth of `width` of the corner; those cells too are crossable, so a coast's
+/// coarse cells cost slightly more to cross when `traversal` is low. Other NoData stays out of
+/// the graph.
+///
+/// Tiles: gaps are classified and landmasses labelled from the tile's own cells, so a tile
+/// matches a whole-raster run at focal cells whose window lies at least `width` inside the tile
+/// edge, and in [`CrossingMode::Landmass`] only where land joined outside the tile does not
+/// matter (it counts as separate).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Crossing {
+    pub mode: CrossingMode,
+    /// Widest gap crossed, in kilometres, finite and `>= 0`; 0 permits no crossing.
+    pub width: f32,
+    /// Traversal value of crossable NoData in [0, 1]: 0 costs as much as fully degraded land
+    /// (path weight `max_cost`), 1 as much as intact land.
+    pub traversal: f32,
 }
 
 /// Settings of one [`connectivity`] call. `Config::default()` gives the Python and R defaults,
@@ -202,6 +283,9 @@ pub struct Config<'a> {
     /// protected destination scores 0. For BERI it only makes focal cells without neighbours
     /// score 0; Python's `beri()` never sets it.
     pub pa_to_pa: bool,
+    /// NoData crossing mode; `None` keeps the behaviour of earlier versions (see the crate
+    /// docs, NoData, and [`Crossing`]).
+    pub crossing: Option<Crossing>,
 }
 
 impl Default for Config<'_> {
@@ -216,6 +300,7 @@ impl Default for Config<'_> {
             offsets: (0, 0),
             window_mode: WindowMode::Circular,
             pa_to_pa: false,
+            crossing: None,
         }
     }
 }
@@ -244,6 +329,9 @@ impl Default for Config<'_> {
 /// - A `window_size` below 1 (`"Window size must be positive"`) or even
 ///   (`"Window size must be odd-numbered"`), or an even `outer_window >= window_size`
 ///   (`"Outer window size must be odd-numbered"`).
+/// - A crossing width that is negative or not finite
+///   (`"Crossing width must be a finite number of kilometres >= 0, got -1"`) or a crossing
+///   traversal outside [0, 1] (`"Crossing traversal must be in [0, 1], got 2"`).
 ///
 /// An integer path cost beyond `u32::MAX`, e.g. from a very large `max_cost` or unscaled
 /// traversal values, stops the work on every thread and returns

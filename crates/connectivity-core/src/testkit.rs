@@ -82,6 +82,7 @@ impl Fixture {
             offsets: self.offsets,
             window_mode: self.mode,
             pa_to_pa: self.pa_to_pa,
+            crossing: None,
         }
     }
 

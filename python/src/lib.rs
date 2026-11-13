@@ -1,4 +1,4 @@
-use connectivity_core::{Affine, Config, Inputs, WindowMode};
+use connectivity_core::{Affine, Config, Crossing, CrossingMode, Inputs, WindowMode};
 use ndarray::{Array2, Array3};
 use numpy::{PyArray2, ToPyArray};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -42,10 +42,14 @@ mod extract;
 ///   the non-PA landscape. An isolated PA scores 0. When `false`, all reachable nodes count.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
+/// * `nodata_crossing` - `None` (NoData handled as in earlier versions), `"landmass"` or
+///   `"strict"`; see `connectivity_core::CrossingMode`.
+/// * `crossing_width` - Widest NoData gap crossed, in kilometres (finite, >= 0).
+/// * `crossing_traversal` - Traversal value of crossed NoData in [0, 1]; 0 costs `max_cost`.
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false, nodata_crossing=None, crossing_width=0.0, crossing_traversal=0.0))]
 fn connectivity(
     py: Python<'_>,
     condition: &Bound<PyAny>,
@@ -63,6 +67,9 @@ fn connectivity(
     n_threads: Option<usize>,
     window_mode: &str,
     pa_to_pa: bool,
+    nodata_crossing: Option<&str>,
+    crossing_width: f32,
+    crossing_traversal: f32,
 ) -> PyResult<Py<PyArray2<f32>>> {
     // Get the Numpy array
     let cond_array = extract::to_array(condition)
@@ -101,6 +108,14 @@ fn connectivity(
     };
 
     let window_mode = WindowMode::parse(window_mode).map_err(PyValueError::new_err)?;
+    let crossing = match nodata_crossing {
+        Some(mode) => Some(Crossing {
+            mode: CrossingMode::parse(mode).map_err(PyValueError::new_err)?,
+            width: crossing_width,
+            traversal: crossing_traversal,
+        }),
+        None => None,
+    };
 
     // Set the number of cores for parallel processing with Rayon
     // Use a local pool to safely control exact number of core
@@ -132,6 +147,7 @@ fn connectivity(
         offsets,
         window_mode,
         pa_to_pa,
+        crossing,
     };
 
     // Core connectivity function. The inputs are owned Rust arrays, so the GIL is released

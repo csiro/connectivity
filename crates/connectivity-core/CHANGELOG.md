@@ -1,3 +1,12 @@
+# Version 0.3.0
+## Added
+- NoData crossing modes, set with the new `Config::crossing` field and the `Crossing` and `CrossingMode` types. NoData cells in gaps at most `Crossing::width` kilometres wide are crossed at traversal value `Crossing::traversal` and add no habitat area. `CrossingMode::Landmass` links separate landmasses only across such gaps and keeps the graph as before within a landmass; `CrossingMode::Strict` crosses no wider gap anywhere, including rivers and inlets inside one landmass. Both work on tiles with offsets, geographic grids, with PARC gating and for BERI. `CrossingMode::parse()` reads `"landmass"` and `"strict"`.
+- Invalid crossing settings return errors before any work: `"Crossing width must be a finite number of kilometres >= 0, got <width>"` and `"Crossing traversal must be in [0, 1], got <value>"`.
+
+## Changed
+- Breaking: `Config` has a new field, `crossing`; code that builds `Config` without `..Config::default()` must set it. `Config::default()` sets it to `None`, which keeps the results of 0.2.1 bit for bit.
+- The documentation of `Inputs::condition` no longer says that NaN cells are left out of the graph. Without a crossing mode they are left out at level 1, but coarser levels link land across narrow NoData gaps; the crate docs describe this under NoData.
+
 # Version 0.2.1
 ## Added
 - Added `VERSION`, the crate's version as a string, so that callers can record which engine produced a result, as the run logs of the Python and R packages do. Results are unchanged.

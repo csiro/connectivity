@@ -6,6 +6,7 @@ import geopandas as gpd
 from rust_conn import connectivity
 from .rastio import (
     _check_band,
+    _crossing_pad,
     _condition_band,
     _coordinate_info,
     _input_frame,
@@ -17,6 +18,7 @@ from .rastio import (
 )
 from .runlog import _save_log
 from .utils import (
+    _normalise_crossing,
     _normalise_window_mode,
     _make_traversal,
     _check_continuous_levels,
@@ -52,6 +54,9 @@ def connectedness(
         filename: str = "",
         band: int | None = None,
         save_log: bool | None = None,
+        nodata_crossing: str | None = None,
+        crossing_width: float = 0.0,
+        crossing_traversal: float = 0.0,
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics
     
@@ -171,6 +176,32 @@ def connectedness(
         error. If None (default), logs are written unless the environment variable
         `CONNECTIVITY_SAVE_LOG` is `0`, `false`, `no` or `off`, which also turns off the R
         package's logs. Nothing is written when `filename` is empty.
+    nodata_crossing : {None, "landmass", "strict"}, optional
+        How NoData cells of `condition_file` (sea, lakes, rivers) are crossed. NoData in gaps at
+        most `crossing_width` kilometres wide is crossed at the cost of `crossing_traversal`
+        and adds no habitat area; wider gaps are not crossed.
+        - "landmass": separate landmasses are linked only across such gaps; within one
+          landmass the results are as with None, so coarse levels still link land across
+          wider water inside it (an inlet, or a river whose banks join).
+        - "strict": no wider gap is crossed anywhere, including rivers and inlets inside one
+          landmass; routes around them within the search window are kept.
+        - None (default): as in earlier versions. The finest level does not cross NoData, but
+          coarser levels link land on both sides of gaps narrower than about twice their cell
+          size at no cost, and only from some cells: a compact island near other land can have
+          a linked part and a sealed part.
+        Without NoData every mode gives the results of None.
+    crossing_width : float, optional
+        Widest NoData gap crossed, in kilometres (finite, >= 0), e.g. 1 to 2 km to cross
+        narrow rivers. A gap's width is measured once at base resolution, as the widest disc
+        that fits between the land cells; on geographic grids cells are narrower towards the
+        poles. This also makes NoData in concave corners of a coastline crossable, within about
+        a fifth of the width of the corner, which changes coastal cells slightly. Default 0: no
+        gap is crossed. Ignored, with a notice, when `nodata_crossing` is
+        None. With an open-border `polygon_mask`, the read window grows by this width.
+    crossing_traversal : float, optional
+        Traversal value of crossed NoData, in [0, 1] like `1 - resistance`: 0 (default) costs
+        as much as fully degraded land (`max_cost`), 1 as much as intact land. Ignored, with a
+        notice, when `nodata_crossing` is None.
 
     Returns
     -------
@@ -196,6 +227,7 @@ def connectedness(
     window_mode = _normalise_window_mode(window_mode)
     _warn_margin_px(margin_px)
     _check_band(band)
+    nodata_crossing = _normalise_crossing(nodata_crossing, crossing_width, crossing_traversal)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -220,15 +252,17 @@ def connectedness(
     levels = sorted({1, *(_round_to_pow2(x) for x in levels)})
     _check_continuous_levels(levels)
 
-    # For closed border there'll be no padding
-    pad_size = 0 if closed_border else outer_window
-
     # The condition band, then coordinates as in R: the polygon in the raster's CRS, engine
     # units in degrees or metres
     cond_band = _condition_band(condition_file, band)
     crs, is_geo, metres = _coordinate_info(condition_file)
     if polygon_mask is not None:
         polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
+
+    # For closed border there'll be no padding; NoData crossing reads its gap width further
+    pad_size = 0 if closed_border else outer_window
+    if pad_size and nodata_crossing is not None:
+        pad_size += _crossing_pad(condition_file, crossing_width, is_geo, metres, max(levels))
 
     # Read condition raster overviews; this checks levels as well
     cond_array, mask_array, affine_dict, _, tile_row0, tile_col0 = read_raster(
@@ -291,6 +325,9 @@ def connectedness(
                 n_threads = n_threads,
                 window_mode = window_mode,
                 pa_to_pa = pa_to_pa,
+                nodata_crossing = nodata_crossing,
+                crossing_width = crossing_width,
+                crossing_traversal = crossing_traversal,
             )
 
             # Calculate the connected-habitat or just return the PARC-connectedness
@@ -314,7 +351,8 @@ def connectedness(
             window_mode=window_mode, condition_scale=s1, protected_areas_scale=s2,
             resistance_scale=resistance_scale, band=band, closed_border=closed_border,
             condition=condition_file, resistance=resistance_file, protected_areas=pa_file,
-            polygon_mask=polygon_mask, threads=n_threads,
+            polygon_mask=polygon_mask, threads=n_threads, nodata_crossing=nodata_crossing,
+            crossing_width=crossing_width, crossing_traversal=crossing_traversal,
         )
 
     return out_array
@@ -342,6 +380,9 @@ def beri(
         filename: str = "",
         band: int | None = None,
         save_log: bool | None = None,
+        nodata_crossing: str | None = None,
+        crossing_width: float = 0.0,
+        crossing_traversal: float = 0.0,
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
 
@@ -436,6 +477,32 @@ def beri(
         Whether to write a run log beside `filename` once it is written, as in
         `connectedness()`: `result.tif` gets `result.toml`. If None (default), logs are written
         unless the environment variable `CONNECTIVITY_SAVE_LOG` is `0`, `false`, `no` or `off`.
+    nodata_crossing : {None, "landmass", "strict"}, optional
+        How NoData cells of `condition_file` (sea, lakes, rivers) are crossed. NoData in gaps at
+        most `crossing_width` kilometres wide is crossed at the cost of `crossing_traversal`
+        and adds no habitat area; wider gaps are not crossed.
+        - "landmass": separate landmasses are linked only across such gaps; within one
+          landmass the results are as with None, so coarse levels still link land across
+          wider water inside it (an inlet, or a river whose banks join).
+        - "strict": no wider gap is crossed anywhere, including rivers and inlets inside one
+          landmass; routes around them within the search window are kept.
+        - None (default): as in earlier versions. The finest level does not cross NoData, but
+          coarser levels link land on both sides of gaps narrower than about twice their cell
+          size at no cost, and only from some cells: a compact island near other land can have
+          a linked part and a sealed part.
+        Without NoData every mode gives the results of None.
+    crossing_width : float, optional
+        Widest NoData gap crossed, in kilometres (finite, >= 0), e.g. 1 to 2 km to cross
+        narrow rivers. A gap's width is measured once at base resolution, as the widest disc
+        that fits between the land cells; on geographic grids cells are narrower towards the
+        poles. This also makes NoData in concave corners of a coastline crossable, within about
+        a fifth of the width of the corner, which changes coastal cells slightly. Default 0: no
+        gap is crossed. Ignored, with a notice, when `nodata_crossing` is
+        None. With an open-border `polygon_mask`, the read window grows by this width.
+    crossing_traversal : float, optional
+        Traversal value of crossed NoData, in [0, 1] like `1 - resistance`: 0 (default) costs
+        as much as fully degraded land (`max_cost`), 1 as much as intact land. Ignored, with a
+        notice, when `nodata_crossing` is None.
 
     Returns
     -------
@@ -464,6 +531,7 @@ def beri(
     window_mode = _normalise_window_mode(window_mode)
     _warn_margin_px(margin_px)
     _check_band(band)
+    nodata_crossing = _normalise_crossing(nodata_crossing, crossing_width, crossing_traversal)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -484,15 +552,17 @@ def beri(
     levels = sorted({1, *(_round_to_pow2(x) for x in levels)})
     _check_continuous_levels(levels)
 
-    # For closed border there'll be no padding
-    pad_size = 0 if closed_border else outer_window
-
     # The condition band, then coordinates as in R: the polygon in the raster's CRS, engine
     # units in degrees or metres
     cond_band = _condition_band(condition_file, band)
     crs, is_geo, metres = _coordinate_info(condition_file)
     if polygon_mask is not None:
         polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
+
+    # For closed border there'll be no padding; NoData crossing reads its gap width further
+    pad_size = 0 if closed_border else outer_window
+    if pad_size and nodata_crossing is not None:
+        pad_size += _crossing_pad(condition_file, crossing_width, is_geo, metres, max(levels))
 
     # Read raster overview as a dictionary; this checks levels as well.
     cond_array, mask_array, affine_dict, _, tile_row0, tile_col0  = read_raster(
@@ -557,6 +627,9 @@ def beri(
             traversal = traversal,
             n_threads = n_threads,
             window_mode = window_mode,
+            nodata_crossing = nodata_crossing,
+            crossing_width = crossing_width,
+            crossing_traversal = crossing_traversal,
         )
 
     tr = affine_dict[1]
@@ -573,7 +646,8 @@ def beri(
             condition_scale=scale, resistance_scale=resistance_scale, band=band,
             closed_border=closed_border, condition=condition_file, resistance=resistance_file,
             current_climate=current_file, future_climates=future_files,
-            polygon_mask=polygon_mask, threads=n_threads,
+            polygon_mask=polygon_mask, threads=n_threads, nodata_crossing=nodata_crossing,
+            crossing_width=crossing_width, crossing_traversal=crossing_traversal,
         )
 
     return out_array

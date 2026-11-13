@@ -429,3 +429,103 @@ def test_pixel_coverage(tmp_path):
         np.testing.assert_array_equal(cn.pixel_coverage(polygons, COND, n_threads=n_threads), coverage)
     with rasterio.open(out_file) as written:
         np.testing.assert_array_equal(written.read(1), coverage)
+
+
+CROSS = dict(levels=[2, 4, 8], window_size=3, outer_window=5, n_threads=THREADS)
+
+
+def pieces(land):
+    """8-connected pieces of `land`, numbered from 1, and their sizes."""
+    from collections import deque
+
+    labels = np.zeros(land.shape, dtype=np.int32)
+    sizes = [0]
+    for start in zip(*np.nonzero(land)):
+        if labels[start]:
+            continue
+        sizes.append(0)
+        labels[start] = len(sizes) - 1
+        queue = deque([start])
+        while queue:
+            i, j = queue.popleft()
+            sizes[-1] += 1
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    r, c = i + di, j + dj
+                    if 0 <= r < land.shape[0] and 0 <= c < land.shape[1] and land[r, c] and not labels[r, c]:
+                        labels[r, c] = len(sizes) - 1
+                        queue.append((r, c))
+    return labels, np.array(sizes)
+
+
+# Without a permitted crossing, small pieces of land score the same, bit for bit, alone and with
+# all the other land, in both modes; without a crossing mode some do not
+def test_crossing_islands(tmp_path, condition):
+    labels, sizes = pieces(np.isfinite(condition))
+    picks = [p for p in np.argsort(sizes)[::-1][1:] if 100 <= sizes[p] <= 700][:3]
+    assert len(picks) == 3
+    with rasterio.open(COND) as src:
+        profile = src.profile
+    alone = {}
+    for p in picks:
+        path = tmp_path / f"piece_{p}.tif"
+        with rasterio.open(path, "w", **profile) as dst:
+            dst.write(np.where(labels == p, condition, profile["nodata"]).astype(np.float32), 1)
+        alone[p] = str(path)
+    for mode in (None, "landmass", "strict"):
+        together = cn.connectedness(condition_file=COND, option=1, nodata_crossing=mode, **CROSS)
+        same = []
+        for p in picks:
+            out = cn.connectedness(condition_file=alone[p], option=1, nodata_crossing=mode, **CROSS)
+            inside = labels == p
+            same.append(np.array_equal(bits(out)[inside], bits(together)[inside]))
+        if mode is None:
+            assert not all(same)
+        else:
+            assert all(same), mode
+
+
+# Open-border tiles give the whole raster's output in both modes, with a permitted crossing
+def test_crossing_tiles():
+    with rasterio.open(COND) as src:
+        transform = src.transform
+    tiles = cn.make_tiles(COND, nrows=2, ncols=2, align_to=32)
+    for mode in ("landmass", "strict"):
+        settings = dict(nodata_crossing=mode, crossing_width=2.0, crossing_traversal=0.2, **CROSS)
+        whole = cn.connectedness(condition_file=COND, **settings)
+        for k in range(len(tiles)):
+            tile = tiles.iloc[[k]]
+            out = cn.connectedness(condition_file=COND, polygon_mask=tile, **settings)
+            expected, _ = _crop_array(whole, transform, tile)
+            inside = np.isfinite(expected)
+            np.testing.assert_array_equal(np.isfinite(out), inside)
+            np.testing.assert_array_equal(bits(out)[inside], bits(expected)[inside], err_msg=f"{mode} tile {k}")
+
+
+# PARC and BERI run in both modes; a crossing changes some cells and leaves NaN where it was
+def test_crossing_indicators():
+    plain = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES[:1], **CROSS)
+    parc = cn.connectedness(condition_file=COND, pa_file=PA, pa_to_pa=True, **CROSS)
+    for mode in ("landmass", "strict"):
+        settings = dict(nodata_crossing=mode, crossing_width=2.0, **CROSS)
+        beri = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES[:1], **settings)
+        np.testing.assert_array_equal(np.isfinite(beri), np.isfinite(plain))
+        assert not np.array_equal(bits(beri), bits(plain)) and np.nanmax(beri) <= 1
+        gated = cn.connectedness(condition_file=COND, pa_file=PA, pa_to_pa=True, **settings)
+        np.testing.assert_array_equal(np.isfinite(gated), np.isfinite(parc))
+        assert np.nanmin(gated) >= 0 and np.nanmax(gated) <= 1
+
+
+def test_crossing_settings(capsys):
+    for bad, error in [
+        (dict(nodata_crossing="river"), ValueError),
+        (dict(nodata_crossing=1), TypeError),
+        (dict(nodata_crossing="strict", crossing_width=-1), ValueError),
+        (dict(nodata_crossing="strict", crossing_width=float("inf")), ValueError),
+        (dict(nodata_crossing="strict", crossing_width="2"), ValueError),
+        (dict(nodata_crossing="strict", crossing_traversal=1.5), ValueError),
+    ]:
+        with pytest.raises(error):
+            cn.connectedness(condition_file=COND, **bad, **SHORT)
+    cn.connectedness(condition_file=COND, crossing_width=2.0, **SHORT)
+    assert "'crossing_width' and 'crossing_traversal' are ignored" in capsys.readouterr().out

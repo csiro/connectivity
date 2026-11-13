@@ -1,5 +1,7 @@
 use crate::affine::Affine;
 use crate::distances;
+use crate::gate::{Gate, MIXED};
+use crate::strict::{Strict, MULTI};
 use crate::graph::{Csr, Edge, Nodes, COLS, NONE, NO_SIM, ROWS};
 use crate::metrics;
 use crate::routing::Router;
@@ -9,6 +11,11 @@ use crate::utils;
 use crate::window::{circle_frac, similarities, similarity, square_frac, WindowMode};
 use anyhow::Result;
 use ndarray::{s, Array2, Array3, ArrayView1};
+
+/// NoData crossing mode of a call, fixed per call so the default path stays as it was.
+const PLAIN: u8 = 0; // no crossing mode: NoData is left out of the graph
+const GATED: u8 = 1; // mode 1, landmass (`gate`)
+const STRICT: u8 = 2; // mode 2, strict gap width (`strict`)
 
 /// Level-indexed overviews and settings shared by every focal cell of one call.
 pub struct Context<'a> {
@@ -33,11 +40,24 @@ pub struct Context<'a> {
     pub pa_to_pa: bool,
     pub lambdas: &'a [f32],
     pub run_beri: bool,
+    pub gate: Option<Gate>,     // NoData crossing mode 1 (landmass)
+    pub strict: Option<Strict>, // NoData crossing mode 2 (strict gap width)
 }
 
 impl Context<'_> {
     pub fn n_scen(&self) -> usize {
         self.trans.len()
+    }
+
+    /// Whether the tile's base cell (i, j) is land or crossable NoData (crossing modes).
+    #[inline]
+    pub fn passable(&self, i: i32, j: i32) -> bool {
+        let (h, w) = self.base_shape;
+        if i < 0 || j < 0 || i >= h || j >= w {
+            return false;
+        }
+        let at = [i as usize, j as usize];
+        self.cond[0][at].is_finite() || self.trav.as_ref().is_some_and(|t| t[0][at].is_finite())
     }
 
     /// Current-climate transgrid of the base level (`utils::get_current`'s source)
@@ -125,6 +145,9 @@ pub struct Scratch {
     pub counts: [u64; STATUSES], // edges by distance-table status
     pub source: u32,           // NONE when the focal cell is not in its own window
     pub isolated: bool,
+    group: u32,          // focal cell's group under mode 1
+    pub piece: Vec<u16>,  // piece of each node's cell under mode 2
+    pub pieces: Vec<u16>, // pieces in each node's cell under mode 2
 }
 
 impl Scratch {
@@ -155,6 +178,10 @@ impl Scratch {
         n.count.reserve(nodes + 1);
         n.pa.reserve(nodes + 1);
         n.rim.reserve(nodes + 1);
+        if ctx.strict.is_some() {
+            scratch.piece.reserve(nodes + 1);
+            scratch.pieces.reserve(nodes + 1);
+        }
         n.sims.reserve((nodes + 1) * ctx.n_scen());
         scratch.csr.offsets.reserve(nodes + 2);
         scratch.csr.edges.reserve(12 * nodes);
@@ -178,6 +205,7 @@ impl Scratch {
             + self.parity.capacity() * 8
             + self.numerator.capacity() * 4
             + std::mem::size_of_val(&self.counts)
+            + (self.piece.capacity() + self.pieces.capacity()) * 2
     }
 
     /// Indicator value of focal cell ij; fails on a path-cost overflow.
@@ -200,11 +228,18 @@ impl Scratch {
         self.ranges.clear();
         self.bounds.clear();
         let current = utils::get_current(ctx.current(), i, j);
-        for l in 0..ctx.levels.len() {
-            self.admit(ctx, l, bi, bj);
+        if ctx.gate.is_none() && ctx.strict.is_none() {
+            for l in 0..ctx.levels.len() {
+                self.admit::<PLAIN>(ctx, l, bi, bj);
+            }
+        } else {
+            self.admit_modes(ctx, i, j);
         }
         if !ctx.trans.is_empty() {
             self.similarities(ctx, &current);
+            if ctx.gate.is_some() || ctx.strict.is_some() {
+                self.part_sims(ctx, &current);
+            }
         }
 
         // The focal cell must be in its own first-level window to be a source
@@ -214,12 +249,37 @@ impl Scratch {
         if self.isolated {
             self.synthetic(ctx, bi, bj);
         } else {
-            self.link(ctx);
+            match &ctx.strict {
+                None => self.link(ctx),
+                Some(st) => self.link_strict(ctx, st),
+            }
+        }
+    }
+
+    /// Admission under a NoData crossing mode, kept out of line so the default path is unchanged.
+    #[inline(never)]
+    fn admit_modes(&mut self, ctx: &Context, i: usize, j: usize) {
+        let (bi, bj) = (i as i32, j as i32);
+        match (&ctx.gate, &ctx.strict) {
+            (Some(gate), _) => {
+                self.group = gate.group(0, [i, j]);
+                for l in 0..ctx.levels.len() {
+                    self.admit::<GATED>(ctx, l, bi, bj);
+                }
+            }
+            (None, Some(_)) => {
+                self.piece.clear();
+                self.pieces.clear();
+                for l in 0..ctx.levels.len() {
+                    self.admit::<STRICT>(ctx, l, bi, bj);
+                }
+            }
+            (None, None) => unreachable!("admit_modes without a crossing mode"),
         }
     }
 
     /// Admit level `l`'s window cells in template (row-major) order, as `collect_annulus` does.
-    fn admit(&mut self, ctx: &Context, l: usize, base_i: i32, base_j: i32) {
+    fn admit<const MODE: u8>(&mut self, ctx: &Context, l: usize, base_i: i32, base_j: i32) {
         let shape = &ctx.templates.shapes[l];
         let level = shape.level;
         let start = self.nodes.len() as u32;
@@ -262,8 +322,15 @@ impl Scratch {
                 if fraction <= 0.0 {
                     continue;
                 }
-                if self.push(ctx, l, [li as usize, lj as usize], fraction, rim) {
-                    self.grids[l].set(li, lj, self.nodes.len() as u32 - 1);
+                let at = [li as usize, lj as usize];
+                let first_node = self.nodes.len() as u32;
+                let added = match MODE {
+                    GATED => self.push_gated(ctx, l, at, fraction, rim) as usize,
+                    STRICT => self.push_strict(ctx, ctx.strict.as_ref().unwrap(), l, at, fraction, rim),
+                    _ => self.push(ctx, l, at, fraction, rim) as usize,
+                };
+                if added > 0 {
+                    self.grids[l].set(li, lj, first_node);
                     bounds = (bounds.0.min(li), bounds.1.max(li), bounds.2.min(lj), bounds.3.max(lj));
                 }
             }
@@ -317,6 +384,206 @@ impl Scratch {
         true
     }
 
+    /// Mode 1: `push` admitting only the focal cell's group, with crossable NoData at no area.
+    #[inline]
+    fn push_gated(&mut self, ctx: &Context, l: usize, at: [usize; 2], fraction: f32, rim: bool) -> bool {
+        let gate = ctx.gate.as_ref().expect("mode 1 without its gate");
+        let group = gate.group(l, at);
+        if group == MIXED {
+            // The focal group's part of a cell holding several groups
+            let Some(part) = gate.part(l, at, self.group) else { return false };
+            let (c, w) = part.habitat();
+            self.push_node(ctx, l, at, fraction, rim, c, w, part.trav, part.pa);
+            return true;
+        }
+        if group == 0 || group != self.group {
+            return false; // nothing traversable here, or another group's land
+        }
+        self.push_single(ctx, l, at, fraction, rim);
+        true
+    }
+
+    /// A cell whose traversable cells form one group or piece: the overviews hold its values,
+    /// land only for condition, weight and protected fraction.
+    #[inline(always)]
+    fn push_single(&mut self, ctx: &Context, l: usize, at: [usize; 2], fraction: f32, rim: bool) {
+        let (mut c, mut w) = (ctx.cond[l][at], ctx.weight[l][at]);
+        let t = match &ctx.trav {
+            Some(trav) => Some(trav[l][at]).filter(|v| v.is_finite()).unwrap_or(c),
+            None => c,
+        };
+        if c.is_nan() || !w.is_finite() {
+            (c, w) = (0.0, 0.0); // crossable NoData only: no habitat area
+        }
+        let pa = match &ctx.pa {
+            Some(pa) => Some(pa[l][at]).filter(|f| f.is_finite()).unwrap_or(0.0),
+            None => 1.0,
+        };
+        self.push_node(ctx, l, at, fraction, rim, c, w, t, pa);
+    }
+
+    /// Strict mode: admit every piece of one cell, in piece order; returns how many were added.
+    #[inline]
+    fn push_strict(&mut self, ctx: &Context, st: &Strict, l: usize, at: [usize; 2], fraction: f32, rim: bool) -> usize {
+        let (i, j) = (at[0] as i32, at[1] as i32);
+        let kind = if l == 0 { 1 } else { st.kind(l, i, j) };
+        match kind {
+            0 => 0,
+            MULTI => {
+                let m = st.multi(l, i, j).unwrap();
+                for (b, p) in m.parts.iter().enumerate() {
+                    let (c, w) = p.habitat();
+                    self.push_node(ctx, l, at, fraction, rim, c, w, p.trav, p.pa);
+                    self.piece.push(b as u16);
+                    self.pieces.push(m.parts.len() as u16);
+                }
+                m.parts.len()
+            }
+            _ => {
+                if l == 0 && !ctx.passable(i, j) {
+                    return 0; // NoData that cannot be crossed
+                }
+                self.push_single(ctx, l, at, fraction, rim);
+                self.piece.push(0);
+                self.pieces.push(1);
+                1
+            }
+        }
+    }
+
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    fn push_node(&mut self, ctx: &Context, l: usize, at: [usize; 2], fraction: f32, rim: bool, c: f32, w: f32, t: f32, pa: f32) {
+        let n = &mut self.nodes;
+        n.level.push(l as u8);
+        n.cell.push((at[0] as i32, at[1] as i32));
+        n.frac.push(fraction);
+        n.cond.push(c);
+        n.trav.push(t);
+        n.weight.push((1.0 - ctx.factor) * t + ctx.factor);
+        n.count.push(w * fraction);
+        n.pa.push(pa);
+        n.rim.push(rim);
+    }
+
+    /// Strict mode `link`: the same candidate edges, kept only between pieces whose base cells
+    /// overlap or are 8-adjacent. Edge distances and order are those of `link`; the pieces of one
+    /// target cell follow in piece order.
+    #[inline(never)]
+    fn link_strict(&mut self, ctx: &Context, st: &Strict) {
+        let shapes = &ctx.templates.shapes;
+        for l in 0..ctx.levels.len() {
+            let shape = &shapes[l];
+            let transform = ctx.transforms[l].expect("Missing level in Affine set.");
+            let (start, end) = self.ranges[l];
+            let fringe = ctx.fringe[l];
+            let (i_min, i_max, j_min, j_max) = self.bounds[l];
+            let (first, parity) = (self.first[l], self.parity[l]);
+            let up = if fringe { self.src[l + 1] } else { (0, 0) };
+
+            for u in start as usize..end as usize {
+                let (i, j) = self.nodes.cell[u];
+                let a = self.piece[u] as usize;
+                let multi_u = (self.pieces[u] > 1).then(|| st.multi(l, i, j).unwrap());
+                // Directions in which this piece touches some piece of the neighbouring cell.
+                // Level 1: every admitted neighbour is a traversable base cell, and touches
+                let dirs = match multi_u {
+                    Some(m) => m.touch[a].iter().fold(0u8, |acc, &(k, _)| acc | 1 << k),
+                    None if l == 0 => 0xFF,
+                    None => st.bits(l, i, j, |_, _| false),
+                };
+                for k in 0..8 {
+                    let v0 = self.grids[l].get(i + COLS[k], j + ROWS[k]);
+                    if v0 == NONE {
+                        continue;
+                    }
+                    // Relaxed contact: diagonal pieces that both touch a piece of a corner cell
+                    let relax = st.relax && l > 0 && k >= 4;
+                    let touching = dirs & (1 << k) != 0;
+                    if !touching && !relax {
+                        continue;
+                    }
+                    let count = self.pieces[v0 as usize] as usize;
+                    let (d, status) = ctx.tables.get(l, i, k);
+                    let dist = if status <= BOUNDED {
+                        d
+                    } else {
+                        far(&transform, (i, j), &transform, self.nodes.cell[v0 as usize], ctx.is_geo)
+                    };
+                    for b in 0..count {
+                        let direct = if multi_u.is_none() && count == 1 { touching } else { st.touches(l, i, j, a, k, b) };
+                        if direct || (relax && st.through(l, i, j, a, k, b)) {
+                            self.edge(v0 + b as u32, dist, status);
+                        }
+                    }
+                }
+
+                let eligible = match ctx.mode {
+                    WindowMode::Circular => self.nodes.rim[u],
+                    WindowMode::Square => i == i_min || i == i_max || j == j_min || j == j_max,
+                };
+                if fringe && eligible {
+                    let upper = ctx.transforms[l + 1].unwrap();
+                    let link = shape.links(parity, i - first.0, j - first.1);
+                    // Next-level cells, as offsets from this cell's parent, that hold base cells
+                    // this piece overlaps or touches: bit (di + 1) * 3 + dj + 1
+                    let dirs = if l == 0 { st.bits(0, i, j, |a, b| ctx.passable(a, b)) } else { dirs };
+                    let parent = st.parent(l, i, j);
+                    let mut near = 1u16 << 4;
+                    for k in 0..8 {
+                        if dirs & (1 << k) != 0 {
+                            let q = st.parent(l, i + COLS[k], j + ROWS[k]);
+                            near |= 1 << ((q.0 - parent.0 + 1) * 3 + q.1 - parent.1 + 1);
+                        }
+                    }
+                    for m in 0..link.count as usize {
+                        let target = (up.0 + link.cell[m].0, up.1 + link.cell[m].1);
+                        let v0 = self.grids[l + 1].get(target.0, target.1);
+                        if v0 == NONE {
+                            continue;
+                        }
+                        let count = self.pieces[v0 as usize] as usize;
+                        let multi_t = (count > 1).then(|| st.multi(l + 1, target.0, target.1).unwrap());
+                        let rel = st.rel(l, i, j, target);
+                        // Pieces of the target linked to this piece
+                        let linked = |q: usize| -> bool {
+                            match multi_t {
+                                Some(mt) => mt.kids[q].contains(&(rel.0, rel.1, a as u16)),
+                                // One piece: it contains this piece, or holds a piece it touches
+                                None => {
+                                    let (di, dj) = (target.0 - parent.0, target.1 - parent.1);
+                                    di.abs() <= 1 && dj.abs() <= 1 && near & (1 << ((di + 1) * 3 + dj + 1)) != 0
+                                }
+                            }
+                        };
+                        if !(0..count).any(linked) {
+                            continue;
+                        }
+                        let (d, status) = ctx.tables.get(l, i, 8 + link.slot[m] as usize);
+                        let dist = if status <= BOUNDED {
+                            d
+                        } else {
+                            far(&transform, (i, j), &upper, self.nodes.cell[v0 as usize], ctx.is_geo)
+                        };
+                        for q in 0..count {
+                            if linked(q) {
+                                self.edge(v0 + q as u32, dist, status);
+                            }
+                        }
+                    }
+                }
+                self.csr.close();
+            }
+        }
+    }
+
+    #[inline]
+    fn edge(&mut self, v: u32, dist: f32, status: u8) {
+        self.counts[status as usize] += 1;
+        let w = self.nodes.weight[v as usize];
+        self.csr.edges.push(Edge::new(v, w, dist));
+    }
+
     /// Similarity of every node with the focal cell's current climate, for every scenario.
     /// Kept out of admission so connectedness runs do not carry it.
     #[inline(never)]
@@ -345,6 +612,38 @@ impl Scratch {
                         n.sims.push(similarity(current, &seg_val).unwrap_or(NO_SIM));
                     }
                 }
+            }
+        }
+    }
+
+    /// Under a crossing mode, the similarities of nodes standing for one part of a cell that
+    /// holds several, from the part's own band means.
+    #[inline(never)]
+    fn part_sims(&mut self, ctx: &Context, current: &ArrayView1<f32>) {
+        let n_scen = ctx.n_scen();
+        for u in 0..self.nodes.len() {
+            let l = self.nodes.level[u] as usize;
+            let (i, j) = self.nodes.cell[u];
+            let part = match (&ctx.gate, &ctx.strict) {
+                (Some(gate), _) => {
+                    let at = [i as usize, j as usize];
+                    if gate.group(l, at) != MIXED {
+                        continue;
+                    }
+                    gate.part(l, at, self.group)
+                }
+                (None, Some(st)) => st.multi(l, i, j).map(|m| &m.parts[self.piece[u] as usize]),
+                (None, None) => None,
+            };
+            let Some(part) = part else { continue };
+            let bands = part.bands.len() / n_scen.max(1);
+            for s in 0..n_scen {
+                let sim = if bands == 0 {
+                    None
+                } else {
+                    similarity(current, &ArrayView1::from(&part.bands[s * bands..(s + 1) * bands]))
+                };
+                self.nodes.sims[u * n_scen + s] = sim.unwrap_or(NO_SIM);
             }
         }
     }
@@ -471,6 +770,17 @@ impl Scratch {
             sum / ctx.lambdas.len() as f32
         }
     }
+}
+
+/// Distance in km between cell `a` of the grid `ta` and cell `b` of the grid `tb`, for edges
+/// whose table entry is missing. Cold and out of line so that the optimiser does not compute it
+/// speculatively inside the strict-mode loops (libm calls count as free of side effects).
+#[cold]
+#[inline(never)]
+fn far(ta: &Affine, a: (i32, i32), tb: &Affine, b: (i32, i32), geo: bool) -> f32 {
+    let (x1, y1) = ta.xy(a.0, a.1);
+    let (x2, y2) = tb.xy(b.0, b.1);
+    distances::distance_km(x1, y1, x2, y2, geo)
 }
 
 #[cfg(test)]

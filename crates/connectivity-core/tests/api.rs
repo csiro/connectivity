@@ -1,7 +1,7 @@
 //! The public API on the multi-level fixture of the unit tests, through crate paths only.
 use connectivity_core::ndarray::{Array2, Array3};
 use connectivity_core::{
-    connectivity, level_transforms, pixel_coverage, Affine, Config, Inputs, WindowMode,
+    connectivity, level_transforms, pixel_coverage, Affine, Config, Crossing, CrossingMode, Inputs, WindowMode,
 };
 use std::collections::HashMap;
 
@@ -72,6 +72,7 @@ fn config(window_mode: WindowMode, pa_to_pa: bool) -> Config<'static> {
         offsets: OFFSETS,
         window_mode,
         pa_to_pa,
+        crossing: None,
     }
 }
 
@@ -137,6 +138,65 @@ fn default_config() {
     assert_eq!(c.lambdas, &[2.0, 20.0, 200.0]);
     assert_eq!((c.max_cost, c.window_size, c.outer_window), (2.0, 3, 9));
     assert_eq!((c.is_geo, c.offsets, c.window_mode, c.pa_to_pa), (false, (0, 0), WindowMode::Circular, false));
+    assert_eq!(c.crossing, None);
+}
+
+fn crossing(c: Config<'static>, width: f32, traversal: f32) -> Config<'static> {
+    Config { crossing: Some(Crossing { mode: CrossingMode::Strict, width, traversal }), ..c }
+}
+
+#[test]
+fn crossing_modes() {
+    assert_eq!(CrossingMode::parse(" LandMass "), Ok(CrossingMode::Landmass));
+    assert_eq!(CrossingMode::parse("strict"), Ok(CrossingMode::Strict));
+    assert_eq!(
+        CrossingMode::parse("none"),
+        Err("Invalid nodata_crossing 'none'. Expected 'landmass' or 'strict'.".to_string())
+    );
+}
+
+// Through the public API: without NoData every crossing mode gives the plain output bit for
+// bit; an island 6 cells (6 km) from the mainland is unaffected by it at a width of 5 km and
+// affected at 7 km, in both modes
+#[test]
+fn crossing_island() {
+    let t = tile();
+    let full = t.condition.mapv(|v| if v.is_nan() { 0.4 } else { v });
+    let plain = config(WindowMode::Circular, false);
+    let run = |cond: &Array2<f32>, mask: &Array2<bool>, c: &Config| {
+        connectivity(&Inputs { condition: cond, mask, ..inputs(&t, false) }, c).unwrap()
+    };
+    let expected = run(&full, &t.mask, &plain);
+    for mode in [CrossingMode::Landmass, CrossingMode::Strict] {
+        let c = Config { crossing: Some(Crossing { mode, width: 3.0, traversal: 0.0 }), ..plain };
+        assert!(same_bits(&run(&full, &t.mask, &c), &expected), "{mode:?}");
+    }
+
+    let (h, w) = (24, 20);
+    let land = |mainland: bool| {
+        Array2::from_shape_fn((h, w), |(i, j)| match i {
+            0..=5 if mainland => 0.5,
+            12..=14 if (5..15).contains(&j) => 0.9 - 0.02 * j as f32,
+            _ => f32::NAN,
+        })
+    };
+    let (with, alone) = (land(true), land(false));
+    let island = alone.mapv(|v| v.is_finite());
+    let mask = island.mapv(|v| !v);
+    let transforms = level_transforms((1000.0, 0.0, 0.0, 0.0, -1000.0, 0.0), &LEVELS, (0, 0));
+    for mode in [CrossingMode::Landmass, CrossingMode::Strict] {
+        for (width, linked) in [(5.0, false), (7.0, true)] {
+            let c = Config { offsets: (0, 0), crossing: Some(Crossing { mode, width, traversal: 0.0 }), ..plain };
+            let score = |cond: &Array2<f32>| {
+                let inputs = Inputs { condition: cond, mask: &mask, traversal: None, transgrids: None, transforms: &transforms };
+                connectivity(&inputs, &c).unwrap()
+            };
+            let (a, b) = (score(&with), score(&alone));
+            let changed = island.indexed_iter().filter(|(ij, &f)| f && a[*ij].to_bits() != b[*ij].to_bits()).count();
+            let cells = island.iter().filter(|&&f| f).count();
+            assert_eq!(changed, if linked { cells } else { 0 }, "{mode:?} width {width}");
+        }
+    }
 }
 
 #[test]
@@ -180,6 +240,10 @@ fn setting_errors() {
         (Config { levels: &[1, 4], ..c }, &t.transforms, "levels must form a continuous power-of-two sequence"),
         (c, &base, "Missing level in Affine set."),
         (c, &coarse, "Missing base-level transform (key=1)."),
+        (crossing(c, -1.0, 0.0), &t.transforms, "Crossing width must be a finite number of kilometres >= 0, got -1"),
+        (crossing(c, f32::NAN, 0.0), &t.transforms, "Crossing width must be a finite number of kilometres >= 0, got NaN"),
+        (crossing(c, 1.0, 2.0), &t.transforms, "Crossing traversal must be in [0, 1], got 2"),
+        (crossing(c, 1.0, -0.5), &t.transforms, "Crossing traversal must be in [0, 1], got -0.5"),
     ] {
         for mask in [&t.mask, &all_masked] {
             let inputs = Inputs { mask, transforms, ..inputs(&t, false) };

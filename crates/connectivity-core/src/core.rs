@@ -7,6 +7,14 @@ use std::time::Instant;
 // local modules
 use crate::affine;
 use crate::builder::{Context, Scratch};
+use crate::crossing::{self, Base};
+#[cfg(test)]
+use crate::gate::GateStats;
+use crate::gate::Gate;
+use crate::strict::Strict;
+#[cfg(test)]
+use crate::strict::StrictStats;
+use crate::{Crossing, CrossingMode};
 use crate::overview;
 use crate::tables::{Tables, STATUSES};
 use crate::template::{Templates, CACHE_BUDGET};
@@ -29,6 +37,10 @@ pub struct Stats {
     pub edges: [u64; STATUSES], // edges by distance-table status (hits, then fallback reasons)
     pub setup_s: f64,        // overviews, templates, contexts and scratch
     pub process_s: f64,      // focal-cell loop
+    #[cfg(test)]
+    pub gate: Option<GateStats>, // crossing mode 1 diagnostics
+    #[cfg(test)]
+    pub strict: Option<StrictStats>, // crossing mode 2 diagnostics
 }
 
 /// Core connectivity function (`crate::connectivity`)
@@ -41,8 +53,76 @@ pub fn conn(inputs: &Inputs, config: &Config) -> Result<Array2<f32>> {
 /// `conn` that also reports scratch memory and setup/processing time.
 pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stats)> {
     let start = Instant::now();
+    let ctx = match &config.crossing {
+        None => prepare(inputs, config)?,
+        Some(cross) => prepare_cross(inputs, config, cross, true)?,
+    };
+    run(inputs, ctx, start)
+}
+
+/// `conn_stats` under a NoData crossing mode; `relax` selects relaxed contact in mode 2 (the
+/// rule; tests compare it with plain contact).
+#[cfg(test)]
+pub fn conn_cross(inputs: &Inputs, config: &Config, cross: &Crossing, relax: bool) -> Result<(Array2<f32>, Stats)> {
+    let start = Instant::now();
+    let ctx = prepare_cross(inputs, config, cross, relax)?;
+    run(inputs, ctx, start)
+}
+
+/// `prepare` under a NoData crossing mode. NoData in gaps up to `cross.width` km wide is
+/// crossed at traversal value `cross.traversal` and carries no habitat area. Mode 1 admits only
+/// the focal cell's group of touching land and crossable NoData; mode 2 splits coarse cells
+/// into pieces of touching traversable cells, linked only where their base cells touch.
+pub fn prepare_cross<'a>(inputs: &Inputs, config: &Config<'a>, cross: &Crossing, relax: bool) -> Result<Context<'a>> {
+    validate(inputs, config)?;
+    check_crossing(cross)?;
+    let cond = inputs.condition;
+    let mut sorted: Vec<i32> = config.levels.iter().map(|&l| l as i32).collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let base_tr = inputs.transforms[&1];
+    let (dy, dx) = crossing::cell_km(&base_tr, cond.nrows(), config.is_geo);
+    let cells = crossing::crossable(&cond.mapv(f32::is_finite), cross.width as f64, dy, &dx);
+    // Land keeps its traversal value (NaN falls back to condition in the overviews, as without
+    // a crossing mode), or its condition when no traversal is given. Without crossable cells the
+    // traversal input serves as it is, and without one either, condition does (no traversal
+    // overview is built, as without a crossing mode).
+    let traversal = inputs.traversal;
+    let trav_full = cells.iter().any(|&c| c).then(|| {
+        Array2::from_shape_fn(cond.dim(), |ij| {
+            if cond[ij].is_finite() {
+                traversal.map_or(cond[ij], |t| t[ij])
+            } else if cells[ij] {
+                cross.traversal
+            } else {
+                f32::NAN
+            }
+        })
+    });
+    let trav = trav_full.as_ref().or(traversal);
+    let areas = config.is_geo.then(|| overview::row_areas(&base_tr, cond.nrows()));
+    let mask = config.pa_to_pa.then_some(inputs.mask);
+    let trans = inputs.transgrids.unwrap_or_default();
+    let base = Base::new(&cells, cond, trav.unwrap_or(cond), &sorted, config.offsets, areas, mask, trans);
+    drop(cells);
+    let (gate, strict) = match cross.mode {
+        CrossingMode::Landmass => (Some(Gate::build(&base)), None),
+        CrossingMode::Strict => {
+            let mut st = Strict::build(&base);
+            st.relax = relax;
+            (None, Some(st))
+        }
+    };
+    drop(base);
+    let crossed = Inputs { traversal: trav, ..*inputs };
+    let mut ctx = prepare(&crossed, config)?;
+    ctx.gate = gate;
+    ctx.strict = strict;
+    Ok(ctx)
+}
+
+fn run(inputs: &Inputs, ctx: Context, start: Instant) -> Result<(Array2<f32>, Stats)> {
     let (cond_base, mask_array) = (inputs.condition, inputs.mask);
-    let ctx = prepare(inputs, config)?;
 
     // One scratch per pool thread, sized up front; a row borrows its thread's scratch, so
     // focal cells only allocate if a window outgrows the initial capacity.
@@ -91,6 +171,10 @@ pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stat
         }),
         setup_s,
         process_s: start.elapsed().as_secs_f64() - setup_s,
+        #[cfg(test)]
+        gate: ctx.gate.as_ref().map(|g| g.stats.clone()),
+        #[cfg(test)]
+        strict: ctx.strict.as_ref().map(|s| s.stats.clone()),
     };
     Ok((outarray, stats))
 }
@@ -138,6 +222,23 @@ pub fn validate(inputs: &Inputs, config: &Config) -> Result<()> {
     ensure!(window > 0, "Window size must be positive");
     ensure!(window % 2 == 1, "Window size must be odd-numbered");
     ensure!(outer < window || outer % 2 == 1, "Outer window size must be odd-numbered");
+    if let Some(cross) = &config.crossing {
+        check_crossing(cross)?;
+    }
+    Ok(())
+}
+
+fn check_crossing(cross: &Crossing) -> Result<()> {
+    ensure!(
+        cross.width.is_finite() && cross.width >= 0.0,
+        "Crossing width must be a finite number of kilometres >= 0, got {}",
+        cross.width
+    );
+    ensure!(
+        (0.0..=1.0).contains(&cross.traversal),
+        "Crossing traversal must be in [0, 1], got {}",
+        cross.traversal
+    );
     Ok(())
 }
 
@@ -161,6 +262,7 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
         offsets,
         window_mode,
         pa_to_pa,
+        crossing: _,
     } = *config;
     // If transgrids are provided run BERI, otherwise connectedness.
     let run_beri = trans_arrays
@@ -331,6 +433,8 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
         pa_to_pa,
         lambdas,
         run_beri,
+        gate: None,
+        strict: None,
     })
 }
 
@@ -357,7 +461,7 @@ mod tests {
         let inputs = Inputs { condition: &cond, mask: &mask, traversal: None, transgrids: None, transforms: &transforms };
         let config = Config {
             levels: &levels, lambdas: &[2.0, 20.0], is_geo: false, max_cost: 2.0, window_size: 3,
-            outer_window: 5, offsets: (0, 0), window_mode: WindowMode::Circular, pa_to_pa: false,
+            outer_window: 5, offsets: (0, 0), window_mode: WindowMode::Circular, pa_to_pa: false, crossing: None,
         };
         let run = || conn(&inputs, &config).unwrap();
 

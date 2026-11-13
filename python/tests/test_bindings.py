@@ -231,3 +231,19 @@ def test_coverage_errors(polygons, message):
     with pytest.raises(RuntimeError) as info:
         rust_conn.pixel_coverage(polygons, TRANSFORM, (6, 6))
     assert str(info.value).startswith(message)
+
+
+def test_crossing_modes():
+    # Without NoData every crossing mode gives the plain output bit for bit
+    args = multilevel(beri=True)
+    args["condition"] = np.nan_to_num(args["condition"], nan=0.4)
+    plain = rust_conn.connectivity(**args)
+    for mode in ("landmass", "strict", " Strict "):
+        out = rust_conn.connectivity(**args, nodata_crossing=mode, crossing_width=3.0, crossing_traversal=0.5)
+        np.testing.assert_array_equal(bits(out), bits(plain))
+    with pytest.raises(ValueError, match="Invalid nodata_crossing 'none'. Expected 'landmass' or 'strict'."):
+        run(nodata_crossing="none")
+    with pytest.raises(RuntimeError, match="Crossing width must be a finite number of kilometres >= 0, got -1"):
+        run(nodata_crossing="strict", crossing_width=-1.0)
+    with pytest.raises(RuntimeError, match=r"Crossing traversal must be in \[0, 1\], got 2"):
+        run(nodata_crossing="strict", crossing_traversal=2.0)

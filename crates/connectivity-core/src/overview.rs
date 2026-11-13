@@ -24,6 +24,17 @@ fn check_levels(levels: &[usize]) -> Result<()> {
 }
 
 
+/// Relative area, cos(latitude), of each of a geographic tile's `rows` from its base transform.
+pub fn row_areas(tr: &Affine, rows: usize) -> Vec<f32> {
+    let mut factors = Vec::with_capacity(rows);
+    for local_r in 0..rows {
+        let (_, lat_deg) = tr.xy(local_r as i32, 0);
+        let w = lat_deg.to_radians().cos().abs() as f32;
+        factors.push(if w.is_finite() { w.max(0.0) } else { 0.0 });
+    }
+    factors
+}
+
 /// Generate globally-anchored overviews for a SINGLE tile (polygon crop).
 ///
 /// The key fix is that aggregation windows are aligned to the ORIGINAL dataset pixel grid
@@ -70,13 +81,7 @@ pub fn make_overview(
             anyhow::anyhow!("Area resampling requires base-level transform information.")
         })?;
 
-        let mut factors = Vec::with_capacity(base_rows_u);
-        for local_r in 0..base_rows_u {
-            let (_, lat_deg) = tr.xy(local_r as i32, 0);
-            let w = lat_deg.to_radians().cos().abs() as f32;
-            factors.push(if w.is_finite() { w.max(0.0) } else { 0.0 });
-        }
-        Some(factors)
+        Some(row_areas(tr, base_rows_u))
     } else {
         None
     };

@@ -2,8 +2,10 @@
 ## Added
 - Added run logs. When `filename` is given, `connectedness()` and `beri()` also write a small TOML file of the run's indicator, settings, inputs and output beside it, `result.tif` getting `result.toml`, in the format the R package and Eco-Connectivity Studio write. Dropping a log on Studio's window restores its settings. Logs are on by default: `save_log=False` turns them off for one call, and the environment variable `CONNECTIVITY_SAVE_LOG` set to `0`, `false`, `no` or `off` for a session or job, in the R package as well. An existing run log is replaced, but another file of that name is kept, with a warning. Not writing a log is a warning, never an error. Results are unchanged.
 
+- Added NoData crossing modes to `connectedness()` and `beri()`: `nodata_crossing` (`None`, `"landmass"` or `"strict"`), `crossing_width` (kilometres, default 0) and `crossing_traversal` (in [0, 1], default 0). NoData in gaps at most `crossing_width` wide is crossed at the cost of `crossing_traversal` and adds no habitat area. `"landmass"` links separate landmasses only across such gaps; `"strict"` also stops crossings of wider rivers and inlets inside one landmass. They fix islands that were partly linked to nearby land across NoData at coarse levels, with a sharp step between their linked and sealed cells. Open-border `polygon_mask` runs read further by the gap width, so tiles still join without seams. Run logs record the three settings when a mode is used. Invalid values raise `ValueError` (or `TypeError` for a mode that is not a string), and a width or traversal without a mode is ignored with a notice. The default, `nodata_crossing=None`, gives the same results as before.
+
 ## Changed
-- Builds against `connectivity-core` 0.2.1, whose `VERSION` the run logs record. Results are unchanged.
+- Builds against `connectivity-core` 0.3.0, whose `VERSION` the run logs record. Results are unchanged without a crossing mode.
 
 # Version 2.5.0
 ## Added

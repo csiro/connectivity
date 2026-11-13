@@ -95,6 +95,9 @@ def _format_log(
         polygon_mask=None,
         closed_border: bool = False,
         threads=None,
+        nodata_crossing=None,
+        crossing_width=0.0,
+        crossing_traversal=0.0,
         software: str | None = None,
     ) -> str:
     """The run log text. Keys are written in the order, and under the conditions, of the
@@ -120,6 +123,10 @@ def _format_log(
     log.entry("window_size", _integer(window_size))
     log.entry("outer_window", _integer(outer_window))
     log.entry("window_mode", _quoted(window_mode))
+    if nodata_crossing is not None:
+        log.entry("nodata_crossing", _quoted(nodata_crossing))
+        log.entry("crossing_width_km", _real(crossing_width))
+        log.entry("crossing_traversal", _real(crossing_traversal))
     log.entry("condition_scale", _scale(condition_scale))
     if indicator == "parc":
         log.entry("protected_areas_scale", _scale(protected_areas_scale))
