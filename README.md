@@ -17,7 +17,7 @@ Each package has its own installation instructions, documentation and changelog:
 |---|---|---|
 | Python, [`eco-connectivity`](https://pypi.org/project/eco-connectivity/) (imported as `connectivity`) | [`python/`](python/) | `pip install eco-connectivity` |
 | R, `connectivity` (not yet on CRAN) | [`r/connectivity/`](r/connectivity/) | Build from source; see its [README](r/connectivity/README.md#installation) |
-| Rust, [`connectivity-core`](https://crates.io/crates/connectivity-core) | [`crates/connectivity-core/`](crates/connectivity-core/) | `connectivity-core = "0.1"` in `Cargo.toml` |
+| Rust, [`connectivity-core`](https://crates.io/crates/connectivity-core) | [`crates/connectivity-core/`](crates/connectivity-core/) | `connectivity-core = "0.3"` in `Cargo.toml` |
 
 ## Development
 
