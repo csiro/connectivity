@@ -184,7 +184,9 @@ impl<'a> Base<'a> {
 }
 
 /// Cell sizes in kilometres: height, and width of each row (it shrinks with latitude on
-/// geographic grids).
+/// geographic grids). On projected grids they are the lengths of a row and a column step, so a
+/// rotated grid keeps its cell sizes; `core::check_crossing` rejects sheared grids and
+/// geographic grids that are not north-up.
 pub fn cell_km(base: &Affine, rows: usize, is_geo: bool) -> (f64, Vec<f64>) {
     if is_geo {
         // Arc lengths on the 6371 km sphere of `distances::haversine`
@@ -194,7 +196,9 @@ pub fn cell_km(base: &Affine, rows: usize, is_geo: bool) -> (f64, Vec<f64>) {
             .collect();
         (base.y_scale.abs() * km, widths)
     } else {
-        (base.y_scale.abs() / 1000.0, vec![base.x_scale.abs() / 1000.0; rows])
+        let len = |p: f64, q: f64| if q == 0.0 { p.abs() } else { p.hypot(q) };
+        let (height, width) = (len(base.y_scale, base.x_skew), len(base.x_scale, base.y_skew));
+        (height / 1000.0, vec![width / 1000.0; rows])
     }
 }
 
@@ -310,29 +314,46 @@ fn edt_sq(sites: &Array2<bool>, dy: f64, dx: &[f64], oy: i32, ox: i32, squares: 
 /// on the half-cell lattice (cell centres, edge midpoints and corners), and a NoData cell is
 /// crossable when no fitting disc covers its centre. This is exact for straight channels along
 /// rows or columns of any width, and close for other shapes.
+///
+/// Outside the tile counts as NoData, as it is outside the graph: discs may be centred beyond
+/// the edge, so water between land and the edge is judged as inside the tile and the edge
+/// itself never closes a gap. A channel that runs to the edge opens there like a river mouth.
+/// The NoData border is at most the tile's larger side deep, so for gaps more than about twice
+/// as wide as the tile (or rows near a pole narrower than that) discs beyond it are not tried.
 pub fn crossable(land: &Array2<bool>, width: f64, dy: f64, dx: &[f64]) -> Array2<bool> {
     let dim = land.dim();
-    if width <= 0.0 || land.is_empty() {
+    if width <= 0.0 || land.is_empty() || land.iter().all(|&l| l) {
         return Array2::from_elem(dim, false);
     }
     // A tolerance of 0.001 squared cells keeps channels exactly `width` wide crossable
     let unit = dx.iter().copied().fold(dy, f64::min);
     let r2 = ((width * 0.5).powi(2) + 1.0e-3 * unit * unit) as f32;
-    let mut covered = Array2::from_elem(dim, false);
+    // NoData around the tile, more than half the width deep so that every disc that reaches
+    // the tile can be centred in it; its rows take the nearest tile row's cell width
+    let (h, w) = dim;
+    let cap = h.max(w) + 1;
+    let depth = |cell: f64| ((0.5 * width / cell).ceil() + 1.0).min(cap as f64) as usize;
+    let (pr, pc) = (depth(dy), depth(unit));
+    let frame = Array2::from_shape_fn((h + 2 * pr, w + 2 * pc), |(i, j)| {
+        (pr..pr + h).contains(&i) && (pc..pc + w).contains(&j) && land[[i - pr, j - pc]]
+    });
+    let fdx: Vec<f64> = (0..h + 2 * pr).map(|i| dx[i.clamp(pr, pr + h - 1) - pr]).collect();
+    let mut covered = Array2::from_elem(frame.dim(), false);
     for (qy, qx) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-        let open = edt_sq(land, dy, dx, qy, qx, true).mapv(|d| d > r2);
+        let open = edt_sq(&frame, dy, &fdx, qy, qx, true).mapv(|d| d > r2);
         if open.iter().any(|&o| o) {
-            covered.zip_mut_with(&edt_sq(&open, dy, dx, -qy, -qx, false), |c, &d| *c |= d <= r2);
+            covered.zip_mut_with(&edt_sq(&open, dy, &fdx, -qy, -qx, false), |c, &d| *c |= d <= r2);
         }
     }
-    Array2::from_shape_fn(dim, |ij| !land[ij] && !covered[ij])
+    Array2::from_shape_fn(dim, |(i, j)| !land[[i, j]] && !covered[[i + pr, j + pc]])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // A straight channel is crossable up to the width and not beyond it, along either axis
+    // A straight channel is crossable up to the width and not beyond it, along either axis. It
+    // runs to the raster edge, where it opens onto NoData outside, so its ends are checked apart
     #[test]
     fn channel_width() {
         let res = 0.25; // km
@@ -346,9 +367,54 @@ mod tests {
                     let cross = crossable(&land, cells * res, res, &[res; 80]);
                     let n = cross.iter().filter(|&&c| c).count();
                     let side = if rows { 60 } else { 80 };
-                    let expected = if gap as f64 <= cells { gap * side } else { 0 };
-                    assert_eq!(n, expected, "gap {gap}, width {cells} cells, rows {rows}");
+                    // Cells further than half the width (plus two) from the channel's ends
+                    let end = (cells / 2.0).ceil() as usize + 2;
+                    let inner = cross
+                        .indexed_iter()
+                        .filter(|&((i, j), &c)| c && (end..side - end).contains(&if rows { j } else { i }))
+                        .count();
+                    let name = format!("gap {gap}, width {cells} cells, rows {rows}");
+                    if gap as f64 <= cells {
+                        assert_eq!(inner, gap * (side - 2 * end), "{name}");
+                        assert!(n <= gap * side, "{name}");
+                    } else {
+                        assert_eq!(n, 0, "{name}");
+                    }
                 }
+            }
+        }
+    }
+
+    // Outside the tile is NoData: the result equals that of the raster set in a wide border of
+    // NoData, and water between land and the edge is never closed by the edge
+    #[test]
+    fn open_exterior() {
+        // A strip of land one row high across a 9 x 9 raster: 4 rows of water on either side
+        let strip = Array2::from_shape_fn((9, 9), |(i, _)| i == 4);
+        assert_eq!(crossable(&strip, 8.0, 1.0, &[1.0; 9]).iter().filter(|&&c| c).count(), 0);
+        let mut rng = crate::testkit::Rng::new(7);
+        let border = 24;
+        for _ in 0..300 {
+            let (h, w) = (12 + (rng.unit() * 20.0) as usize, 12 + (rng.unit() * 20.0) as usize);
+            let mut land = Array2::from_elem((h, w), false);
+            for _ in 0..2 + (rng.unit() * 4.0) as usize {
+                let (ci, cj) = ((rng.unit() * h as f64) as usize, (rng.unit() * w as f64) as usize);
+                let (rh, rw) = (1 + (rng.unit() * 5.0) as usize, 1 + (rng.unit() * 5.0) as usize);
+                for i in ci.saturating_sub(rh)..(ci + rh).min(h) {
+                    for j in cj.saturating_sub(rw)..(cj + rw).min(w) {
+                        land[[i, j]] = true;
+                    }
+                }
+            }
+            let width = 1.0 + rng.unit() * 9.0;
+            let (bh, bw) = (h + 2 * border, w + 2 * border);
+            let wide = Array2::from_shape_fn((bh, bw), |(i, j)| {
+                (border..border + h).contains(&i) && (border..border + w).contains(&j) && land[[i - border, j - border]]
+            });
+            let reference = crossable(&wide, width, 1.0, &vec![1.0; bh]);
+            let cross = crossable(&land, width, 1.0, &vec![1.0; h]);
+            for ((i, j), &c) in cross.indexed_iter() {
+                assert_eq!(c, reference[[i + border, j + border]], "{h} x {w}, width {width:.2}, cell ({i}, {j})");
             }
         }
     }
@@ -377,6 +443,17 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    // A rotated projected grid keeps its cell sizes: 0.25 km wide and 0.5 km high at any angle
+    #[test]
+    fn rotated_cells() {
+        for deg in [0.0f64, 30.0, 45.0, 90.0, 135.0, 270.0] {
+            let (s, c) = deg.to_radians().sin_cos();
+            let base = Affine::from((250.0 * c, 500.0 * s, 0.0, 250.0 * s, -500.0 * c, 0.0));
+            let (dy, dx) = cell_km(&base, 3, false);
+            assert!((dy - 0.5).abs() < 1.0e-12 && dx.iter().all(|&w| (w - 0.25).abs() < 1.0e-12), "{deg}: {dy} {dx:?}");
         }
     }
 

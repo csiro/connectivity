@@ -1937,6 +1937,50 @@ fn check_shared() {
     }
 }
 
+// A 3 km channel on 1 km cells is crossed at W = 3 km and not at 2.5 km, whatever the grid's
+// rotation: the far bank changes every focal cell, or none
+#[test]
+fn check_rotated() {
+    let (h, w) = (60, 60);
+    let levels = SMALL.levels.to_vec();
+    let bank = |far: bool| {
+        Array2::from_shape_fn((h, w), |(i, j)| match i {
+            0..=27 => 0.8 - ((i * 7 + j * 13) % 10) as f32 * 0.03,
+            28..=30 => f32::NAN,
+            _ if far => 0.3,
+            _ => f32::NAN,
+        })
+    };
+    let focal = Array2::from_shape_fn((h, w), |(i, j)| (20..28).contains(&i) && (20..40).contains(&j));
+    for deg in [0.0f64, 30.0, 45.0, 90.0] {
+        let (s, c) = deg.to_radians().sin_cos();
+        let base = (1000.0 * c, 1000.0 * s, 0.0, 1000.0 * s, -1000.0 * c, 0.0);
+        let fixture = |cond: Array2<f32>| crate::testkit::Fixture {
+            mask: focal.mapv(|f| !f),
+            trav: None,
+            trans: None,
+            transforms: level_transforms(base, &levels, (0, 0)),
+            levels: levels.clone(),
+            lambdas: LAMBDAS.to_vec(),
+            is_geo: false,
+            max_cost: 2.0,
+            window_size: SMALL.window,
+            outer_window: SMALL.outer,
+            offsets: (0, 0),
+            mode: WindowMode::Circular,
+            pa_to_pa: false,
+            cond,
+        };
+        let (with, alone) = (fixture(bank(true)), fixture(bank(false)));
+        for (mode, relax) in ALL {
+            for (width, crossed) in [(2.5, false), (3.0, true)] {
+                let (n, cells) = changed(&under(&with, Some((mode, relax)), width), &under(&alone, Some((mode, relax)), width), &focal);
+                assert_eq!(n, if crossed { cells } else { 0 }, "{} {deg} degrees, W = {width} km", label(mode, relax));
+            }
+        }
+    }
+}
+
 // Traversal values on NoData that may not be crossed change nothing: the output equals the run
 // with NaN there, whether or not other cells are crossable
 #[test]

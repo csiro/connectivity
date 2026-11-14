@@ -187,7 +187,9 @@ def _crossing_pad(file_path: str, width_km: float, is_geo: bool, metres: float, 
     if width_km <= 0:
         return 0
     with rasterio.open(file_path) as src:
-        a, e = abs(src.transform.a), abs(src.transform.e)
+        # Cell width and height: lengths of a column and a row step, also on rotated grids
+        t = src.transform
+        a, e = math.hypot(t.a, t.d), math.hypot(t.b, t.e)
         if is_geo:
             # Arc lengths on the engine's 6371 km sphere; cells are narrowest nearest a pole
             km = 6371.0 * math.pi / 180.0

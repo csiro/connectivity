@@ -140,9 +140,14 @@ fn compact<T: Ord>(list: &mut Vec<T>) {
     list.shrink_to_fit();
 }
 
+/// Most pieces one coarse cell may hold: labels are u16, with 0 off the domain. Only cells of 512
+/// x 512 base cells or more can exceed it (a cell of side n holds at most (n / 2)^2 pieces).
+pub const MAX_PIECES: u16 = u16::MAX - 1;
+
 /// Piece labels of every base cell at one level (0 off the domain, else 1 + the piece's index in
-/// its coarse cell, numbered in row-major order of first cells) and each coarse cell's kind.
-pub fn label_level(domain: &Array2<bool>, size: usize) -> (Array2<u16>, Array2<u8>) {
+/// its coarse cell, numbered in row-major order of first cells) and each coarse cell's kind, or
+/// `None` when a cell holds more than `MAX_PIECES` pieces.
+pub fn label_level(domain: &Array2<bool>, size: usize) -> Option<(Array2<u16>, Array2<u8>)> {
     let (h, w) = domain.dim();
     let (ch, cw) = (h.div_ceil(size), w.div_ceil(size));
     let mut labels = Array2::<u16>::zeros((h, w));
@@ -152,7 +157,7 @@ pub fn label_level(domain: &Array2<bool>, size: usize) -> (Array2<u16>, Array2<u
         .into_par_iter()
         .zip(kind.axis_iter_mut(Axis(0)).into_par_iter())
         .enumerate()
-        .for_each(|(ci, (mut lab, mut krow))| {
+        .try_for_each(|(ci, (mut lab, mut krow))| -> Option<()> {
             let r0 = ci * size;
             let rows = lab.nrows();
             let mut stack: Vec<(usize, usize)> = Vec::new();
@@ -164,7 +169,9 @@ pub fn label_level(domain: &Array2<bool>, size: usize) -> (Array2<u16>, Array2<u
                         if !domain[[r0 + r, c]] || lab[[r, c]] != 0 {
                             continue;
                         }
-                        assert!(n < u16::MAX - 1, "too many pieces in one cell");
+                        if n == MAX_PIECES {
+                            return None;
+                        }
                         n += 1;
                         lab[[r, c]] = n;
                         stack.push((r, c));
@@ -187,13 +194,15 @@ pub fn label_level(domain: &Array2<bool>, size: usize) -> (Array2<u16>, Array2<u
                 }
                 krow[cj] = n.min(2) as u8;
             }
-        });
-    (labels, kind)
+            Some(())
+        })?;
+    Some((labels, kind))
 }
 
 impl Strict {
-    /// Kinds, touch directions and multi-piece tables of every level above 1.
-    pub fn build(base: &Base) -> Self {
+    /// Kinds, touch directions and multi-piece tables of every level above 1; fails when a cell
+    /// holds more than `MAX_PIECES` pieces.
+    pub fn build(base: &Base) -> anyhow::Result<Self> {
         let domain = &base.domain;
         let dim = domain.dim();
         let levels = &base.levels;
@@ -205,7 +214,11 @@ impl Strict {
         let mut prev: Option<Array2<u16>> = None; // labels one level down; None at level 1
         for l in 1..levels.len() {
             let (size, finer) = (levels[l] as usize, levels[l - 1] as usize);
-            let (labels, kind) = label_level(domain, size);
+            let Some((labels, kind)) = label_level(domain, size) else {
+                anyhow::bail!(
+                    "Strict NoData crossing allows at most {MAX_PIECES} separate pieces of land and crossable NoData in one overview cell, but a level-{size} cell holds more; use levels up to 256"
+                );
+            };
             let (ch, cw) = kind.dim();
             let neighbour = |ci: usize, cj: usize, k: usize| -> Option<(usize, usize)> {
                 let (ni, nj) = (ci as i64 + COLS[k] as i64, cj as i64 + ROWS[k] as i64);
@@ -317,7 +330,7 @@ impl Strict {
             prev = Some(labels);
         }
         let shift = (0..levels.len()).map(|l| base.shift(l)).map(|(a, b)| (a as i32, b as i32)).collect();
-        Self {
+        Ok(Self {
             kind: kinds,
             touch: touches,
             multi: multis,
@@ -325,7 +338,7 @@ impl Strict {
             #[cfg(test)]
             stats,
             relax: false,
-        }
+        })
     }
 
     /// Kind of the tile's cell (i, j) at level index l > 0.
@@ -435,18 +448,18 @@ mod tests {
         for (r, c) in [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2), (1, 2), (0, 2), (3, 7)] {
             u[[r, c]] = true;
         }
-        let (labels, kind) = label_level(&u, 4);
+        let (labels, kind) = label_level(&u, 4).unwrap();
         assert_eq!((kind[[0, 0]], kind[[0, 1]]), (SINGLE, SINGLE));
         assert_eq!((labels[[0, 0]], labels[[0, 2]], labels[[3, 7]]), (1, 1, 1));
         let mut two = Array2::from_elem((4, 4), false);
         two[[0, 3]] = true;
         two[[2, 0]] = true;
-        let (labels, kind) = label_level(&two, 4);
+        let (labels, kind) = label_level(&two, 4).unwrap();
         assert_eq!(kind[[0, 0]], MULTI);
         assert_eq!((labels[[0, 3]], labels[[2, 0]]), (1, 2));
         two[[1, 1]] = true;
         two[[1, 2]] = true; // (2, 0) - (1, 1) - (1, 2) - (0, 3), diagonal steps
-        assert_eq!(label_level(&two, 4).1[[0, 0]], SINGLE);
+        assert_eq!(label_level(&two, 4).unwrap().1[[0, 0]], SINGLE);
     }
 
     // Two land strips separated by one NoData column touch only through the crossable column
@@ -454,12 +467,52 @@ mod tests {
     fn touch_needs_contact() {
         let build = |cond: &Array2<f32>| {
             let none = Array2::from_elem(cond.dim(), false);
-            Strict::build(&Base::new(&none, cond, cond, &[1, 2, 4], (0, 0), None, None, &[]))
+            Strict::build(&Base::new(&none, cond, cond, &[1, 2, 4], (0, 0), None, None, &[])).unwrap()
         };
         let strips = Array2::from_shape_fn((8, 8), |(_, j)| if j != 4 { 0.5 } else { f32::NAN });
         // Level 4: cells (0, 0) and (0, 1); the gap is column 4, the first column of cell (0, 1)
         assert_eq!(build(&strips).touch(2, 0, 0) & 1, 0, "east neighbour across the gap");
         let open = Array2::from_elem((8, 8), 0.5f32);
         assert_eq!(build(&open).touch(2, 0, 0), 0b0001_0011, "east, south and south-east");
+    }
+
+    // Touch and kids lists, kept for the whole call, hold each entry once in order and no spare
+    // capacity, on row stripes that give every coarse cell several pieces
+    #[test]
+    fn lists_compact() {
+        fn tally<T: Ord>(lists: &[Vec<T>], used: &mut usize, held: &mut usize) {
+            for list in lists {
+                assert!(list.windows(2).all(|w| w[0] < w[1]), "unsorted or repeated entries");
+                *used += list.len();
+                *held += list.capacity();
+            }
+        }
+        let rows = Array2::from_shape_fn((64, 64), |(i, _)| if i % 3 != 2 { 0.5f32 } else { f32::NAN });
+        let none = Array2::from_elem(rows.dim(), false);
+        let st = Strict::build(&Base::new(&none, &rows, &rows, &[1, 2, 4, 8, 16, 32], (0, 0), None, None, &[])).unwrap();
+        let (mut cells, mut used, mut held) = (0, 0, 0);
+        for m in st.multi.iter().flat_map(|level| level.values()) {
+            cells += 1;
+            tally(&m.touch, &mut used, &mut held);
+            tally(&m.kids, &mut used, &mut held);
+        }
+        assert!(cells > 100, "{cells} cells with several pieces");
+        assert!(held <= used + used / 8, "{held} entries held for {used} used");
+    }
+
+    // 65,536 isolated cells fit in level-256 cells (16,384 each) but not in one level-512 cell,
+    // which is an error rather than a panic
+    #[test]
+    fn piece_limit() {
+        let dots = Array2::from_shape_fn((512, 512), |(i, j)| i % 2 == 0 && j % 2 == 0);
+        assert!(label_level(&dots, 256).is_some());
+        assert!(label_level(&dots, 512).is_none());
+        let cond = dots.mapv(|d| if d { 0.5f32 } else { f32::NAN });
+        let none = Array2::from_elem(cond.dim(), false);
+        let error = Strict::build(&Base::new(&none, &cond, &cond, &[1, 512], (0, 0), None, None, &[])).err().unwrap();
+        assert_eq!(
+            error.to_string(),
+            "Strict NoData crossing allows at most 65534 separate pieces of land and crossable NoData in one overview cell, but a level-512 cell holds more; use levels up to 256"
+        );
     }
 }

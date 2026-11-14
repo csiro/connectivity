@@ -231,6 +231,8 @@ fn setting_errors() {
     let base: HashMap<i32, Affine> = HashMap::from([(1, t.transforms[&1])]);
     let coarse: HashMap<i32, Affine> = t.transforms.iter().filter(|(&l, _)| l != 1).map(|(&l, &a)| (l, a)).collect();
     let c = config(WindowMode::Circular, false);
+    let sheared = level_transforms((1000.0, 300.0, 500_000.0, 0.0, -1000.0, 6_000_000.0), &LEVELS, OFFSETS);
+    let geo = Config { is_geo: true, ..crossing(c, 1.0, 0.0) };
     for (config, transforms, message) in [
         (Config { window_size: 4, ..c }, &t.transforms, "Window size must be odd-numbered"),
         (Config { window_size: -1, outer_window: -1, ..c }, &t.transforms, "Window size must be positive"),
@@ -244,6 +246,12 @@ fn setting_errors() {
         (crossing(c, f32::NAN, 0.0), &t.transforms, "Crossing width must be a finite number of kilometres >= 0, got NaN"),
         (crossing(c, 1.0, 2.0), &t.transforms, "Crossing traversal must be in [0, 1], got 2"),
         (crossing(c, 1.0, -0.5), &t.transforms, "Crossing traversal must be in [0, 1], got -0.5"),
+        (
+            crossing(c, 1.0, 0.0),
+            &sheared,
+            "NoData crossing needs perpendicular rows and columns, but the base transform is sheared: (a, b, d, e) = (1000, 300, 0, -1000)",
+        ),
+        (geo, &sheared, "NoData crossing needs a north-up geographic grid (transform terms b and d of 0), got b = 300, d = 0"),
     ] {
         for mask in [&t.mask, &all_masked] {
             let inputs = Inputs { mask, transforms, ..inputs(&t, false) };

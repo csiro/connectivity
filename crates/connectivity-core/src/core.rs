@@ -75,7 +75,7 @@ pub fn conn_cross(inputs: &Inputs, config: &Config, cross: &Crossing, relax: boo
 /// into pieces of touching traversable cells, linked only where their base cells touch.
 pub fn prepare_cross<'a>(inputs: &Inputs, config: &Config<'a>, cross: &Crossing, relax: bool) -> Result<Context<'a>> {
     validate(inputs, config)?;
-    check_crossing(cross)?;
+    check_crossing(cross, &inputs.transforms[&1], config.is_geo)?;
     let cond = inputs.condition;
     let mut sorted: Vec<i32> = config.levels.iter().map(|&l| l as i32).collect();
     sorted.sort_unstable();
@@ -110,7 +110,7 @@ pub fn prepare_cross<'a>(inputs: &Inputs, config: &Config<'a>, cross: &Crossing,
     let (gate, strict) = match cross.mode {
         CrossingMode::Landmass => (Some(Gate::build(&base)), None),
         CrossingMode::Strict => {
-            let mut st = Strict::build(&base);
+            let mut st = Strict::build(&base)?;
             st.relax = relax;
             (None, Some(st))
         }
@@ -225,12 +225,15 @@ pub fn validate(inputs: &Inputs, config: &Config) -> Result<()> {
     ensure!(window % 2 == 1, "Window size must be odd-numbered");
     ensure!(outer < window || outer % 2 == 1, "Outer window size must be odd-numbered");
     if let Some(cross) = &config.crossing {
-        check_crossing(cross)?;
+        check_crossing(cross, &transforms[&1], config.is_geo)?;
     }
     Ok(())
 }
 
-fn check_crossing(cross: &Crossing) -> Result<()> {
+/// Crossing settings, and a base grid on which gap widths can be measured along rows and
+/// columns (`crossing::cell_km`): finite cell sizes, perpendicular rows and columns, and north-up
+/// on geographic grids.
+fn check_crossing(cross: &Crossing, base: &Affine, is_geo: bool) -> Result<()> {
     ensure!(
         cross.width.is_finite() && cross.width >= 0.0,
         "Crossing width must be a finite number of kilometres >= 0, got {}",
@@ -241,6 +244,19 @@ fn check_crossing(cross: &Crossing) -> Result<()> {
         "Crossing traversal must be in [0, 1], got {}",
         cross.traversal
     );
+    let Affine { x_scale: a, x_skew: b, y_skew: d, y_scale: e, .. } = *base;
+    let (width, height) = (a.hypot(d), b.hypot(e));
+    ensure!(
+        width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0,
+        "NoData crossing needs finite, non-zero cell sizes in the base transform"
+    );
+    if b != 0.0 || d != 0.0 {
+        ensure!(!is_geo, "NoData crossing needs a north-up geographic grid (transform terms b and d of 0), got b = {b}, d = {d}");
+        ensure!(
+            (a * b + d * e).abs() <= 1.0e-6 * width * height,
+            "NoData crossing needs perpendicular rows and columns, but the base transform is sheared: (a, b, d, e) = ({a}, {b}, {d}, {e})"
+        );
+    }
     Ok(())
 }
 

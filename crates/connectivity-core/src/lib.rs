@@ -229,7 +229,8 @@ impl CrossingMode {
 /// traversable at traversal value `traversal`, carry no habitat area, are never destinations
 /// and have no protected fraction or climate similarity. A gap's width is tested once at base
 /// resolution as the closing of the land cells by a disc of diameter `width`, with distances in
-/// kilometres (on geographic grids each row's cells are `cos(latitude)` narrower). It is exact
+/// kilometres (on geographic grids each row's cells are `cos(latitude)` narrower; on rotated
+/// projected grids cells keep their size, and sheared grids return an error). It is exact
 /// for straight channels along rows or columns, and also fills concave corners of a coastline
 /// within about a fifth of `width` of the corner; those cells too are crossable, so a coast's
 /// coarse cells cost slightly more to cross when `traversal` is low. Other NoData stays out of
@@ -238,6 +239,11 @@ impl CrossingMode {
 /// BERI: a coarse cell's climate is the mean of its land (finite condition) cells' bands, as for
 /// each part of a cell holding several, so land that cannot be reached never changes a score.
 /// Without a crossing mode it is the mean over every cell with climate values.
+///
+/// Outside the tile counts as NoData, as it is outside the graph, so the tile edge never closes a
+/// gap: water between land and the edge is judged as if open water lay beyond it, and a channel
+/// running to the edge opens there like a river mouth (for gaps more than about twice as wide as
+/// the tile, only a border as deep as the tile is considered).
 ///
 /// Tiles: gaps are classified and landmasses labelled from the tile's own cells, so a tile
 /// matches a whole-raster run at focal cells whose window lies at least `width` inside the tile
@@ -336,6 +342,19 @@ impl Default for Config<'_> {
 /// - A crossing width that is negative or not finite
 ///   (`"Crossing width must be a finite number of kilometres >= 0, got -1"`) or a crossing
 ///   traversal outside [0, 1] (`"Crossing traversal must be in [0, 1], got 2"`).
+/// - Under a crossing mode, a base transform whose gap widths cannot be measured along rows and
+///   columns: zero or non-finite cell sizes
+///   (`"NoData crossing needs finite, non-zero cell sizes in the base transform"`), a sheared
+///   grid (`"NoData crossing needs perpendicular rows and columns, but the base transform is
+///   sheared: (a, b, d, e) = (1000, 300, 0, -1000)"`) or a geographic grid that is not north-up
+///   (`"NoData crossing needs a north-up geographic grid (transform terms b and d of 0), got
+///   b = 300, d = 0"`). Rotated projected grids are supported.
+///
+/// In [`CrossingMode::Strict`], an overview cell holding more than 65,534 separate pieces of
+/// land and crossable NoData, which only cells of level 512 and above can, returns an error
+/// while the call is prepared, before any focal cell: `"Strict NoData crossing allows at most
+/// 65534 separate pieces of land and crossable NoData in one overview cell, but a level-512 cell
+/// holds more; use levels up to 256"`.
 ///
 /// An integer path cost beyond `u32::MAX`, e.g. from a very large `max_cost` or unscaled
 /// traversal values, stops the work on every thread and returns
