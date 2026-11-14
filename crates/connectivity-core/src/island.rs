@@ -1114,7 +1114,7 @@ fn sets_touch(a: &[(usize, usize)], b: &[(usize, usize)]) -> bool {
 /// Traversable base cells under a gap width: land plus NoData in gaps up to `width` cells.
 fn domain(cond: &Array2<f32>, width: f64) -> Array2<bool> {
     let land = cond.mapv(|v| v.is_finite());
-    let cross = crate::crossing::crossable(&land, width, 1.0, &vec![1.0; cond.nrows()]);
+    let cross = crate::crossing::crossable(&land, width, 1.0, &vec![1.0; cond.nrows()]).unwrap();
     Array2::from_shape_fn(cond.dim(), |ij| land[ij] || cross[ij])
 }
 
@@ -2079,7 +2079,7 @@ fn bundled_geo() {
     println!("{n} pieces, largest {} cells", sizes[largest as usize]);
     let (dy, dx) = crate::crossing::cell_km(&base, cond0.nrows(), true);
     let width = 2.0;
-    let cross = crate::crossing::crossable(&land, width as f64, dy, &dx);
+    let cross = crate::crossing::crossable(&land, width as f64, dy, &dx).unwrap();
     let (groups, _) = crate::gate::label(&Array2::from_shape_fn(land.dim(), |ij| land[ij] || cross[ij]));
     let mut members: std::collections::HashMap<u32, std::collections::HashSet<u32>> = Default::default();
     for (ij, &p) in pieces.indexed_iter() {

@@ -247,8 +247,9 @@ impl CrossingMode {
 ///
 /// Outside the tile counts as NoData, as it is outside the graph, so the tile edge never closes a
 /// gap: water between land and the edge is judged as if open water lay beyond it, and a channel
-/// running to the edge opens there like a river mouth (for gaps more than about twice as wide as
-/// the tile, only a border as deep as the tile is considered).
+/// running to the edge opens there like a river mouth. This holds for any width; a width so
+/// large for the tile's cells that the gap test's grid would be unreasonably large returns an
+/// error (see [`connectivity`]).
 ///
 /// Tiles: gaps are classified and landmasses labelled from the tile's own cells, so a tile
 /// matches a whole-raster run at focal cells whose window lies at least `width` inside the tile
@@ -360,6 +361,13 @@ impl Default for Config<'_> {
 /// while the call is prepared, before any focal cell: `"Strict NoData crossing allows at most
 /// 65534 separate pieces of land and crossable NoData in one overview cell, but a level-512 cell
 /// holds more; use levels up to 256"`.
+///
+/// Under a crossing mode, the gap test sets the tile in a NoData border more than half the width
+/// deep. When that grid would exceed both 4,194,304 cells and 16 times the tile, as for a width of
+/// kilometres on a small tile of sub-metre cells, the call returns an error while it is
+/// prepared: `"NoData crossing width 5 km needs a NoData border of 8335 rows and 8335 columns
+/// around the 20 x 20 tile for the gap test, too large a grid; use a smaller width or a larger
+/// tile"`.
 ///
 /// An integer path cost beyond `u32::MAX`, e.g. from a very large `max_cost` or unscaled
 /// traversal values, stops the work on every thread and returns

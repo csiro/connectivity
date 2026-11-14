@@ -82,7 +82,7 @@ pub fn prepare_cross<'a>(inputs: &Inputs, config: &Config<'a>, cross: &Crossing,
     sorted.dedup();
     let base_tr = inputs.transforms[&1];
     let (dy, dx) = crossing::cell_km(&base_tr, cond.nrows(), config.is_geo);
-    let cells = crossing::crossable(&cond.mapv(f32::is_finite), cross.width as f64, dy, &dx);
+    let cells = crossing::crossable(&cond.mapv(f32::is_finite), cross.width as f64, dy, &dx)?;
     // Land keeps its traversal value (NaN falls back to condition in the overviews, as without
     // a crossing mode), or its condition when no traversal is given; other NoData gets NaN, so
     // a traversal value there never makes it passable. A traversal input already NaN off land

@@ -318,12 +318,16 @@ fn edt_sq(sites: &Array2<bool>, dy: f64, dx: &[f64], oy: i32, ox: i32, squares: 
 /// Outside the tile counts as NoData, as it is outside the graph: discs may be centred beyond
 /// the edge, so water between land and the edge is judged as inside the tile and the edge
 /// itself never closes a gap. A channel that runs to the edge opens there like a river mouth.
-/// The NoData border is at most the tile's larger side deep, so for gaps more than about twice
-/// as wide as the tile (or rows near a pole narrower than that) discs beyond it are not tried.
-pub fn crossable(land: &Array2<bool>, width: f64, dy: f64, dx: &[f64]) -> Array2<bool> {
+///
+/// The tile is set in a NoData border more than `width / 2` deep, so the result is exact
+/// whatever the width. A border that would make the gap test's grid larger than `MAX_FRAME`
+/// cells and 16 times the tile, as for a width of kilometres on a small tile of sub-metre cells,
+/// is an error.
+pub fn crossable(land: &Array2<bool>, width: f64, dy: f64, dx: &[f64]) -> anyhow::Result<Array2<bool>> {
     let dim = land.dim();
-    if width <= 0.0 || land.is_empty() || land.iter().all(|&l| l) {
-        return Array2::from_elem(dim, false);
+    // Without NoData, or without land, no cell is crossable
+    if width <= 0.0 || land.is_empty() || land.iter().all(|&l| l) || !land.iter().any(|&l| l) {
+        return Ok(Array2::from_elem(dim, false));
     }
     // A tolerance of 0.001 squared cells keeps channels exactly `width` wide crossable
     let unit = dx.iter().copied().fold(dy, f64::min);
@@ -331,9 +335,16 @@ pub fn crossable(land: &Array2<bool>, width: f64, dy: f64, dx: &[f64]) -> Array2
     // NoData around the tile, more than half the width deep so that every disc that reaches
     // the tile can be centred in it; its rows take the nearest tile row's cell width
     let (h, w) = dim;
-    let cap = h.max(w) + 1;
-    let depth = |cell: f64| ((0.5 * width / cell).ceil() + 1.0).min(cap as f64) as usize;
-    let (pr, pc) = (depth(dy), depth(unit));
+    let depth = |cell: f64| (0.5 * width / cell).ceil() + 1.0;
+    let (rows, cols) = (h as f64 + 2.0 * depth(dy), w as f64 + 2.0 * depth(unit));
+    anyhow::ensure!(
+        rows * cols <= (MAX_FRAME as f64).max(16.0 * (h * w) as f64),
+        "NoData crossing width {width} km needs a NoData border of {} rows and {} columns around \
+         the {h} x {w} tile for the gap test, too large a grid; use a smaller width or a larger tile",
+        depth(dy),
+        depth(unit)
+    );
+    let (pr, pc) = (depth(dy) as usize, depth(unit) as usize);
     let frame = Array2::from_shape_fn((h + 2 * pr, w + 2 * pc), |(i, j)| {
         (pr..pr + h).contains(&i) && (pc..pc + w).contains(&j) && land[[i - pr, j - pc]]
     });
@@ -345,8 +356,12 @@ pub fn crossable(land: &Array2<bool>, width: f64, dy: f64, dx: &[f64]) -> Array2
             covered.zip_mut_with(&edt_sq(&open, dy, &fdx, -qy, -qx, false), |c, &d| *c |= d <= r2);
         }
     }
-    Array2::from_shape_fn(dim, |(i, j)| !land[[i, j]] && !covered[[i + pr, j + pc]])
+    Ok(Array2::from_shape_fn(dim, |(i, j)| !land[[i, j]] && !covered[[i + pr, j + pc]]))
 }
+
+/// Cells the gap test's grid (the tile and its NoData border) may hold whatever the tile's size;
+/// larger grids are allowed up to 16 times the tile.
+pub const MAX_FRAME: usize = 1 << 22;
 
 #[cfg(test)]
 mod tests {
@@ -364,7 +379,7 @@ mod tests {
                     k < 30 || k >= 30 + gap
                 });
                 for cells in [0.5, 3.0, 4.0, 5.5, 8.0] {
-                    let cross = crossable(&land, cells * res, res, &[res; 80]);
+                    let cross = crossable(&land, cells * res, res, &[res; 80]).unwrap();
                     let n = cross.iter().filter(|&&c| c).count();
                     let side = if rows { 60 } else { 80 };
                     // Cells further than half the width (plus two) from the channel's ends
@@ -391,7 +406,10 @@ mod tests {
     fn open_exterior() {
         // A strip of land one row high across a 9 x 9 raster: 4 rows of water on either side
         let strip = Array2::from_shape_fn((9, 9), |(i, _)| i == 4);
-        assert_eq!(crossable(&strip, 8.0, 1.0, &[1.0; 9]).iter().filter(|&&c| c).count(), 0);
+        // Also far wider than the tile (a capped border gave 35 and 72 cells at 32 and 64)
+        for width in [8.0, 32.0, 64.0] {
+            assert_eq!(crossable(&strip, width, 1.0, &[1.0; 9]).unwrap().iter().filter(|&&c| c).count(), 0, "{width}");
+        }
         let mut rng = crate::testkit::Rng::new(7);
         let border = 24;
         for _ in 0..300 {
@@ -411,8 +429,8 @@ mod tests {
             let wide = Array2::from_shape_fn((bh, bw), |(i, j)| {
                 (border..border + h).contains(&i) && (border..border + w).contains(&j) && land[[i - border, j - border]]
             });
-            let reference = crossable(&wide, width, 1.0, &vec![1.0; bh]);
-            let cross = crossable(&land, width, 1.0, &vec![1.0; h]);
+            let reference = crossable(&wide, width, 1.0, &vec![1.0; bh]).unwrap();
+            let cross = crossable(&land, width, 1.0, &vec![1.0; h]).unwrap();
             for ((i, j), &c) in cross.indexed_iter() {
                 assert_eq!(c, reference[[i + border, j + border]], "{h} x {w}, width {width:.2}, cell ({i}, {j})");
             }
@@ -457,6 +475,25 @@ mod tests {
         }
     }
 
+    // A border too large for the gap test is an error, unless the tile has no NoData or no land,
+    // where nothing is crossable anyway
+    #[test]
+    fn border_limit() {
+        let res = 0.0003; // km: 0.3 m cells, so 5 km needs a border of 8,335 cells
+        let mut land = Array2::from_shape_fn((20, 20), |(i, _)| i < 10);
+        let error = crossable(&land, 5.0, res, &[res; 20]).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "NoData crossing width 5 km needs a NoData border of 8335 rows and 8335 columns around the 20 x 20 \
+             tile for the gap test, too large a grid; use a smaller width or a larger tile"
+        );
+        assert!(crossable(&land, 0.02, res, &[res; 20]).is_ok());
+        land.fill(true);
+        assert!(crossable(&land, 5.0, res, &[res; 20]).unwrap().iter().all(|&c| !c));
+        land.fill(false);
+        assert!(crossable(&land, 5.0, res, &[res; 20]).unwrap().iter().all(|&c| !c));
+    }
+
     // On a geographic grid a column gap of fixed degrees narrows in km towards the pole
     #[test]
     fn geo_width() {
@@ -466,7 +503,7 @@ mod tests {
         assert!((dx[0] - 1.1119 * (40.005f64).to_radians().cos()).abs() < 1.0e-3);
         // Three columns of NoData from 40 S to 80 S: 2.6 km wide at 40 S, 1.7 km at 60 S
         let land = Array2::from_shape_fn((4000, 20), |(_, j)| !(8..11).contains(&j));
-        let cross = crossable(&land, 2.0, dy, &dx);
+        let cross = crossable(&land, 2.0, dy, &dx).unwrap();
         let lat = |r: usize| base.xy(r as i32, 0).1;
         for r in [100, 2000, 3000, 3999] {
             let width = 3.0 * dx[r];
