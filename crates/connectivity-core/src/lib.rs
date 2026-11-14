@@ -53,7 +53,9 @@
 //! The modes cost extra setup and memory: group labels for the cells of every level (about
 //! 5.3 bytes per base cell) in landmass mode, two bytes per coarse cell plus a table of cells
 //! holding several pieces in strict mode, and with permitted gaps the traversal overview. Strict mode also builds
-//! graphs more slowly (about a quarter longer on a 450 m test raster).
+//! graphs more slowly: on a 450 m test raster with levels 1 to 32, about 1.2 to 1.7 times as long
+//! as without a mode, most at a width of 0, where coasts split coarse cells into the most pieces;
+//! landmass mode takes about as long as without a mode.
 //!
 //! # Inputs
 //! All 2-D arrays are `(rows, cols)` grids of one tile with the same shape, indexed
@@ -207,7 +209,10 @@ pub enum CrossingMode {
     /// its land and crossable cells, and pieces are linked only where their base cells touch
     /// (or, diagonally, both touch one piece of a cell sharing their corner). Every path then
     /// follows a base-resolution route that crosses no gap wider than the width, inside a
-    /// landmass as well as between landmasses; routes around a barrier are kept.
+    /// landmass as well as between landmasses; routes around a barrier are kept. This sets which
+    /// land is reached, not how far the route is: path lengths are measured between coarse cell
+    /// centres, as without a crossing mode, so a route that winds inside one coarse cell, such
+    /// as along a meandering corridor, counts only the distance between centres.
     Strict,
 }
 
