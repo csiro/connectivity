@@ -215,6 +215,19 @@ pub fn make_overview_3d(
     offsets: (usize, usize), // (tile_row0, tile_col0) in ORIGINAL dataset pixel coords
     method: Resampling,
 ) -> Result<HashMap<i32, Array3<f32>>> {
+    overview_3d(base, levels, offsets, method, |_, _| true)
+}
+
+/// `make_overview_3d` over the tile cells (r, c) for which `keep` holds, at levels above 1; level
+/// 1 keeps every cell's values. Sums run in f32 in row-major order, as the crossing modes' parts
+/// sum their bands (`crossing::Base::add`).
+pub fn overview_3d(
+    base: &Array3<f32>,
+    levels: &[usize],
+    offsets: (usize, usize),
+    method: Resampling,
+    keep: impl Fn(usize, usize) -> bool + Sync,
+) -> Result<HashMap<i32, Array3<f32>>> {
     check_levels(levels)?;
     if !matches!(method, Resampling::Average | Resampling::Sum) {
         bail!(
@@ -299,7 +312,7 @@ pub fn make_overview_3d(
                         for r in tile_r_start..tile_r_end {
                             for c in tile_c_start..tile_c_end {
                                 let v = base[[r, c, band_idx]];
-                                if v.is_finite() {
+                                if v.is_finite() && keep(r, c) {
                                     valid_count += 1.0;
                                     sum_values += v;
                                 }

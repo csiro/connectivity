@@ -125,6 +125,21 @@ fn pairs(a: Rect, b: Rect, k: usize, mut f: impl FnMut((usize, usize), (usize, u
     false
 }
 
+/// Pushes `v` unless it equals the last entry: neighbouring base cells mostly repeat it.
+#[inline]
+fn push_new<T: PartialEq>(list: &mut Vec<T>, v: T) {
+    if list.last() != Some(&v) {
+        list.push(v);
+    }
+}
+
+/// Sorts `list`, drops repeated entries and frees its spare capacity.
+fn compact<T: Ord>(list: &mut Vec<T>) {
+    list.sort_unstable();
+    list.dedup();
+    list.shrink_to_fit();
+}
+
 /// Piece labels of every base cell at one level (0 off the domain, else 1 + the piece's index in
 /// its coarse cell, numbered in row-major order of first cells) and each coarse cell's kind.
 pub fn label_level(domain: &Array2<bool>, size: usize) -> (Array2<u16>, Array2<u8>) {
@@ -246,7 +261,7 @@ impl Strict {
                         let b = base.footprint(ni, nj, size);
                         pairs(a, b, k, |x, y| {
                             if domain[x] && domain[y] {
-                                touch[labels[x] as usize - 1].push((k as u8, labels[y] - 1));
+                                push_new(&mut touch[labels[x] as usize - 1], (k as u8, labels[y] - 1));
                             }
                             false
                         });
@@ -270,19 +285,15 @@ impl Strict {
                                     }
                                     let piece = prev.as_ref().map_or(0, |p| p[y] - 1);
                                     let rel = ((y.0 / finer) as i64 - 2 * ci as i64, (y.1 / finer) as i64 - 2 * cj as i64);
-                                    kids[q - 1].push((rel.0 as i8, rel.1 as i8, piece));
+                                    push_new(&mut kids[q - 1], (rel.0 as i8, rel.1 as i8, piece));
                                 }
                             }
                         }
                     }
-                    for list in touch.iter_mut() {
-                        list.sort_unstable();
-                        list.dedup();
-                    }
-                    for list in kids.iter_mut() {
-                        list.sort_unstable();
-                        list.dedup();
-                    }
+                    // Retained for the whole call: keep each distinct entry once, with no spare
+                    // capacity (the base-cell scan pushes most entries many times)
+                    touch.iter_mut().for_each(compact);
+                    kids.iter_mut().for_each(compact);
                     ((ci as u32, cj as u32), Multi { parts, touch, kids })
                 })
                 .collect();

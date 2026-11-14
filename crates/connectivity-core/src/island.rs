@@ -1882,6 +1882,104 @@ fn check_crossable() {
     }
 }
 
+/// Mainland (rows 0 to `m - 1`) and a 5 x 30 island 2 rows below it, so that for some `m` coarse
+/// cells hold land of both; climate is finite everywhere, also on NoData, and the same with and
+/// without the mainland.
+fn shared_fixture(m: usize, mainland: bool, pa: bool, beri: bool) -> crate::testkit::Fixture {
+    let (h, w) = (120, 112);
+    let mut cond = Array2::from_elem((h, w), f32::NAN);
+    if mainland {
+        fill(&mut cond, 0..m, 0..w, 0.5);
+    }
+    fill(&mut cond, m + 2..m + 7, 40..70, 0.9);
+    let cond = Array2::from_shape_fn((h, w), |(i, j)| cond[[i, j]] - ((i * 7 + j * 13) % 10) as f32 * 0.03);
+    let island = |i: usize, j: usize| (m + 2..m + 7).contains(&i) && (40..70).contains(&j);
+    let levels = SMALL.levels.to_vec();
+    crate::testkit::Fixture {
+        mask: Array2::from_shape_fn((h, w), |(i, j)| !island(i, j)),
+        trav: None,
+        trans: beri.then(|| climate(&Array2::zeros((h, w)), 2, 2)),
+        transforms: level_transforms((RES, 0.0, 0.0, 0.0, -RES, h as f64 * RES), &levels, (0, 0)),
+        levels,
+        lambdas: LAMBDAS.to_vec(),
+        is_geo: false,
+        max_cost: 2.0,
+        window_size: SMALL.window,
+        outer_window: SMALL.outer,
+        offsets: (0, 0),
+        mode: WindowMode::Circular,
+        pa_to_pa: pa,
+        cond,
+    }
+}
+
+// An island is unaffected, bit for bit, by land it may not cross to when coarse cells hold land
+// of both (several parts per cell), plain, PARC and BERI with climate on NoData
+#[test]
+fn check_shared() {
+    for m in [33, 34, 36, 37] {
+        for (pa, beri) in [(false, false), (true, false), (false, true)] {
+            let with = shared_fixture(m, true, pa, beri);
+            let alone = shared_fixture(m, false, pa, beri);
+            let island = with.mask.mapv(|masked| !masked);
+            for (mode, relax) in ALL {
+                let cross = Crossing { mode, width: 0.0, traversal: 0.0 };
+                let (a, stats) = conn_cross(&with.inputs(), &with.config(), &cross, relax).unwrap();
+                let parts = match mode {
+                    CrossingMode::Landmass => stats.gate.unwrap().mixed,
+                    CrossingMode::Strict => stats.strict.unwrap().multi.iter().sum(),
+                };
+                assert!(parts > 0, "m {m}: no cell holds several parts");
+                let (n, _) = changed(&a, &under(&alone, Some((mode, relax)), 0.0), &island);
+                assert_eq!(n, 0, "{} m {m} pa={pa} beri={beri}", label(mode, relax));
+            }
+        }
+    }
+}
+
+// Traversal values on NoData that may not be crossed change nothing: the output equals the run
+// with NaN there, whether or not other cells are crossable
+#[test]
+fn check_stray() {
+    let (h, w) = (32, 40);
+    // West and east land split by a NoData channel 2 cells (0.5 km) wide; a one-cell lake in the
+    // west is crossable from W = 0.25 km
+    let cond = Array2::from_shape_fn((h, w), |(i, j)| match j {
+        _ if (i, j) == (6, 5) => f32::NAN,
+        18 | 19 => f32::NAN,
+        _ if j < 18 => 0.8 - ((i * 7 + j * 13) % 10) as f32 * 0.03,
+        _ => 0.3 + ((i * 5 + j * 3) % 7) as f32 * 0.04,
+    });
+    let levels = SMALL.levels.to_vec();
+    let fixture = |stray: f32| crate::testkit::Fixture {
+        mask: Array2::from_shape_fn((h, w), |(i, j)| cond[[i, j]].is_nan() || (i + j) % 3 != 0),
+        trav: Some(Array2::from_shape_fn((h, w), |(i, j)| match j {
+            18 | 19 => stray,
+            _ => cond[[i, j]].mul_add(0.5, 0.2),
+        })),
+        trans: None,
+        transforms: level_transforms((RES, 0.0, 0.0, 0.0, -RES, h as f64 * RES), &levels, (0, 0)),
+        levels: levels.clone(),
+        lambdas: LAMBDAS.to_vec(),
+        is_geo: false,
+        max_cost: 2.0,
+        window_size: SMALL.window,
+        outer_window: SMALL.outer,
+        offsets: (0, 0),
+        mode: WindowMode::Circular,
+        pa_to_pa: false,
+        cond: cond.clone(),
+    };
+    let (clean, stray) = (fixture(f32::NAN), fixture(0.5));
+    let focal = clean.mask.mapv(|masked| !masked);
+    for (mode, relax) in ALL {
+        for width in [0.0, 0.3] {
+            let (n, cells) = changed(&under(&stray, Some((mode, relax)), width), &under(&clean, Some((mode, relax)), width), &focal);
+            assert_eq!(n, 0, "{} W={width}: {n} of {cells} cells", label(mode, relax));
+        }
+    }
+}
+
 
 
 /// The bundled EPSG:4326 rasters dumped by `docs/island_bridging_figs/repro/bundled_npy.py` into

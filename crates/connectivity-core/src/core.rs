@@ -84,11 +84,13 @@ pub fn prepare_cross<'a>(inputs: &Inputs, config: &Config<'a>, cross: &Crossing,
     let (dy, dx) = crossing::cell_km(&base_tr, cond.nrows(), config.is_geo);
     let cells = crossing::crossable(&cond.mapv(f32::is_finite), cross.width as f64, dy, &dx);
     // Land keeps its traversal value (NaN falls back to condition in the overviews, as without
-    // a crossing mode), or its condition when no traversal is given. Without crossable cells the
-    // traversal input serves as it is, and without one either, condition does (no traversal
-    // overview is built, as without a crossing mode).
+    // a crossing mode), or its condition when no traversal is given; other NoData gets NaN, so
+    // a traversal value there never makes it passable. A traversal input already NaN off land
+    // and crossable cells serves as it is, and without one or crossable cells, condition does
+    // (no traversal overview is built, as without a crossing mode).
     let traversal = inputs.traversal;
-    let trav_full = cells.iter().any(|&c| c).then(|| {
+    let stray = |t: &Array2<f32>| t.indexed_iter().any(|(ij, v)| v.is_finite() && !cond[ij].is_finite() && !cells[ij]);
+    let trav_full = (cells.iter().any(|&c| c) || traversal.is_some_and(stray)).then(|| {
         Array2::from_shape_fn(cond.dim(), |ij| {
             if cond[ij].is_finite() {
                 traversal.map_or(cond[ij], |t| t[ij])
@@ -115,7 +117,7 @@ pub fn prepare_cross<'a>(inputs: &Inputs, config: &Config<'a>, cross: &Crossing,
     };
     drop(base);
     let crossed = Inputs { traversal: trav, ..*inputs };
-    let mut ctx = prepare(&crossed, config)?;
+    let mut ctx = prepare_with(&crossed, config, true)?;
     ctx.gate = gate;
     ctx.strict = strict;
     Ok(ctx)
@@ -244,6 +246,13 @@ fn check_crossing(cross: &Crossing) -> Result<()> {
 
 /// Overviews and settings for one call, indexed by ascending level.
 pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> {
+    prepare_with(inputs, config, false)
+}
+
+/// `prepare`; with `land_climate`, coarse cells' transgrid means use their land (finite
+/// condition) cells only, as the crossing modes' parts do, so a cell holding one part gets that
+/// part's climate and land that cannot be reached never changes it.
+fn prepare_with<'a>(inputs: &Inputs, config: &Config<'a>, land_climate: bool) -> Result<Context<'a>> {
     validate(inputs, config)?;
     let Inputs {
         condition: cond_base,
@@ -332,7 +341,14 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
     let mut trans_maps: Vec<HashMap<i32, Array3<f32>>> = if let Some(arrays) = trans_arrays {
         arrays
             .iter()
-            .map(|arr| overview::make_overview_3d(arr, levels, offsets, Resampling::Average))
+            .map(|arr| {
+                if land_climate {
+                    let land = |r: usize, c: usize| cond_base[[r, c]].is_finite();
+                    overview::overview_3d(arr, levels, offsets, Resampling::Average, land)
+                } else {
+                    overview::make_overview_3d(arr, levels, offsets, Resampling::Average)
+                }
+            })
             .collect::<Result<_>>()?
     } else {
         Vec::new() // Empty vec if None

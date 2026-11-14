@@ -233,7 +233,11 @@ impl CrossingMode {
 /// for straight channels along rows or columns, and also fills concave corners of a coastline
 /// within about a fifth of `width` of the corner; those cells too are crossable, so a coast's
 /// coarse cells cost slightly more to cross when `traversal` is low. Other NoData stays out of
-/// the graph.
+/// the graph, whatever its value in [`Inputs::traversal`].
+///
+/// BERI: a coarse cell's climate is the mean of its land (finite condition) cells' bands, as for
+/// each part of a cell holding several, so land that cannot be reached never changes a score.
+/// Without a crossing mode it is the mean over every cell with climate values.
 ///
 /// Tiles: gaps are classified and landmasses labelled from the tile's own cells, so a tile
 /// matches a whole-raster run at focal cells whose window lies at least `width` inside the tile
