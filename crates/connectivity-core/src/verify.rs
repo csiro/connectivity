@@ -4,6 +4,9 @@
 //! reads every `<dir>/<workload>/rust.txt` (or the names in `CONN_WORKLOADS`) and, per workload:
 //! compares Optimized with the Canonical reference bit for bit, runs the structural comparison
 //! on every unmasked cell, and writes the Optimized, Canonical and Legacy outputs as raw f32.
+//! The references have no NoData crossing modes: a crossing workload is checked for identical
+//! output on 1, 2 and 12 threads and its output written, for comparison with a recorded baseline
+//! (`tools/core_split/perf.py` compares whole-call outputs of two builds).
 use crate::builder::tests::{compare_tally, context, table_inject, Tally};
 use crate::builder::Scratch;
 use crate::core;
@@ -83,6 +86,18 @@ fn verify_workloads() {
         let t = Instant::now();
         let (opt, stats) = optimized(&f);
         writeln!(report, "{name}: optimized {:.2}s {stats:?}", t.elapsed().as_secs_f64()).unwrap();
+        npy::write_f32(&out.join(format!("{name}.optimized.f32")), &opt);
+        if f.crossing.is_some() {
+            for threads in [1, 2, 12] {
+                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+                let again = pool.install(|| optimized(&f).0);
+                assert!(same_bits(&opt, &again), "{name}: {threads} threads differ");
+            }
+            writeln!(report, "  crossing {:?}: no reference; 1, 2 and 12 threads identical", f.crossing).unwrap();
+            std::fs::write(out.join(format!("{name}.verify.txt")), &report).unwrap();
+            print!("{report}");
+            continue;
+        }
 
         let t = Instant::now();
         let can = f.canonical(None);
@@ -117,7 +132,6 @@ fn verify_workloads() {
         )
         .unwrap();
 
-        npy::write_f32(&out.join(format!("{name}.optimized.f32")), &opt);
         npy::write_f32(&out.join(format!("{name}.canonical.f32")), &can);
         npy::write_f32(&out.join(format!("{name}.legacy.f32")), &leg);
         npy::write_f32(&out.join(format!("{name}.injected.f32")), &injected);
@@ -129,52 +143,71 @@ fn verify_workloads() {
     }
 }
 
-// Per-phase timing of one workload on one thread (development aid)
+// Per-phase timing on one thread (attribution aid, not a benchmark): preparation, then for every
+// seventh unmasked cell the steps of `Scratch::eval` in order (admission, BERI similarities, edges,
+// both searches, scoring), each timed around the same function `eval` calls. Whole-call timings
+// come from the public-API harness (`tools/core_split/perf.py`); this test binary also counts
+// allocations. `CONN_STEP` changes the sampling step.
 #[test]
 #[ignore]
 fn profile_phases() {
-    let (inputs, _, names) = workloads();
+    let (inputs, out, names) = workloads();
+    let step: usize = std::env::var("CONN_STEP").map_or(7, |s| s.parse().unwrap());
+    let mut report = String::new();
     for name in names {
         let f = load_workload(&inputs.join(&name));
-        let ctx = context(&f);
-        let mut s = Scratch::new(&ctx);
-        let cells: Vec<(usize, usize)> =
-            f.mask.indexed_iter().filter(|(_, &m)| !m).map(|(c, _)| c).step_by(7).collect();
-        let (mut build, mut route, mut score, mut edges, mut nodes) = (0.0, 0.0, 0.0, 0usize, 0usize);
-        for &(i, j) in &cells {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        pool.install(|| {
             let t = Instant::now();
-            s.build(&ctx, i, j);
-            build += t.elapsed().as_secs_f64();
-            edges += s.csr.edges.len();
-            nodes += s.nodes.len();
-            let t = Instant::now();
-            if s.source != crate::graph::NONE {
-                s.router.route(&s.csr, s.source).unwrap();
+            let ctx = context(&f);
+            let prepare = t.elapsed().as_secs_f64();
+            let mut s = Scratch::new(&ctx);
+            let cells: Vec<(usize, usize)> =
+                f.mask.indexed_iter().filter(|(_, &m)| !m).map(|(c, _)| c).step_by(step).collect();
+            let mut time = [0f64; 5];
+            let (mut nodes, mut edges, mut reached, mut sum) = (0usize, 0usize, 0usize, 0f64);
+            for &(i, j) in &cells {
+                let t0 = Instant::now();
+                s.admit_window(&ctx, i, j);
+                let t1 = Instant::now();
+                s.climate(&ctx, i, j);
+                let t2 = Instant::now();
+                s.connect(&ctx, i, j);
+                let t3 = Instant::now();
+                s.route(&ctx).unwrap();
+                let t4 = Instant::now();
+                sum += s.score(&ctx) as f64;
+                let t5 = Instant::now();
+                for (k, (a, b)) in [(t0, t1), (t1, t2), (t2, t3), (t3, t4), (t4, t5)].into_iter().enumerate() {
+                    time[k] += (b - a).as_secs_f64();
+                }
+                nodes += s.nodes.len();
+                edges += s.csr.edges.len();
+                reached += s.router.paths.len();
             }
-            route += t.elapsed().as_secs_f64();
-            let t = Instant::now();
-            std::hint::black_box(s.eval(&ctx, i, j).unwrap());
-            score += t.elapsed().as_secs_f64();
-        }
-        // Distance cost alone: the legacy calls for every edge of the sampled cells
-        let t = Instant::now();
-        let mut acc = 0.0f32;
-        for &(i, j) in &cells {
-            let (x1, y1) = ctx.transforms[0].unwrap().xy(i as i32, j as i32);
-            for k in 0..(edges / cells.len()) {
-                let (x2, y2) = ctx.transforms[0].unwrap().xy(i as i32 + (k % 3) as i32 - 1, j as i32 + 1);
-                acc += crate::distances::distance_km(x1, y1, x2, y2, ctx.is_geo);
-            }
-        }
-        let dist = t.elapsed().as_secs_f64();
-        std::hint::black_box(acc);
-        let n = cells.len() as f64;
-        println!(
-            "{name}: {} cells, {:.0} nodes, {:.0} edges per cell | build {:.1} us, route {:.1} us, full eval {:.1} us, distances {:.1} us per cell",
-            cells.len(), nodes as f64 / n, edges as f64 / n,
-            build / n * 1e6, route / n * 1e6, score / n * 1e6, dist / n * 1e6
-        );
+            let n = cells.len() as f64;
+            let total: f64 = time.iter().sum();
+            let pct = |k: usize| 100.0 * time[k] / total;
+            writeln!(
+                report,
+                "{name}: prepare {prepare:.4}s; {} cells, {:.2} us/cell: admit {:.1}%, sims {:.1}%, link {:.1}%, \
+                 route {:.1}%, score {:.1}%; {:.0} nodes, {:.0} edges, {:.0} destinations per cell; sum {sum:.6}",
+                cells.len(),
+                total / n * 1e6,
+                pct(0),
+                pct(1),
+                pct(2),
+                pct(3),
+                pct(4),
+                nodes as f64 / n,
+                edges as f64 / n,
+                reached as f64 / n,
+            )
+            .unwrap();
+        });
     }
+    std::fs::write(out.join("phases.txt"), &report).unwrap();
+    print!("{report}");
 }
 
 // Scratch, cache and allocation figures of each workload in an 8-thread pool. The cache is also
@@ -214,7 +247,7 @@ fn resource_report() {
             report,
             "{name}: {} scratch instances, max {:.0} KiB each, {:.2} MiB in all; cache retained \
              {:.3} MiB measured (= reported), peak {:.3} MiB measured ({:.3} reported bound), \
-             fixed {} B, tables {:.3} MiB, phases {:?}, links {:?}; setup {:.4}s, process {:.3}s; \
+             fixed {} B, tables {:.3} MiB, phases {:?}, links {:?}; climate {:.3} MiB; setup {:.4}s, process {:.3}s; \
              {} cells: {growth} first-pass growth allocations, {steady} steady-state",
             stats.scratch.len(),
             max as f64 / 1024.0,
@@ -226,6 +259,7 @@ fn resource_report() {
             stats.table_bytes as f64 / 1048576.0,
             stats.cached,
             stats.linked,
+            stats.climate_bytes as f64 / 1048576.0,
             stats.setup_s,
             stats.process_s,
             cells.len()

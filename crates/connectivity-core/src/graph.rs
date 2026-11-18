@@ -87,16 +87,30 @@ pub struct Edge {
 impl Edge {
     #[inline]
     pub fn new(to: u32, w: f32, dist: f32) -> Self {
+        Self::with_geo(to, w, dist, geo_cost(dist))
+    }
+
+    /// `new` with the intact cost `geo_cost(dist)` already known, as for every edge of a distance
+    /// table slot.
+    #[inline]
+    pub fn with_geo(to: u32, w: f32, dist: f32, geo_cost: u32) -> Self {
+        debug_assert_eq!(geo_cost, self::geo_cost(dist));
         let adj = w * dist;
         Self {
             to,
             // Integer costs exactly as the legacy adjacency: 2-digit precision, saturating casts
             adj_cost: (adj * 100.0).round() as u32,
-            geo_cost: (dist * 100.0).round() as u32,
+            geo_cost,
             adj,
             dist,
         }
     }
+}
+
+/// Integer intact cost of a distance in kilometres: 2-digit precision, saturating cast.
+#[inline]
+pub fn geo_cost(dist: f32) -> u32 {
+    (dist * 100.0).round() as u32
 }
 
 /// Outgoing edges in compressed sparse row form: node u owns edges[offsets[u]..offsets[u + 1]].

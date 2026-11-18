@@ -51,7 +51,7 @@
 //! adds no habitat area, protected fraction or climate similarity, and outputs without NoData are
 //! bit-identical to `None`. See [`Crossing`] for how gaps are measured and how tiles behave.
 //! The modes cost extra setup and memory: group labels for the cells of every level (about
-//! 5.3 bytes per base cell) in landmass mode, two bytes per coarse cell plus a table of cells
+//! 5.3 bytes per base cell) in landmass mode, three bytes per coarse cell plus a table of cells
 //! holding several pieces in strict mode, and with permitted gaps the traversal overview. Strict mode also builds
 //! graphs more slowly: on a 450 m test raster with levels 1 to 32, about 1.2 to 1.7 times as long
 //! as without a mode, most at a width of 0, where coasts split coarse cells into the most pieces;
@@ -133,6 +133,7 @@
 //! ```
 mod affine;
 mod builder;
+mod climate;
 mod core;
 mod coverage;
 mod crossing;
@@ -149,6 +150,7 @@ mod tables;
 mod template;
 #[cfg(test)]
 mod testkit;
+#[cfg(test)]
 mod utils;
 #[cfg(test)]
 mod verify;
@@ -190,8 +192,10 @@ pub struct Inputs<'a> {
     pub traversal: Option<&'a Array2<f32>>,
     /// BERI scenarios: the current climate first, then future scenarios. Each array is
     /// `(rows, cols, bands)` with condition's rows and columns and the same bands in the same
-    /// order; any memory layout works, e.g. a band-major view. A cell whose bands are not all
-    /// finite has similarity 0. `None` or an empty slice computes connectedness instead.
+    /// order; any memory layout works, e.g. a band-major view, but an array in standard layout
+    /// (each cell's bands contiguous) is used in place, while another is copied once. A cell whose
+    /// bands are not all finite has similarity 0. `None` or an empty slice computes connectedness
+    /// instead.
     pub transgrids: Option<&'a [Array3<f32>]>,
     /// Transform of each level's grid, keyed by level; see [`level_transforms`].
     pub transforms: &'a HashMap<i32, Affine>,

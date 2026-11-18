@@ -1,16 +1,17 @@
 use crate::affine::Affine;
+use crate::climate::{part_sims, Climate};
+use crate::crossing::Part;
 use crate::distances;
 use crate::gate::{Gate, MIXED};
 use crate::strict::{Strict, MULTI};
-use crate::graph::{Csr, Edge, Nodes, COLS, NONE, NO_SIM, ROWS};
+use crate::graph::{geo_cost, Csr, Edge, Nodes, COLS, NONE, ROWS};
 use crate::metrics;
 use crate::routing::Router;
-use crate::tables::{Tables, BOUNDED, STATUSES, SYNTHETIC};
+use crate::tables::{Row, Tables, BOUNDED, STATUSES, SYNTHETIC};
 use crate::template::Templates;
-use crate::utils;
-use crate::window::{circle_frac, similarities, similarity, square_frac, WindowMode};
+use crate::window::{circle_frac, square_frac, WindowMode};
 use anyhow::Result;
-use ndarray::{s, Array2, Array3, ArrayView1};
+use ndarray::{Array2, CowArray, Ix2};
 
 /// NoData crossing mode of a call, fixed per call so the default path stays as it was.
 const PLAIN: u8 = 0; // no crossing mode: NoData is left out of the graph
@@ -20,13 +21,12 @@ const STRICT: u8 = 2; // mode 2, strict gap width (`strict`)
 /// Level-indexed overviews and settings shared by every focal cell of one call.
 pub struct Context<'a> {
     pub levels: Vec<i32>, // ascending
-    pub cond: Vec<Array2<f32>>,
+    // Level-indexed overviews; the base level is borrowed from the call's inputs where it can be
+    pub cond: Vec<CowArray<'a, f32, Ix2>>,
     pub weight: Vec<Array2<f32>>, // cell count or area weight
     pub pa: Option<Vec<Array2<f32>>>,
-    pub trav: Option<Vec<Array2<f32>>>,
-    pub trans: Vec<Vec<Array3<f32>>>, // [scenario][level]
-    pub contiguous: bool,             // every transgrid overview has standard layout
-    pub base: Option<usize>,          // index of level 1
+    pub trav: Option<Vec<CowArray<'a, f32, Ix2>>>,
+    pub climate: Option<Climate<'a>>, // BERI: transgrids given
     pub transforms: Vec<Option<Affine>>,
     pub fringe: Vec<bool>, // links to the next level (it is twice this one)
     pub clip: Vec<[bool; 4]>, // first/last row and column cells are cut by the tile edge
@@ -39,14 +39,13 @@ pub struct Context<'a> {
     pub factor: f32, // max_cost
     pub pa_to_pa: bool,
     pub lambdas: &'a [f32],
-    pub run_beri: bool,
     pub gate: Option<Gate>,     // NoData crossing mode 1 (landmass)
     pub strict: Option<Strict>, // NoData crossing mode 2 (strict gap width)
 }
 
 impl Context<'_> {
     pub fn n_scen(&self) -> usize {
-        self.trans.len()
+        self.climate.as_ref().map_or(0, Climate::scenarios)
     }
 
     /// Whether the tile's base cell (i, j) is land or crossable NoData (crossing modes).
@@ -58,11 +57,6 @@ impl Context<'_> {
         }
         let at = [i as usize, j as usize];
         self.cond[0][at].is_finite() || self.trav.as_ref().is_some_and(|t| t[0][at].is_finite())
-    }
-
-    /// Current-climate transgrid of the base level (`utils::get_current`'s source)
-    fn current(&self) -> Option<&Array3<f32>> {
-        self.trans.first().zip(self.base).map(|(scen, l)| &scen[l])
     }
 
     /// Level-l area fraction and outer-edge flag of local cell (li, lj) whose footprint is cut by
@@ -97,20 +91,32 @@ impl Context<'_> {
 }
 
 /// Dense lookup over the search box's cells inside the tile, in local cells of one level; NONE
-/// marks cells that are not nodes.
+/// marks cells that are not nodes. The array has a one-cell border of NONE around the box, so the
+/// eight neighbours of any cell in the box are in it.
 #[derive(Default)]
 struct Grid {
     origin: (i32, i32),
     shape: (i32, i32),
-    index: Vec<u32>,
+    index: Vec<u32>, // (shape.0 + 2) x (shape.1 + 2), row-major
 }
 
 impl Grid {
+    /// Array length for a box of `shape` cells
+    fn padded(shape: (usize, usize)) -> usize {
+        (shape.0 + 2) * (shape.1 + 2)
+    }
+
     fn reset(&mut self, origin: (i32, i32), shape: (i32, i32)) {
         self.origin = origin;
         self.shape = shape;
         self.index.clear();
-        self.index.resize((shape.0 * shape.1) as usize, NONE);
+        self.index.resize(Self::padded((shape.0 as usize, shape.1 as usize)), NONE);
+    }
+
+    /// Array position of box cell (i, j)
+    #[inline]
+    fn pos(&self, i: i32, j: i32) -> usize {
+        (i - self.origin.0 + 1) as usize * (self.shape.1 + 2) as usize + (j - self.origin.1 + 1) as usize
     }
 
     #[inline]
@@ -119,13 +125,59 @@ impl Grid {
         if r < 0 || c < 0 || r >= self.shape.0 || c >= self.shape.1 {
             return NONE;
         }
-        self.index[(r * self.shape.1 + c) as usize]
+        self.index[self.pos(i, j)]
     }
 
     #[inline]
     fn set(&mut self, i: i32, j: i32, node: u32) {
-        let (r, c) = (i - self.origin.0, j - self.origin.1);
-        self.index[(r * self.shape.1 + c) as usize] = node;
+        let at = self.pos(i, j);
+        self.index[at] = node;
+    }
+
+    /// Nodes of the eight neighbours of box cell (i, j) in COLS/ROWS order (E, S, W, N, SE, SW, NE,
+    /// NW), read from the three array rows around it.
+    #[inline]
+    fn neighbours(&self, i: i32, j: i32) -> [u32; 8] {
+        let stride = (self.shape.1 + 2) as usize;
+        let west = self.pos(i, j) - 1;
+        let n = &self.index[west - stride..west - stride + 3];
+        let m = &self.index[west..west + 3];
+        let s = &self.index[west + stride..west + stride + 3];
+        [m[2], s[1], m[0], n[1], s[2], s[0], n[2], n[0]]
+    }
+}
+
+/// Table entries of the eight same-level slots for one source row (`Tables::row`), with each
+/// hit's intact cost, read once for every node of that row.
+struct Slots<'t> {
+    row: Row<'t>,     // every slot, links included
+    key: i32,         // source row on geographic grids, 0 on projected ones
+    dist: [f32; 8],   // same-level slots
+    status: [u8; 8],
+    geo: [u32; 8],    // geo_cost of each hit's distance
+}
+
+impl<'t> Slots<'t> {
+    fn new(ctx: &'t Context, l: usize, i: i32) -> Self {
+        let key = if ctx.is_geo { i } else { 0 };
+        let row = ctx.tables.row(l, key);
+        let mut slots = Self { row, key, dist: [0.0; 8], status: [0; 8], geo: [0; 8] };
+        for k in 0..8 {
+            let (d, status) = row.get(k);
+            (slots.dist[k], slots.status[k]) = (d, status);
+            slots.geo[k] = if status <= BOUNDED { geo_cost(d) } else { 0 };
+        }
+        slots
+    }
+
+    /// These slots, or those of the row of a source at local row `i`.
+    #[inline]
+    fn at(self, ctx: &'t Context, l: usize, i: i32) -> Self {
+        if ctx.is_geo && i != self.key {
+            Self::new(ctx, l, i)
+        } else {
+            self
+        }
     }
 }
 
@@ -148,6 +200,8 @@ pub struct Scratch {
     group: u32,          // focal cell's group under mode 1
     pub piece: Vec<u16>,  // piece of each node's cell under mode 2
     pub pieces: Vec<u16>, // pieces in each node's cell under mode 2
+    multi: Vec<u32>,      // `Strict::multi_id` of each node's cell under mode 2
+    linked: Vec<u16>,     // mode 2: pieces of a neighbouring cell linked to one node
 }
 
 impl Scratch {
@@ -159,9 +213,10 @@ impl Scratch {
         for l in 0..n_levels {
             // A level admits at most the search box's cells inside the tile's level grid
             let (height, width) = ctx.cond[l].dim();
+            let side = ctx.templates.shapes[l].side as usize;
             let cells = ctx.templates.shapes[l].len().min(height * width);
             let mut grid = Grid::default();
-            grid.index.reserve(cells);
+            grid.index.reserve(Grid::padded((side.min(height), side.min(width))));
             scratch.grids.push(grid);
             nodes += cells;
         }
@@ -181,6 +236,7 @@ impl Scratch {
         if ctx.strict.is_some() {
             scratch.piece.reserve(nodes + 1);
             scratch.pieces.reserve(nodes + 1);
+            scratch.multi.reserve(nodes + 1);
         }
         n.sims.reserve((nodes + 1) * ctx.n_scen());
         scratch.csr.offsets.reserve(nodes + 2);
@@ -206,28 +262,43 @@ impl Scratch {
             + self.numerator.capacity() * 4
             + std::mem::size_of_val(&self.counts)
             + (self.piece.capacity() + self.pieces.capacity()) * 2
+            + self.multi.capacity() * 4
+            + self.linked.capacity() * 2
     }
 
     /// Indicator value of focal cell ij; fails on a path-cost overflow.
     pub fn eval(&mut self, ctx: &Context, i: usize, j: usize) -> Result<f32> {
         self.build(ctx, i, j);
-        if self.source == NONE || (self.isolated && ctx.pa_to_pa) {
-            // No destinations: the legacy graph searched from a phantom node, or was emptied
-            self.router.clear();
-        } else {
-            self.router.route(&self.csr, self.source)?;
-        }
+        self.route(ctx)?;
         Ok(self.score(ctx))
     }
 
-    /// Nodes and edges of focal cell ij.
+    /// Nodes and edges of focal cell ij. `eval`'s steps are separate functions so diagnostics
+    /// (`verify::profile_phases`) can time the same code.
     pub fn build(&mut self, ctx: &Context, i: usize, j: usize) {
+        self.admit_window(ctx, i, j);
+        self.climate(ctx, i, j);
+        self.connect(ctx, i, j);
+    }
+
+    /// Both searches from the focal cell, or none when it has no destinations.
+    pub(crate) fn route(&mut self, ctx: &Context) -> Result<()> {
+        if self.source == NONE || (self.isolated && ctx.pa_to_pa) {
+            // No destinations: the legacy graph searched from a phantom node, or was emptied
+            self.router.clear();
+            Ok(())
+        } else {
+            self.router.route(&self.csr, self.source)
+        }
+    }
+
+    /// Nodes of focal cell ij: every level's window cells.
+    pub(crate) fn admit_window(&mut self, ctx: &Context, i: usize, j: usize) {
         let (bi, bj) = (i as i32, j as i32);
         self.nodes.clear();
         self.csr.clear();
         self.ranges.clear();
         self.bounds.clear();
-        let current = utils::get_current(ctx.current(), i, j);
         if ctx.gate.is_none() && ctx.strict.is_none() {
             for l in 0..ctx.levels.len() {
                 self.admit::<PLAIN>(ctx, l, bi, bj);
@@ -235,13 +306,47 @@ impl Scratch {
         } else {
             self.admit_modes(ctx, i, j);
         }
-        if !ctx.trans.is_empty() {
-            self.similarities(ctx, &current);
-            if ctx.gate.is_some() || ctx.strict.is_some() {
-                self.part_sims(ctx, &current);
+    }
+
+    /// BERI: the similarity of every node, for every scenario, with focal cell ij's current
+    /// climate: from the node's part when it stands for one part of a cell holding several (crossing
+    /// modes), else from its cell's means. Kept out of admission and out of line, so connectedness
+    /// runs do not carry it (inlined into `eval` it slowed connectedness by about 8%).
+    #[inline(never)]
+    pub(crate) fn climate(&mut self, ctx: &Context, i: usize, j: usize) {
+        let Some(climate) = &ctx.climate else { return };
+        let (current, finite) = climate.current(i, j);
+        self.nodes.sims.clear();
+        for u in 0..self.nodes.len() {
+            let part = self.part(ctx, u);
+            let sims = &mut self.nodes.sims;
+            match part {
+                Some(part) => part_sims(current, &part.bands, climate.scenarios(), sims),
+                None => {
+                    let (l, (ci, cj)) = (self.nodes.level[u] as usize, self.nodes.cell[u]);
+                    climate.sims(current, finite, l, (ci as usize, cj as usize), sims);
+                }
             }
         }
+    }
 
+    /// Under a crossing mode, the part node u stands for when its cell holds several.
+    #[inline]
+    fn part<'c>(&self, ctx: &'c Context, u: usize) -> Option<&'c Part> {
+        let l = self.nodes.level[u] as usize;
+        match (&ctx.gate, &ctx.strict) {
+            (Some(gate), _) => {
+                let at = [self.nodes.cell[u].0 as usize, self.nodes.cell[u].1 as usize];
+                (gate.group(l, at) == MIXED).then(|| gate.part(l, at, self.group)).flatten()
+            }
+            (None, Some(st)) => st.body(l, self.multi[u]).map(|m| &m.parts[self.piece[u] as usize]),
+            (None, None) => None,
+        }
+    }
+
+    /// Edges of the admitted nodes, from focal cell ij as the source.
+    pub(crate) fn connect(&mut self, ctx: &Context, i: usize, j: usize) {
+        let (bi, bj) = (i as i32, j as i32);
         // The focal cell must be in its own first-level window to be a source
         self.source = self.grids[0].get(bi, bj);
         self.isolated = self.source != NONE
@@ -270,6 +375,7 @@ impl Scratch {
             (None, Some(_)) => {
                 self.piece.clear();
                 self.pieces.clear();
+                self.multi.clear();
                 for l in 0..ctx.levels.len() {
                     self.admit::<STRICT>(ctx, l, bi, bj);
                 }
@@ -430,12 +536,14 @@ impl Scratch {
         match kind {
             0 => 0,
             MULTI => {
-                let m = st.multi(l, i, j).unwrap();
+                let id = st.multi_id(l, i, j);
+                let m = st.body(l, id).unwrap();
                 for (b, p) in m.parts.iter().enumerate() {
                     let (c, w) = p.habitat();
                     self.push_node(ctx, l, at, fraction, rim, c, w, p.trav, p.pa);
                     self.piece.push(b as u16);
                     self.pieces.push(m.parts.len() as u16);
+                    self.multi.push(id);
                 }
                 m.parts.len()
             }
@@ -446,6 +554,7 @@ impl Scratch {
                 self.push_single(ctx, l, at, fraction, rim);
                 self.piece.push(0);
                 self.pieces.push(1);
+                self.multi.push(NONE);
                 1
             }
         }
@@ -480,11 +589,13 @@ impl Scratch {
             let (i_min, i_max, j_min, j_max) = self.bounds[l];
             let (first, parity) = (self.first[l], self.parity[l]);
             let up = if fringe { self.src[l + 1] } else { (0, 0) };
+            let mut slots = Slots::new(ctx, l, self.nodes.cell.get(start as usize).map_or(0, |c| c.0));
 
             for u in start as usize..end as usize {
                 let (i, j) = self.nodes.cell[u];
+                slots = slots.at(ctx, l, i);
                 let a = self.piece[u] as usize;
-                let multi_u = (self.pieces[u] > 1).then(|| st.multi(l, i, j).unwrap());
+                let multi_u = st.body(l, self.multi[u]);
                 // Directions in which this piece touches some piece of the neighbouring cell.
                 // Level 1: every admitted neighbour is a traversable base cell, and touches
                 let dirs = match multi_u {
@@ -492,8 +603,9 @@ impl Scratch {
                     None if l == 0 => 0xFF,
                     None => st.bits(l, i, j, |_, _| false),
                 };
-                for k in 0..8 {
-                    let v0 = self.grids[l].get(i + COLS[k], j + ROWS[k]);
+                // Relaxed contact of a single piece with single diagonal neighbours, precomputed
+                let relaxed = if st.relax && l > 0 && multi_u.is_none() { st.relaxed(l, i, j) } else { 0 };
+                for (k, v0) in self.grids[l].neighbours(i, j).into_iter().enumerate() {
                     if v0 == NONE {
                         continue;
                     }
@@ -503,19 +615,40 @@ impl Scratch {
                     if !touching && !relax {
                         continue;
                     }
-                    let count = self.pieces[v0 as usize] as usize;
-                    let (d, status) = ctx.tables.get(l, i, k);
-                    let dist = if status <= BOUNDED {
-                        d
+                    let multi_v = st.body(l, self.multi[v0 as usize]);
+                    let status = slots.status[k];
+                    let (dist, geo) = if status <= BOUNDED {
+                        (slots.dist[k], slots.geo[k])
                     } else {
-                        far(&transform, (i, j), &transform, self.nodes.cell[v0 as usize], ctx.is_geo)
+                        let d = far(&transform, (i, j), &transform, self.nodes.cell[v0 as usize], ctx.is_geo);
+                        (d, geo_cost(d))
                     };
-                    for b in 0..count {
-                        let direct = if multi_u.is_none() && count == 1 { touching } else { st.touches(l, i, j, a, k, b) };
-                        if direct || (relax && st.through(l, i, j, a, k, b)) {
-                            self.edge(v0 + b as u32, dist, status);
+                    if multi_u.is_none() && multi_v.is_none() {
+                        // Two single pieces: their touch bit, else the precomputed relaxed bit
+                        if touching || relaxed & (1 << k) != 0 {
+                            self.counts[status as usize] += 1;
+                            let w = self.nodes.weight[v0 as usize];
+                            self.csr.edges.push(Edge::with_geo(v0, w, dist, geo));
                         }
+                        continue;
                     }
+                    // A cell of several pieces: the neighbour's pieces that `Strict::touches` or
+                    // `through` accept, listed from the contacts, in piece order
+                    let mut linked = std::mem::take(&mut self.linked);
+                    linked.clear();
+                    st.contacts(l, i, j, a, k, multi_u, multi_v, |b| linked.push(b));
+                    if relax {
+                        st.through_all(l, i, j, a, k, multi_u, &mut linked);
+                    }
+                    linked.sort_unstable();
+                    linked.dedup();
+                    for &b in &linked {
+                        self.counts[status as usize] += 1;
+                        let v = v0 + b as u32;
+                        let w = self.nodes.weight[v as usize];
+                        self.csr.edges.push(Edge::with_geo(v, w, dist, geo));
+                    }
+                    self.linked = linked;
                 }
 
                 let eligible = match ctx.mode {
@@ -543,31 +676,30 @@ impl Scratch {
                             continue;
                         }
                         let count = self.pieces[v0 as usize] as usize;
-                        let multi_t = (count > 1).then(|| st.multi(l + 1, target.0, target.1).unwrap());
+                        let multi_t = st.body(l + 1, self.multi[v0 as usize]);
                         let rel = st.rel(l, i, j, target);
-                        // Pieces of the target linked to this piece
-                        let linked = |q: usize| -> bool {
-                            match multi_t {
-                                Some(mt) => mt.kids[q].contains(&(rel.0, rel.1, a as u16)),
+                        // The distance, from the first linked piece on
+                        let mut dist = None;
+                        for q in 0..count {
+                            // Pieces of the target linked to this piece
+                            let linked = match multi_t {
+                                Some(mt) => mt.kids[q].binary_search(&(rel.0, rel.1, a as u16)).is_ok(), // sorted
                                 // One piece: it contains this piece, or holds a piece it touches
                                 None => {
                                     let (di, dj) = (target.0 - parent.0, target.1 - parent.1);
                                     di.abs() <= 1 && dj.abs() <= 1 && near & (1 << ((di + 1) * 3 + dj + 1)) != 0
                                 }
-                            }
-                        };
-                        if !(0..count).any(linked) {
-                            continue;
-                        }
-                        let (d, status) = ctx.tables.get(l, i, 8 + link.slot[m] as usize);
-                        let dist = if status <= BOUNDED {
-                            d
-                        } else {
-                            far(&transform, (i, j), &upper, self.nodes.cell[v0 as usize], ctx.is_geo)
-                        };
-                        for q in 0..count {
-                            if linked(q) {
-                                self.edge(v0 + q as u32, dist, status);
+                            };
+                            if linked {
+                                let (d, status) = *dist.get_or_insert_with(|| {
+                                    let (d, status) = slots.row.get(8 + link.slot[m] as usize);
+                                    if status <= BOUNDED {
+                                        (d, status)
+                                    } else {
+                                        (far(&transform, (i, j), &upper, self.nodes.cell[v0 as usize], ctx.is_geo), status)
+                                    }
+                                });
+                                self.edge(v0 + q as u32, d, status);
                             }
                         }
                     }
@@ -584,72 +716,10 @@ impl Scratch {
         self.csr.edges.push(Edge::new(v, w, dist));
     }
 
-    /// Similarity of every node with the focal cell's current climate, for every scenario.
-    /// Kept out of admission so connectedness runs do not carry it.
-    #[inline(never)]
-    fn similarities(&mut self, ctx: &Context, current: &ArrayView1<f32>) {
-        let n = &mut self.nodes;
-        n.sims.clear();
-        for u in 0..n.level.len() {
-            let l = n.level[u] as usize;
-            let at = [n.cell[u].0 as usize, n.cell[u].1 as usize];
-            match current.as_slice() {
-                // Contiguous bands: all scenarios of the cell together, eight at a time
-                Some(current) if ctx.contiguous => {
-                    for group in ctx.trans.chunks(8) {
-                        let mut cells: [&[f32]; 8] = [&[]; 8];
-                        for (cell, scenario) in cells.iter_mut().zip(group) {
-                            let (_, width, bands) = scenario[l].dim();
-                            let start = (at[0] * width + at[1]) * bands;
-                            *cell = &scenario[l].as_slice().unwrap()[start..start + bands];
-                        }
-                        similarities(current, &cells[..group.len()], NO_SIM, &mut n.sims);
-                    }
-                }
-                _ => {
-                    for scenario in &ctx.trans {
-                        let seg_val = scenario[l].slice(s![at[0], at[1], ..]);
-                        n.sims.push(similarity(current, &seg_val).unwrap_or(NO_SIM));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Under a crossing mode, the similarities of nodes standing for one part of a cell that
-    /// holds several, from the part's own band means.
-    #[inline(never)]
-    fn part_sims(&mut self, ctx: &Context, current: &ArrayView1<f32>) {
-        let n_scen = ctx.n_scen();
-        for u in 0..self.nodes.len() {
-            let l = self.nodes.level[u] as usize;
-            let (i, j) = self.nodes.cell[u];
-            let part = match (&ctx.gate, &ctx.strict) {
-                (Some(gate), _) => {
-                    let at = [i as usize, j as usize];
-                    if gate.group(l, at) != MIXED {
-                        continue;
-                    }
-                    gate.part(l, at, self.group)
-                }
-                (None, Some(st)) => st.multi(l, i, j).map(|m| &m.parts[self.piece[u] as usize]),
-                (None, None) => None,
-            };
-            let Some(part) = part else { continue };
-            let bands = part.bands.len() / n_scen.max(1);
-            for s in 0..n_scen {
-                let sim = if bands == 0 {
-                    None
-                } else {
-                    similarity(current, &ArrayView1::from(&part.bands[s * bands..(s + 1) * bands]))
-                };
-                self.nodes.sims[u * n_scen + s] = sim.unwrap_or(NO_SIM);
-            }
-        }
-    }
-
     /// Edges of every node in node order: same-level queen neighbours in COLS/ROWS order, then
-    /// links to the next level in `get_edge_neighbours` order for fringe-eligible nodes.
+    /// links to the next level in `get_edge_neighbours` order for fringe-eligible nodes. Table
+    /// distances are read once per level, or per source row on geographic grids; edges whose slot
+    /// has no table distance get the legacy distance (`far`).
     fn link(&mut self, ctx: &Context) {
         let shapes = &ctx.templates.shapes;
         for l in 0..ctx.levels.len() {
@@ -666,27 +736,23 @@ impl Scratch {
             let (i_min, i_max, j_min, j_max) = self.bounds[l];
             let (first, parity) = (self.first[l], self.parity[l]);
             let up = if fringe { self.src[l + 1] } else { (0, 0) };
+            let mut slots = Slots::new(ctx, l, self.nodes.cell.get(start as usize).map_or(0, |c| c.0));
 
             for u in start as usize..end as usize {
                 let (i, j) = self.nodes.cell[u];
-                // Source coordinates only when an edge falls back to the legacy distance
-                let mut xy1 = None;
-                for k in 0..8 {
-                    let v = self.grids[l].get(i + COLS[k], j + ROWS[k]);
-                    if v != NONE {
-                        let (d, status) = ctx.tables.get(l, i, k);
-                        self.counts[status as usize] += 1;
-                        let dist = if status <= BOUNDED {
-                            d
-                        } else {
-                            let (x1, y1) = *xy1.get_or_insert_with(|| transform.xy(i, j));
-                            let (ni, nj) = self.nodes.cell[v as usize];
-                            let (x2, y2) = transform.xy(ni, nj);
-                            distances::distance_km(x1, y1, x2, y2, ctx.is_geo)
-                        };
-                        let w = self.nodes.weight[v as usize];
-                        self.csr.edges.push(Edge::new(v, w, dist));
+                slots = slots.at(ctx, l, i);
+                for (k, v) in self.grids[l].neighbours(i, j).into_iter().enumerate() {
+                    if v == NONE {
+                        continue;
                     }
+                    let status = slots.status[k];
+                    self.counts[status as usize] += 1;
+                    let w = self.nodes.weight[v as usize];
+                    self.csr.edges.push(if status <= BOUNDED {
+                        Edge::with_geo(v, w, slots.dist[k], slots.geo[k])
+                    } else {
+                        Edge::new(v, w, far(&transform, (i, j), &transform, self.nodes.cell[v as usize], ctx.is_geo))
+                    });
                 }
 
                 let eligible = match ctx.mode {
@@ -700,15 +766,12 @@ impl Scratch {
                         let target = (up.0 + link.cell[m].0, up.1 + link.cell[m].1);
                         let v = self.grids[l + 1].get(target.0, target.1);
                         if v != NONE {
-                            let (d, status) = ctx.tables.get(l, i, 8 + link.slot[m] as usize);
+                            let (d, status) = slots.row.get(8 + link.slot[m] as usize);
                             self.counts[status as usize] += 1;
                             let dist = if status <= BOUNDED {
                                 d
                             } else {
-                                let (x1, y1) = *xy1.get_or_insert_with(|| transform.xy(i, j));
-                                let (hi, hj) = self.nodes.cell[v as usize];
-                                let (x2, y2) = upper.xy(hi, hj);
-                                distances::distance_km(x1, y1, x2, y2, ctx.is_geo)
+                                far(&transform, (i, j), &upper, self.nodes.cell[v as usize], ctx.is_geo)
                             };
                             let w = self.nodes.weight[v as usize];
                             self.csr.edges.push(Edge::new(v, w, dist));
@@ -750,7 +813,7 @@ impl Scratch {
     }
 
     /// BERI or connectedness of the routed destinations, averaged over lambdas.
-    fn score(&mut self, ctx: &Context) -> f32 {
+    pub(crate) fn score(&mut self, ctx: &Context) -> f32 {
         if ctx.lambdas.is_empty() {
             0.0
         } else {
@@ -759,7 +822,7 @@ impl Scratch {
                 .lambdas
                 .iter()
                 .map(|&lambda| {
-                    if ctx.run_beri {
+                    if ctx.climate.is_some() {
                         metrics::beri_score(paths, nodes, ctx.n_scen(), lambda, numerator)
                     } else {
                         metrics::connectedness(paths, nodes, lambda)
@@ -786,6 +849,7 @@ fn far(ta: &Affine, a: (i32, i32), tb: &Affine, b: (i32, i32), geo: bool) -> f32
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::graph::NO_SIM;
     use crate::core::prepare;
     use crate::template::link_slot;
     use rayon::prelude::*;
@@ -793,8 +857,12 @@ pub mod tests {
     use crate::legacy::Prepared;
     use crate::testkit::Fixture;
 
+    /// The fixture's context, under its crossing mode if any (relaxed contact, as `conn` uses).
     pub fn context(f: &Fixture) -> Context<'_> {
-        prepare(&f.inputs(), &f.config()).unwrap()
+        match &f.crossing {
+            None => prepare(&f.inputs(), &f.config()).unwrap(),
+            Some(cross) => crate::core::prepare_cross(&f.inputs(), &f.config(), cross, true).unwrap(),
+        }
     }
 
     /// Legacy node id of optimized node u.
@@ -1246,7 +1314,7 @@ pub mod tests {
     }
 
     /// Table distances keyed by legacy node ids, for injection into the canonical reference.
-    pub fn table_inject<'c>(ctx: &'c Context) -> impl Fn(u64, u64, bool) -> Option<f32> + Sync + 'c {
+    pub fn table_inject<'c, 'a>(ctx: &'c Context<'a>) -> impl Fn(u64, u64, bool) -> Option<f32> + Sync + use<'c, 'a> {
         use crate::legacy::canonical::decode;
         move |u, v, synthetic| {
             let (lu, gr, gc) = decode(u);

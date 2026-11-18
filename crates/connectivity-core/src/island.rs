@@ -469,11 +469,11 @@ fn conn_relaxed(inputs: &Inputs, cfg: &Config, cells: f64, t: f32) -> anyhow::Re
     conn_cross(inputs, cfg, &crossing(inputs, CrossingMode::Strict, cells, t), true)
 }
 
-fn prepare_gated<'a>(inputs: &Inputs, cfg: &Config<'a>, cells: f64, t: f32) -> anyhow::Result<Context<'a>> {
+fn prepare_gated<'a>(inputs: &Inputs<'a>, cfg: &Config<'a>, cells: f64, t: f32) -> anyhow::Result<Context<'a>> {
     prepare_cross(inputs, cfg, &crossing(inputs, CrossingMode::Landmass, cells, t), false)
 }
 
-fn prepare_strict<'a>(inputs: &Inputs, cfg: &Config<'a>, cells: f64, t: f32) -> anyhow::Result<Context<'a>> {
+fn prepare_strict<'a>(inputs: &Inputs<'a>, cfg: &Config<'a>, cells: f64, t: f32) -> anyhow::Result<Context<'a>> {
     prepare_cross(inputs, cfg, &crossing(inputs, CrossingMode::Strict, cells, t), false)
 }
 
@@ -827,7 +827,7 @@ fn pieces(a: Rect, usable: &impl Fn(usize, usize) -> bool) -> usize {
 /// Does the routed graph respect the mask? Counts, for one focal cell, the shortest-path edges
 /// whose two cells have no touching usable base cells, and reached cells whose usable base cells
 /// form several pieces. Usable means the focal cell's group under a mask, any land otherwise.
-fn relaxed_ctx<'a>(inputs: &Inputs, cfg: &Config<'a>, w: f64) -> Context<'a> {
+fn relaxed_ctx<'a>(inputs: &Inputs<'a>, cfg: &Config<'a>, w: f64) -> Context<'a> {
     let mut ctx = prepare_strict(inputs, cfg, w, CROSS).unwrap();
     ctx.strict.as_mut().unwrap().relax = true;
     ctx
@@ -1736,6 +1736,7 @@ fn tile_scene() -> crate::testkit::Fixture {
         offsets: (0, 0),
         mode: WindowMode::Circular,
         pa_to_pa: false,
+        crossing: None,
         cond,
     }
 }
@@ -1831,6 +1832,7 @@ fn islet_fixture(gap: usize, mainland: bool, geo: bool, pa: bool, beri: bool) ->
         offsets: (0, 0),
         mode: WindowMode::Circular,
         pa_to_pa: pa,
+        crossing: None,
         cond,
     }
 }
@@ -1909,6 +1911,7 @@ fn shared_fixture(m: usize, mainland: bool, pa: bool, beri: bool) -> crate::test
         offsets: (0, 0),
         mode: WindowMode::Circular,
         pa_to_pa: pa,
+        crossing: None,
         cond,
     }
 }
@@ -1969,6 +1972,7 @@ fn check_rotated() {
             offsets: (0, 0),
             mode: WindowMode::Circular,
             pa_to_pa: false,
+            crossing: None,
             cond,
         };
         let (with, alone) = (fixture(bank(true)), fixture(bank(false)));
@@ -2012,6 +2016,7 @@ fn check_stray() {
         offsets: (0, 0),
         mode: WindowMode::Circular,
         pa_to_pa: false,
+        crossing: None,
         cond: cond.clone(),
     };
     let (clean, stray) = (fixture(f32::NAN), fixture(0.5));
@@ -2058,6 +2063,7 @@ fn geo_fixture(cond: Array2<f32>, mask: Array2<bool>, base: crate::affine::Affin
         offsets: (0, 0),
         mode: WindowMode::Circular,
         pa_to_pa: pa,
+        crossing: None,
         cond,
     }
 }

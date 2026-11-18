@@ -2,7 +2,7 @@
 use crate::affine::{level_transforms, Affine};
 use crate::legacy::{self, canonical, Prepared};
 use crate::window::WindowMode;
-use crate::{Config, Inputs};
+use crate::{Config, Crossing, CrossingMode, Inputs};
 use ndarray::{Array2, Array3};
 use std::collections::HashMap;
 
@@ -56,6 +56,7 @@ pub struct Fixture {
     pub offsets: (usize, usize),
     pub mode: WindowMode,
     pub pa_to_pa: bool,
+    pub crossing: Option<Crossing>,
 }
 
 impl Fixture {
@@ -82,7 +83,7 @@ impl Fixture {
             offsets: self.offsets,
             window_mode: self.mode,
             pa_to_pa: self.pa_to_pa,
-            crossing: None,
+            crossing: self.crossing,
         }
     }
 
@@ -196,6 +197,7 @@ impl Fixture {
             offsets,
             mode,
             pa_to_pa,
+            crossing: None,
         }
     }
 
@@ -293,6 +295,7 @@ impl Fixture {
             offsets,
             mode,
             pa_to_pa,
+            crossing: None,
         }
     }
 }
@@ -563,6 +566,7 @@ pub fn load_workload(dir: &std::path::Path) -> Fixture {
         offsets: (0, 0),
         mode: WindowMode::Circular,
         pa_to_pa: false,
+        crossing: None,
     };
     let f32_bits = |s: &str| f32::from_bits(s.parse().unwrap());
     for line in text.lines() {
@@ -578,6 +582,10 @@ pub fn load_workload(dir: &std::path::Path) -> Fixture {
             "offsets" => f.offsets = (rest[0].parse().unwrap(), rest[1].parse().unwrap()),
             "window_mode" => f.mode = WindowMode::parse(rest[0]).unwrap(),
             "pa_to_pa" => f.pa_to_pa = rest[0] == "1",
+            "crossing" => {
+                let mode = CrossingMode::parse(rest[0]).unwrap();
+                f.crossing = Some(Crossing { mode, width: f32_bits(rest[1]), traversal: f32_bits(rest[2]) });
+            }
             "transform" => {
                 let v: Vec<f64> = rest[1..].iter().map(|s| f64::from_bits(s.parse().unwrap())).collect();
                 f.transforms.insert(rest[0].parse().unwrap(), Affine::from((v[0], v[1], v[2], v[3], v[4], v[5])));
