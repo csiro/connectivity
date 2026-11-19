@@ -1,20 +1,84 @@
 # Version 3.0.0 (development version)
-Version 3.0 settles the API while the package is in early adoption, so that later releases need not break it again. A concise migration guide is in the README's "Migrating from 2.x to 3.0".
+
+For upgrade instructions, see [Migrating from 2.x to 3.0](README.md#migrating-from-2x-to-30).
 
 ## Breaking changes
-- Changed the default NoData handling of `connectedness()` and `beri()` to strict gap crossing (`nodata_crossing="strict"`, `crossing_width=0.5` km, `crossing_cost=4`). This is an intentional change of method, not a performance improvement or a bug fix: results change wherever NoData lies near land. Coarse levels of the multi-resolution graph used to link land on both sides of NoData gaps narrower than about twice their cell size, at no cost and only from some focal cells, which left steps on islands, coastlines and irregular boundaries. Strict crossing lets paths cross narrow gaps at a cost and stops crossings of wider gaps at every level. The width and cost are provisional general-purpose assumptions, not calibrated ecological thresholds; wider widths, as some BERI applications use, are sensitivity scenarios to set explicitly. On the bundled Tasmania raster (cells of about 0.69 x 0.93 km, so that no gap is 0.5 km wide or less) the default changes almost every cell of plain connectedness, by 0.003 on average and up to 0.21; 4% change by more than 0.01, 94% of them within 8 cells of NoData or the raster edge. Pass `nodata_crossing=None` to reproduce the results of 2.x; `nodata_crossing="strict"` with `crossing_width=0` crosses no gap but keeps strict routing, which is not the same.
-- Every argument of `connectedness()` and `beri()` after `condition_file` is keyword-only, and `beri()`'s `current_file` is a required keyword argument. A positional call raises `TypeError` instead of binding to another argument. The arguments are documented in a new order: inputs (`band`, `scale`, protected areas or climate, resistance), method (`lambdas`, `max_cost`, `levels`, `window_size`, `outer_window`, `window_mode`), area of interest (`polygon_mask`, `closed_border`), NoData crossing (`nodata_crossing`, `crossing_width`, `crossing_cost`), then execution and output (`n_threads`, `filename`, `save_log`). Names, meanings and other defaults are unchanged.
-- `band` now selects a band of `condition_file` only. A `pa_file` or `resistance_file` must have one band, whatever `band` is: a multi-band one raises `ValueError("<name> must have exactly one layer, but it has <n>; band selects a layer of condition_file only, so write the layer to use to a single-band raster first")`. In 2.5 a multi-band one was read at the same band as the condition, which assumed that band numbers meant the same in independently supplied rasters. `band=None` still requires a single-band `condition_file`, and the climate rasters of `beri()` keep all their bands.
-- Removed `margin_px` from `connectedness()` and `beri()`, and `valid_margin_px` from `read_raster()`, deprecated in 2.5. Passing them raises `TypeError`. `connectedness()` and `beri()` already computed only the cells a polygon touches, so their results are unchanged; `read_raster()` with an open-border polygon now always marks only the cells the polygon touches as valid, as `valid_margin_px=0` did, while still reading the cells around them as context. Its `band` argument is keyword-only, so a call that passed `valid_margin_px` positionally fails instead of selecting a band.
-- Run logs are written in format 2, which records the NoData crossing of every run: `nodata_crossing` is `"strict"`, `"landmass"` or `"none"` (the legacy handling), with `crossing_width_km` and `crossing_cost` under a mode. A format 1 log without `nodata_crossing` describes a legacy run, so that reusing an older log never switches it to the new default. Readers that accept only format 1, such as Eco-Connectivity Studio 0.2, refuse format 2 logs rather than restore them without their crossing.
+
+- `connectedness()` and `beri()` now default to `nodata_crossing="strict"`,
+  `crossing_width=0.5` km and `crossing_cost=4`. This changes the calculation
+  near NoData. Older versions could link land across wider gaps at no cost at
+  coarser levels, creating steps on islands, coastlines and irregular boundaries.
+  - Pass `nodata_crossing=None` to reproduce 2.x results. To forbid all gap
+    crossings while using strict routing, set `crossing_width=0` in strict mode.
+  - The default width and cost are provisional assumptions. Set a wider gap
+    explicitly when testing sensitivity, including in BERI applications.
+  - On the bundled Tasmania raster (cells about 0.69 × 0.93 km), the new default
+    permits no gap crossings. Plain connectedness changes in almost every
+    valid cell, by 0.003 on average and up to 0.21. Of the 4% of cells that
+    change by more than 0.01, 94% are within 8 cells of NoData or the raster edge.
+- Every argument of `connectedness()` and `beri()` after `condition_file` is
+  keyword-only. Pass the required `current_file` to `beri()` by name. Calls
+  that pass additional positional arguments raise `TypeError`.
+- `band` now selects a band of `condition_file` only. Multi-band `pa_file` and
+  `resistance_file` inputs raise `ValueError`. Write the layer you need to a
+  single-band raster first. `band=None` still requires a single-band condition
+  raster, and `beri()` still reads all climate bands.
+- Removed `margin_px` from `connectedness()` and `beri()` after deprecating it
+  in 2.5. Remove it from existing calls to avoid `TypeError`. Both functions
+  already compute only the cells the polygon touches.
+- Removed `valid_margin_px` from `read_raster()` after deprecating it in 2.5.
+  Open-border reads now mark only the cells the polygon touches as valid and
+  still read surrounding cells for context. `band` is keyword-only, so passing
+  the old margin positionally also raises `TypeError`.
+- Run logs use format 2 to record `nodata_crossing` (`"strict"`, `"landmass"`
+  or `"none"`), plus `crossing_width_km` and `crossing_cost` in strict and
+  landmass modes. A format 1 log without `nodata_crossing` restores legacy routing.
+  Readers that support only format 1, including Eco-Connectivity Studio 0.2,
+  reject format 2 logs.
 
 ## Added
-- Added NoData crossing modes to `connectedness()` and `beri()`: `nodata_crossing` (`"strict"`, `"landmass"` or `None`), `crossing_width` (kilometres, finite and >= 0) and `crossing_cost` (finite and >= 1). NoData in gaps at most `crossing_width` wide may be crossed at `crossing_cost` and adds no habitat area, protected area or climate. `"landmass"` links separate landmasses only across such gaps; `"strict"` also stops crossings of wider rivers and inlets inside one landmass. `crossing_cost` is a movement cost per unit distance relative to intact land, 1 as cheap as intact land and 4 four times as costly, independent of condition, resistance and `max_cost`, which it may exceed; a coarse cell holding land and crossable NoData costs the mean of their costs. In `beri()` under a mode, coarse cells' climate is averaged over their land cells only, so climate values on NoData (for example over rivers and lakes) and land that cannot be reached do not change scores. Beyond the raster's edge counts as NoData, so the edge never closes a gap: water between a coast and the edge is judged as if open water lay beyond it. Open-border `polygon_mask` runs read further by the gap width, so tiles still join without seams. Invalid values raise `ValueError` (or `TypeError` for a mode that is not a string), and a width or cost changed under `nodata_crossing=None` is ignored with a notice. Under a mode, a sheared raster grid, or a geographic one that is not north-up, raises `RuntimeError("Connectivity failed: NoData crossing needs ...")`; rotated projected grids are supported.
-- Added run logs. When `filename` is given, `connectedness()` and `beri()` also write a small TOML file of the run's indicator, settings, inputs and output beside it, `result.tif` getting `result.toml`, in the format the R package and Eco-Connectivity Studio write. Dropping a log on Studio's window restores its settings. Logs are on by default: `save_log=False` turns them off for one call, and the environment variable `CONNECTIVITY_SAVE_LOG` set to `0`, `false`, `no` or `off` for a session or job, in the R package as well. An existing run log is replaced, but another file of that name is kept, with a warning. Not writing a log is a warning, never an error. Results are unchanged.
-- The low-level `rust_conn.connectivity()` takes `nodata_crossing`, `crossing_width` and `crossing_cost` with the same defaults, which `rust_conn.DEFAULT_CROSSING` reports from the engine.
+
+- Added NoData crossing controls to `connectedness()` and `beri()`.
+  - `nodata_crossing="strict"` limits crossings to gaps within `crossing_width`
+    at every level. `"landmass"` applies that limit between separate landmasses
+    and retains coarse-level links across wider gaps within a landmass. Use
+    `None` for legacy routing.
+  - `crossing_width` is a finite distance of at least 0 km. Crossed NoData
+    contributes movement cost and carries zero habitat area, protected area
+    or climate. Cells beyond the raster edge count as NoData, so the edge
+    cannot close a gap.
+  - `crossing_cost` is a finite cost per unit distance relative to intact land,
+    with a minimum of 1. A value of 4 costs four times as much as intact land.
+    The cost is independent of condition, resistance and `max_cost`, and can
+    exceed `max_cost`. Coarse cells with land and crossable NoData use their
+    mean cost.
+  - With crossing enabled, `beri()` averages climate over land cells only.
+    Climate values on NoData and on unreachable land are excluded from scores.
+  - Open-border `polygon_mask` runs extend the read window by `crossing_width`
+    so adjacent tiles still join without seams.
+  - Invalid crossing settings raise `ValueError`. A `nodata_crossing` value
+    other than a string or `None` raises `TypeError`. With `nodata_crossing=None`,
+    valid custom widths or costs are ignored with a notice.
+  - Crossing supports north-up geographic grids and projected grids with
+    perpendicular rows and columns, including rotated grids. Sheared grids
+    and geographic grids that are not north-up raise `RuntimeError`.
+- When writing a raster, `connectedness()` and `beri()` also save a TOML run
+  log alongside it (for example, `result.toml` for `result.tif`). The log
+  records the indicator, settings, inputs and output. Drop it onto a compatible
+  version of Eco-Connectivity Studio to restore the settings.
+  - Logging is on by default. Pass `save_log=False` for one call, or set
+    `CONNECTIVITY_SAVE_LOG` to `0`, `false`, `no` or `off` for a session or job.
+    The environment variable also applies to the R package.
+  - An existing run log is replaced. Other files at the log path are kept with
+    a warning. If a log cannot be written, the run warns and returns its result.
+- The low-level `rust_conn.connectivity()` accepts the same crossing options.
+  `rust_conn.DEFAULT_CROSSING` exposes the engine defaults.
 
 ## Changed
-- Builds against `connectivity-core` 0.3.0, whose `VERSION` the run logs record. With `nodata_crossing=None`, results are unchanged from 2.5.0.
+
+- Reordered the documented arguments for `connectedness()` and `beri()` by
+  inputs, method, area of interest, NoData crossing, and execution and output.
+- Builds against `connectivity-core` 0.3.0 and records its version in run logs.
 
 # Version 2.5.0
 ## Added
