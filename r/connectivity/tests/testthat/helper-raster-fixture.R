@@ -49,9 +49,11 @@ tile_fixture <- function(rows = 96L, cols = 104L) {
     return(fixture_raster(values))
 }
 
-# The frozen references used window_size = 3, Python's default.
+# The frozen references used window_size = 3, then Python's default, and the
+# legacy NoData handling of 0.1.0.
 workflow_settings <- list(levels = c(2, 4), window_size = 3, outer_window = 5,
-                          lambdas = c(2, 20), max_cost = 20, n_threads = 1)
+                          lambdas = c(2, 20), max_cost = 20, n_threads = 1,
+                          nodata_crossing = NULL)
 
 fixture_polygon <- function() {
     return(terra::vect(paste0(

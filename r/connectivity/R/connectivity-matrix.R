@@ -36,6 +36,11 @@
 #' @param pa_to_pa Restrict destinations to protected cells, identified by
 #'   `mask == FALSE`. This requires caller-prepared PARC condition and mask.
 #'   Only supported without `transgrids`.
+#' @param nodata_crossing `"strict"` (default), `"landmass"` or `NULL` for the
+#'   legacy NoData handling of 0.1.0; see [connectedness()].
+#' @param crossing_width Widest NoData gap crossed, in kilometres (finite, >= 0).
+#' @param crossing_cost Path weight of crossed NoData per unit distance
+#'   (finite, >= 1), independent of `max_cost`.
 #' @param n_threads Optional positive integer number of worker threads.
 #'   `NULL` uses Rayon's default thread count.
 #' @return A numeric matrix with the dimensions and dimnames of `condition`.
@@ -48,7 +53,8 @@ connectivity_matrix <- function(
     lambdas = c(2, 20, 200), is_geo = FALSE, max_cost = 2,
     window_size = 5L, outer_window = 9L, offsets = c(0L, 0L),
     window_mode = c("circular", "square"), pa_to_pa = FALSE,
-    n_threads = NULL) {
+    nodata_crossing = "strict", crossing_width = .CROSSING_WIDTH,
+    crossing_cost = .CROSSING_COST, n_threads = NULL) {
     condition <- .check_matrix(condition, "condition", unit_interval = TRUE)
     shape <- dim(condition)
     if (!is.matrix(mask) || !is.logical(mask) || !identical(dim(mask), shape) ||
@@ -61,6 +67,13 @@ connectivity_matrix <- function(
         if (!identical(dim(traversal), shape)) {
             stop("traversal must have the same dimensions as condition", call. = FALSE)
         }
+    }
+    crossing <- .normalise_crossing(nodata_crossing, crossing_width, crossing_cost,
+                                    notice = FALSE)
+    # A crossing mode treats every missing condition cell as NoData, so confine
+    # traversal to land, as Python's _make_traversal() does
+    if (!is.null(traversal) && !is.null(crossing$nodata_crossing)) {
+        traversal[is.na(condition)] <- NA_real_
     }
     bands <- 0L
     if (!is.null(transgrids)) {
@@ -109,7 +122,10 @@ connectivity_matrix <- function(
         as.double(traversal), lapply(transgrids, as.double), as.integer(bands),
         levels, as.double(lambdas), is_geo, as.double(max_cost),
         as.integer(window_size), as.integer(outer_window), as.integer(offsets),
-        window_mode, pa_to_pa, if (is.null(n_threads)) 0L else as.integer(n_threads)
+        window_mode, pa_to_pa,
+        if (is.null(crossing$nodata_crossing)) "none" else crossing$nodata_crossing,
+        crossing$crossing_width, crossing$crossing_cost,
+        if (is.null(n_threads)) 0L else as.integer(n_threads)
     )
     # Raise R errors only after the native call has returned and Rust-owned
     # resources have been dropped. The native result_list feature returns errors.

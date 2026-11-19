@@ -33,7 +33,15 @@
 #' the average of the mean and the worst scenario, relative to an intact
 #' landscape under the current climate. Scores are averaged over `lambdas`.
 #'
-#' @param current_file Current-climate `terra::SpatRaster` or raster filename
+#' With a NoData crossing mode (`nodata_crossing` other than `NULL`), crossed
+#' NoData carries no climate, and coarse cells average climate over their land
+#' cells only, so climate values on NoData and on unreachable land are
+#' excluded from scores. After version 0.1.0 the default changed from the
+#' legacy NoData handling to `"strict"`; pass `nodata_crossing = NULL` to reproduce
+#' results of 0.1.0. Wider crossing widths, such as those of some BERI
+#' applications, are sensitivity settings to choose explicitly.
+#'
+#' @param current_file Required current-climate `terra::SpatRaster` or raster filename
 #'   of GDM-transformed environmental layers (transgrids). One or more layers
 #'   are supported.
 #' @param future_files Optional character vector of raster filenames, list of
@@ -43,11 +51,11 @@
 #'   Missing climate bands give the cell a similarity of zero.
 #' @param scale Optional condition divisor. Climate bands are not scaled.
 #' @param band Optional layer of `condition_file` to use, numbered from 1 as in
-#'   GDAL, rasterio and terra, for a filename or a `SpatRaster` alike. A
-#'   multi-layer `resistance_file` uses the same layer, and a single-layer one
-#'   is used as it is. `current_file` and `future_files` are not affected:
-#'   their layers are environmental variables. `NULL` (default) requires a
-#'   single-layer `condition_file` and `resistance_file`.
+#'   GDAL, rasterio and terra, for a filename or a `SpatRaster` alike. It
+#'   selects a layer of `condition_file` only: `resistance_file` must have one
+#'   layer, and `current_file` and `future_files` keep all their layers, which
+#'   are environmental variables. `NULL` (default) requires a single-layer
+#'   `condition_file`.
 #' @param save_log Whether to write a run log beside `filename` once it is
 #'   written, as in [connectedness()]: `result.tif` gets `result.toml`. The
 #'   default is the `connectivity.save_log` option, or when it is unset, `TRUE`
@@ -94,36 +102,47 @@
 #'     outer_window = 9,
 #'     levels = c(2, 4, 8, 16, 32),
 #'     window_mode = "circular",
+#'     nodata_crossing = "strict",
+#'     crossing_width = 0.5,
+#'     crossing_cost = 4,
 #'     n_threads = 2
 #' )
 #'
 #' terra::plot(beri_map, main = "BERI")
 #' }
-beri <- function(condition_file,
+beri <- function(condition_file, ...,
+                 band = NULL,
+                 scale = NULL,
                  current_file,
                  future_files = NULL,
-                 polygon_mask = NULL,
-                 closed_border = FALSE,
+                 resistance_file = NULL,
+                 resistance_scale = NULL,
                  lambdas = c(2, 20, 200),
                  max_cost = 2,
+                 levels = c(2, 4, 8, 16, 32),
                  window_size = 5L,
                  outer_window = 9L,
                  window_mode = "circular",
-                 levels = c(2, 4, 8, 16, 32),
-                 scale = NULL,
-                 resistance_file = NULL,
-                 resistance_scale = NULL,
+                 polygon_mask = NULL,
+                 closed_border = FALSE,
+                 nodata_crossing = "strict",
+                 crossing_width = 0.5,
+                 crossing_cost = 4,
                  n_threads = NULL,
                  filename = "",
                  overwrite = FALSE,
                  wopt = list(),
-                 band = NULL,
                  save_log = getOption("connectivity.save_log", .log_by_env()))
 {
     started <- proc.time()[["elapsed"]]
+    .check_named(...)
+    if (missing(current_file)) {
+        stop("current_file is required; pass it by name, as current_file = ...", call. = FALSE)
+    }
     .check_flag(save_log, "save_log")
     settings <- .normalise_settings(levels, lambdas, max_cost, window_size,
-                                    outer_window, window_mode, n_threads)
+                                    outer_window, window_mode, n_threads,
+                                    nodata_crossing, crossing_width, crossing_cost)
     .check_scale(scale)
     prepared <- .prepare_landscape(condition_file, polygon_mask, closed_border, settings, scale, band)
     

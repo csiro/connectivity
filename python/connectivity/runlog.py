@@ -7,9 +7,7 @@ Format 2 (Python 3.0) always records the NoData crossing: `nodata_crossing` is "
 "landmass" or "none" (the legacy handling, `nodata_crossing=None`), with `crossing_width_km`
 and `crossing_cost` under a mode. A format 1 log, written by earlier versions, without
 `nodata_crossing` describes a run with the legacy handling, which was then the only one; a
-reader must restore it as "none", never as the newer strict default. Format 1 logs of the
-unreleased 2.6.0 development versions recorded a `crossing_traversal` t instead of a cost; its
-equivalent cost is `(1 - max_cost) * t + max_cost`.
+reader must restore it as "none", never as the newer strict default.
 """
 
 import os

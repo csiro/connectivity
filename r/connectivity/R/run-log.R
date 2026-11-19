@@ -1,6 +1,11 @@
 # Run logs: a text record, beside each output, of the settings that produced
 # it. The format is shared with the Python package and Eco-Connectivity Studio,
-# which restores the settings of a log dropped on its window.
+# which restores the settings of a log dropped on its window. Format 2, as in
+# the Python package 3.0, always records the NoData crossing: "strict",
+# "landmass" or "none" (the legacy handling, nodata_crossing = NULL), with
+# crossing_width_km and crossing_cost under a mode.
+
+.LOG_FORMAT <- 2L
 
 .LOG_HEADER <- "# Connectivity run log"
 .IN_MEMORY <- "<in memory>"
@@ -79,7 +84,7 @@
 
     lines <- c(
         .LOG_HEADER,
-        entry("format", 1L),
+        entry("format", .LOG_FORMAT),
         entry("software", .log_quote(software)),
         entry("engine", .log_quote(paste("connectivity-core", core_version_impl()))),
         entry("created", .log_quote(format(created, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))),
@@ -96,6 +101,14 @@
         entry("window_size", .log_integer(settings$window_size)),
         entry("outer_window", .log_integer(settings$outer_window)),
         entry("window_mode", .log_quote(settings$window_mode)),
+        # Always written, so a log of a legacy run is never restored with a newer default
+        entry("nodata_crossing", .log_quote(
+            if (is.null(settings$nodata_crossing)) "none" else settings$nodata_crossing
+        )),
+        if (!is.null(settings$nodata_crossing)) {
+            c(entry("crossing_width_km", .log_real(settings$crossing_width)),
+              entry("crossing_cost", .log_real(settings$crossing_cost)))
+        },
         entry("condition_scale", .log_scale(condition_scale)),
         if (indicator == "parc") entry("protected_areas_scale", .log_scale(protected_areas_scale)),
         if (!is.null(resistance)) entry("resistance_scale", .log_scale(resistance_scale)),

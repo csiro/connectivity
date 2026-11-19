@@ -25,9 +25,9 @@ dependencies = [
 
 [[package]]
 name = "connectivity-core"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b535d23ba887417e4cec6511151cbed83a49cc4d846db2f701b5d324d80a0a6"
+checksum = "d2635382686c9d86d58ed995da27301048f9d002090e0433d0c3cd3c25b82041"
 dependencies = [
  "anyhow",
  "ndarray",

@@ -461,9 +461,7 @@ Version 3.0 settles the API; see [NEWS.md](https://github.com/csiro/connectivity
 
 - **NoData crossing.** The default is now strict crossing of gaps up to 0.5 km
   at a cost of 4, a change of method that changes results near NoData. Pass
-  `nodata_crossing=None` to reproduce 2.x results. The 2.6 development builds'
-  `crossing_traversal=t` is replaced by `crossing_cost=(1 - max_cost) * t + max_cost`,
-  which is no longer tied to `max_cost`.
+  `nodata_crossing=None` to reproduce 2.x results.
 
   ```python
   connectedness("condition.tif", nodata_crossing=None)  # as 2.x

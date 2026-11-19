@@ -613,7 +613,7 @@ def test_signatures():
         cn.beri(COND, CURRENT)
     with pytest.raises(TypeError, match="current_file"):
         cn.beri(condition_file=COND, **SHORT)
-    for removed in ("margin_px", "crossing_traversal", "valid_margin_px"):
+    for removed in ("margin_px", "valid_margin_px"):
         with pytest.raises(TypeError, match=removed):
             cn.connectedness(condition_file=COND, **{removed: 0}, **SHORT)
     np.testing.assert_array_equal(bits(cn.connectedness(COND, **SHORT)),

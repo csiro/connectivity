@@ -252,8 +252,6 @@ def test_crossing_modes():
     for cost, text in ((0.5, "0.5"), (0.0, "0"), (-1.0, "-1"), (float("nan"), "NaN"), (float("inf"), "inf")):
         with pytest.raises(RuntimeError, match=f"Crossing cost must be a finite number >= 1, got {text}$"):
             run(nodata_crossing="strict", crossing_cost=cost)
-    with pytest.raises(TypeError):
-        run(nodata_crossing="strict", crossing_traversal=0.5)
 
 
 # The binding's crossing defaults are the core's Config::default(), exposed as DEFAULT_CROSSING:

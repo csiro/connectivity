@@ -175,7 +175,7 @@ test_that("terra file IO preserves values, metadata and nodata", {
     expect_python_result(climate, "beri")
 })
 
-test_that("band selects one layer of condition, PA and resistance rasters", {
+test_that("band selects one layer of condition rasters only", {
     fixture <- raster_fixture(93L, 101L)
     series <- function(raster) return(c(raster^0.5, raster, raster^1.5))
     condition <- series(fixture$condition)
@@ -203,19 +203,14 @@ test_that("band selects one layer of condition, PA and resistance rasters", {
         }
         expect_identical(do.call(run, c(list(connectedness, condition_file = single, option = 1), border)),
                          expected)
-        # Multi-layer PA and resistance rasters use the same layer; transgrids keep theirs.
+        # Transgrids keep all their layers.
         expect_identical(
-            do.call(run, c(list(connectedness, condition_file = condition, pa_file = pa,
-                                resistance_file = resistance, band = k), border)),
-            do.call(run, c(list(connectedness, condition_file = condition[[k]], pa_file = pa[[k]],
-                                resistance_file = resistance[[k]]), border)))
-        expect_identical(
-            do.call(run, c(list(beri, condition_file = condition, resistance_file = resistance,
+            do.call(run, c(list(beri, condition_file = condition, resistance_file = resistance[[k]],
                                 band = k), climate, border)),
             do.call(run, c(list(beri, condition_file = condition[[k]],
                                 resistance_file = resistance[[k]]), climate, border)))
     }
-    # Single-layer PA and resistance rasters are used as they are with every layer.
+    # Single-layer PA and resistance rasters are used with every layer.
     expect_identical(
         run(connectedness, condition_file = condition, pa_file = fixture$pa,
             resistance_file = fixture$resistance, band = k),
@@ -226,15 +221,23 @@ test_that("band selects one layer of condition, PA and resistance rasters", {
     # Errors
     expect_error(analyse(connectedness, condition_file = condition),
                  "^condition_file must have exactly one layer; choose one with band$")
+    # PA and resistance rasters must have one layer, whatever band is
+    single_only <- paste0(" must have exactly one layer, but it has 3; band selects a layer of ",
+                          "condition_file only, so write the layer to use to a single-band raster first$")
     expect_error(analyse(beri, condition_file = fixture$condition, current_file = fixture$current,
-                     resistance_file = resistance),
-                 "^resistance_file must have exactly one layer; choose one with band$")
+                         resistance_file = resistance),
+                 paste0("^resistance_file", single_only))
+    expect_error(analyse(connectedness, condition_file = condition[[k]], pa_file = pa),
+                 paste0("^pa_file", single_only))
+    expect_error(analyse(connectedness, condition_file = condition, pa_file = pa, band = k),
+                 paste0("^pa_file", single_only))
+    expect_error(analyse(connectedness, condition_file = condition, resistance_file = resistance,
+                         band = k),
+                 paste0("^resistance_file", single_only))
     expect_error(analyse(connectedness, condition_file = condition, band = 4),
                  "^band must be between 1 and 3, the number of layers in condition_file$")
     expect_error(analyse(connectedness, condition_file = fixture$condition, band = 2),
                  "^band must be between 1 and 1, the number of layers in condition_file$")
-    expect_error(analyse(connectedness, condition_file = condition, pa_file = pa[[1:2]], band = 3),
-                 "^band must be between 1 and 2, the number of layers in pa_file$")
     for (band in list(0, -1, 1.5, TRUE, "1", c(1, 2), NA)) {
         expect_error(analyse(beri, condition_file = condition, current_file = fixture$current, band = band),
                      "^band must contain")

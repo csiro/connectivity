@@ -105,7 +105,10 @@ condition <- rast(condition_file)
 ```
 
 Condition and protected-area proportions must be single-layer rasters with
-values in `[0, 1]`; missing condition cells are excluded. Use `scale = 100` for
+values in `[0, 1]`; missing condition cells are excluded. For a multi-layer
+condition raster, such as a time series with one layer per year, `band`
+selects the layer to use; it applies to the condition raster only, so
+protected-area and resistance rasters must have one layer. Use `scale = 100` for
 condition stored as percentages, or `scale = c(100, 100)` to scale both
 condition and protected fractions in `connectedness()`. Auxiliary rasters must
 share the condition raster's CRS, resolution and pixel grid and cover the
@@ -185,8 +188,9 @@ condition raster. Scores are averaged across the dispersal bandwidths in
 2. `connectedness * condition`
 3. `sqrt(connectedness * condition)`, the geometric mean (default)
 
-The call below spells out the default settings, which the following examples
-also use:
+Every argument after `condition_file` must be named, in `connectedness()` and
+`beri()` alike. The call below spells out the default settings, which the
+following examples also use:
 
 ```r
 habitat <- connectedness(
@@ -196,6 +200,9 @@ habitat <- connectedness(
     window_size = 5,
     outer_window = 9,
     window_mode = "circular",
+    nodata_crossing = "strict",
+    crossing_width = 0.5,
+    crossing_cost = 4,
     levels = c(2, 4, 8, 16, 32),
     option = 3
 )
@@ -255,6 +262,9 @@ parc <- connectedness(
     window_size = 5,
     outer_window = 9,
     window_mode = "circular",
+    nodata_crossing = "strict",
+    crossing_width = 0.5,
+    crossing_cost = 4,
     levels = c(2, 4, 8, 16, 32)
 )
 
@@ -302,6 +312,9 @@ beri_map <- beri(
     window_size = 5,
     outer_window = 9,
     window_mode = "circular",
+    nodata_crossing = "strict",
+    crossing_width = 0.5,
+    crossing_cost = 4,
     levels = c(2, 4, 8, 16, 32)
 )
 
@@ -317,6 +330,52 @@ character vector of filenames, a list of rasters or filenames, or one
 supplied scenarios; omit `future_files` for a current-climate index. Climate
 bands are not scaled by `scale`, and missing climate bands give a cell
 similarity of zero.
+
+### NoData gaps: rivers, coasts and islands
+
+NoData cells of the condition raster, such as sea, lakes and rivers, never count
+as habitat. The multi-resolution graph aggregates cells into coarser levels, and
+`nodata_crossing` sets whether and where paths may cross NoData:
+
+- `"strict"` (the default; version 0.1.0 used the legacy handling below):
+  NoData gaps at most `crossing_width` kilometres wide (default 0.5) may be
+  crossed, at `crossing_cost` (default 4), and no wider gap is crossed at any level,
+  including rivers and inlets inside one landmass. Routes around a barrier
+  within the search window are kept.
+- `"landmass"`: separate landmasses are linked only across such gaps; within
+  one landmass coarse levels still link land across wider water.
+- `NULL`: the legacy handling of version 0.1.0. The finest level does not cross
+  NoData, but coarse levels link land on both sides of gaps narrower than about
+  twice their cell size, at no cost, and only from some cells, which can leave
+  steps on islands, coastlines and irregular boundaries.
+
+`crossing_cost` is a movement cost per unit distance relative to intact land:
+1 costs as much as intact land, 4 four times as much. It is independent of
+condition, resistance and `max_cost`. Crossed NoData only carries movement: it
+adds no habitat area, protected area or climate. The default width and cost are
+provisional general-purpose assumptions that allow limited crossing of narrow
+gaps, not calibrated ecological thresholds; choose wider gaps or other costs
+explicitly, as sensitivity scenarios. `crossing_width = 0` crosses no gap but
+keeps strict routing, which is not the same as `nodata_crossing = NULL`.
+
+```r
+# A sensitivity scenario: cross gaps up to 2 km wide at twice the cost of intact land
+habitat_2km <- connectedness(
+    condition_file = condition_file,
+    nodata_crossing = "strict",
+    crossing_width = 2,
+    crossing_cost = 2
+)
+
+# Reproduce results of version 0.1.0
+habitat_legacy <- connectedness(condition_file = condition_file, nodata_crossing = NULL)
+```
+
+The default changes results wherever NoData lies near land, an intentional
+change of method after version 0.1.0. On the bundled Tasmania raster, whose
+cells are about 0.69 x 0.93 km so that no gap is 0.5 km wide or less, it
+changes almost every cell of plain connectedness slightly (by 0.003 on average,
+up to 0.21), and 4% of cells by more than 0.01.
 
 ### Run logs
 

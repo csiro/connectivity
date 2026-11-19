@@ -1,6 +1,6 @@
 # Raster preparation stays in R; numerical aggregation and routing stay in Rust.
-# A `single` raster is reduced to one layer with `band`; see .select_layer().
-.as_raster <- function(x, name, single = TRUE, values = TRUE, band = NULL, fixed = TRUE) {
+# A `single` raster is reduced to one layer; see .select_layer().
+.as_raster <- function(x, name, single = TRUE, values = TRUE, band = NULL) {
     if (is.character(x) && length(x) == 1L && !is.na(x) && nzchar(x)) {
         x <- terra::rast(x)
     }
@@ -10,22 +10,28 @@
     if (any(terra::is.rotated(x))) {
         stop(name, " has a rotated grid; rectify it before analysis", call. = FALSE)
     }
-    if (single) x <- .select_layer(x, name, band, fixed)
+    if (single) x <- .select_layer(x, name, band)
     if (values && !terra::hasValues(x)) {
         stop(name, " has no raster values", call. = FALSE)
     }
     return(x)
 }
 
-# Layer `band` of a raster, as Python's _select_band(). A multi-layer raster
-# needs `band` in range. A single-layer raster is used as it is when `band` is
-# NULL or the raster is `fixed`, such as a protected-area layer used with every
-# layer of a condition time series.
-.select_layer <- function(x, name, band, fixed) {
+# One layer of a raster, as Python's _select_band(). `band` is a layer of
+# condition_file, which needs it in range when it has several layers. Every
+# other single raster, such as pa_file or resistance_file, is read with
+# `band = NULL` and must have one layer, whatever layer of condition_file is
+# used.
+.select_layer <- function(x, name, band) {
     layers <- terra::nlyr(x)
-    if (layers == 1L && (is.null(band) || fixed)) return(x)
     if (is.null(band)) {
-        stop(name, " must have exactly one layer; choose one with band", call. = FALSE)
+        if (layers == 1L) return(x)
+        if (name == "condition_file") {
+            stop(name, " must have exactly one layer; choose one with band", call. = FALSE)
+        }
+        stop(name, " must have exactly one layer, but it has ", layers, "; band selects a layer ",
+             "of condition_file only, so write the layer to use to a single-band raster first",
+             call. = FALSE)
     }
     if (band > layers) {
         stop("band must be between 1 and ", layers, ", the number of layers in ", name,
@@ -112,8 +118,82 @@
     return(lapply(scales, .check_scale))
 }
 
+# Arguments that connectedness() and beri() received in `...`: every argument
+# after condition_file must be named in full, as Python's keyword-only ones, so
+# a positional call of 0.1.0 or a misspelt name fails instead of being ignored.
+.check_named <- function(...) {
+    if (!...length()) return(invisible(NULL))
+    given <- ...names()
+    if (is.null(given)) given <- rep("", ...length())
+    given[is.na(given) | !nzchar(given)] <- "<unnamed>"
+    stop("Arguments after condition_file must be named; unknown: ",
+         paste(given, collapse = ", "), call. = FALSE)
+}
+
+# The defaults of crossing_width (km) and crossing_cost, as in Python and the core.
+.CROSSING_WIDTH <- 0.5
+.CROSSING_COST <- 4
+
+# The NoData crossing settings, after checking them: `nodata_crossing` is
+# "strict", "landmass" or NULL (the legacy handling of 0.1.0), the width is in
+# kilometres. Under NULL the width and cost are ignored, with a message when
+# they are changed and `notice` is TRUE. Messages match Python's.
+.normalise_crossing <- function(nodata_crossing, crossing_width, crossing_cost, notice = TRUE) {
+    mode_error <- "nodata_crossing must be 'strict', 'landmass' or NULL"
+    if (!is.null(nodata_crossing)) {
+        if (!is.character(nodata_crossing) || length(nodata_crossing) != 1L ||
+            is.na(nodata_crossing)) {
+            stop(mode_error, call. = FALSE)
+        }
+        nodata_crossing <- tolower(trimws(nodata_crossing))
+        if (!nodata_crossing %in% c("strict", "landmass")) stop(mode_error, call. = FALSE)
+    }
+    number <- function(x, minimum) {
+        return(is.numeric(x) && length(x) == 1L && is.finite(x) && x >= minimum)
+    }
+    shown <- function(x) return(paste(deparse(x, width.cutoff = 60L, nlines = 1L), collapse = ""))
+    if (!number(crossing_width, 0)) {
+        stop("crossing_width must be a finite number of kilometres >= 0, got ",
+             shown(crossing_width), call. = FALSE)
+    }
+    if (!number(crossing_cost, 1)) {
+        stop("crossing_cost must be a finite number >= 1, got ", shown(crossing_cost),
+             call. = FALSE)
+    }
+    if (notice && is.null(nodata_crossing) &&
+        (crossing_width != .CROSSING_WIDTH || crossing_cost != .CROSSING_COST)) {
+        message("crossing_width and crossing_cost are ignored because nodata_crossing is ",
+                "NULL (legacy NoData handling)")
+    }
+    return(list(nodata_crossing = nodata_crossing,
+                crossing_width = as.double(crossing_width),
+                crossing_cost = as.double(crossing_cost)))
+}
+
+# Coarsest-level cells to add to an open-border read so that NoData gaps up to
+# `width` km wide near the edge of the analysed cells are judged as in the
+# whole raster: the width in the raster's narrowest cells, plus one cell, as
+# Python's _crossing_pad(). `transform` is in metres or degrees.
+.crossing_pad <- function(reference, width, transform, is_geo, max_level) {
+    if (width <= 0) return(0)
+    a <- abs(transform[1])
+    e <- abs(transform[5])
+    if (is_geo) {
+        # Arc lengths on the engine's 6371 km sphere; cells are narrowest nearest a pole
+        km <- 6371 * pi / 180
+        lat <- min(max(abs(terra::ymax(reference)), abs(terra::ymin(reference))), 89)
+        cell <- min(e * km, a * km * cos(lat * pi / 180))
+    } else {
+        cell <- min(a, e) / 1000
+    }
+    return(ceiling((ceiling(width / cell) + 1) / max_level))
+}
+
+# Checked method settings of connectedness() and beri(), passed on to
+# connectivity_matrix() by .run_connectivity().
 .normalise_settings <- function(levels, lambdas, max_cost, window_size,
-                                outer_window, window_mode, n_threads) {
+                                outer_window, window_mode, n_threads,
+                                nodata_crossing, crossing_width, crossing_cost) {
     if (is.null(levels)) stop("levels must be provided", call. = FALSE)
     if (length(levels)) .check_integers(levels, "levels", minimum = 1L)
     lower <- 2^floor(log2(levels))
@@ -142,11 +222,11 @@
         stop("window_mode must be 'circular' or 'square'", call. = FALSE)
     }
     if (!is.null(n_threads)) .check_integers(n_threads, "n_threads", length = 1L, minimum = 1L)
-    return(list(
+    return(c(list(
         levels = as.integer(levels), lambdas = lambdas, max_cost = max_cost,
         window_size = window_size, outer_window = outer_window,
         window_mode = window_mode, n_threads = n_threads
-    ))
+    ), .normalise_crossing(nodata_crossing, crossing_width, crossing_cost)))
 }
 
 # Bounds are converted to half-open, zero-based pixel windows on the full grid.
@@ -178,13 +258,13 @@
     return(matrix(terra::as.array(covered)[, , 1L] != 0, nrow(template), ncol(template)))
 }
 
-# Open borders read context around the polygon; only cells touched by the
-# polygon are evaluated and returned. Closed borders also remove the outside
-# landscape from paths and habitat.
+# Open borders read context around the polygon, with NoData crossing also its
+# gap width; only cells touched by the polygon are evaluated and returned.
+# Closed borders also remove the outside landscape from paths and habitat.
 .prepare_landscape <- function(condition_file, polygon_mask, closed_border,
                                settings, scale, band = NULL) {
     if (!is.null(band)) .check_integers(band, "band", length = 1L, minimum = 1L)
-    reference <- .as_raster(condition_file, "condition_file", band = band, fixed = FALSE)
+    reference <- .as_raster(condition_file, "condition_file", band = band)
     .check_flag(closed_border, "closed_border")
     .check_scale(scale)
     coordinates <- .coordinate_info(reference)
@@ -203,6 +283,12 @@
         padding <- 0
         if (!closed_border) {
             context <- (settings$outer_window + 3) * max(settings$levels)
+            # NoData crossing judges gaps up to its width beyond the analysed cells
+            if (!is.null(settings$nodata_crossing)) {
+                context <- context + max(settings$levels) * .crossing_pad(
+                    reference, settings$crossing_width, coordinates$transform,
+                    coordinates$is_geo, max(settings$levels))
+            }
             padding <- (context + 0.5) * max(terra::res(reference))
         }
         window <- .pixel_window(bounds, reference, padding,
@@ -224,7 +310,8 @@
 }
 
 .read_window <- function(x, prepared, name, scale = NULL, single = TRUE) {
-    raster <- .as_raster(x, name, single = single, band = prepared$band)
+    # Only condition_file has layers to select; it is read as its selected layer
+    raster <- .as_raster(x, name, single = single)
     target <- prepared$template
     tolerance <- terra::res(target) * 1e-8
     if (!terra::same.crs(raster, target) ||

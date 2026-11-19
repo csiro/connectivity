@@ -1,5 +1,6 @@
 # Same asymmetric, multi-level tile and frozen samples as the Rust public API
-# and Python binding tests. R uses one-based indices below.
+# and Python binding tests, with their legacy NoData handling. R uses
+# one-based indices below.
 multilevel <- function(mode = "circular", beri = FALSE, pa_to_pa = FALSE) {
     i <- row(matrix(0, 13, 14)) - 1L
     j <- col(i) - 1L
@@ -25,7 +26,7 @@ multilevel <- function(mode = "circular", beri = FALSE, pa_to_pa = FALSE) {
         transgrids = transgrids, transform = c(1000, 0, 500000, 0, -1000, 6000000),
         levels = c(1, 2, 4), lambdas = c(2, 20), max_cost = 20,
         window_size = 3L, outer_window = 5L, offsets = c(3L, 5L),
-        window_mode = mode, pa_to_pa = pa_to_pa, n_threads = 1L
+        window_mode = mode, pa_to_pa = pa_to_pa, nodata_crossing = NULL, n_threads = 1L
     ))
 }
 

@@ -6,25 +6,29 @@
 \usage{
 connectedness(
   condition_file,
+  ...,
+  band = NULL,
+  scale = NULL,
   pa_file = NULL,
   pa_to_pa = FALSE,
-  polygon_mask = NULL,
-  closed_border = FALSE,
+  option = 3L,
+  resistance_file = NULL,
+  resistance_scale = NULL,
   lambdas = c(2, 20, 200),
   max_cost = 2,
+  levels = c(2, 4, 8, 16, 32),
   window_size = 5L,
   outer_window = 9L,
   window_mode = "circular",
-  levels = c(2, 4, 8, 16, 32),
-  scale = NULL,
-  resistance_file = NULL,
-  resistance_scale = NULL,
-  option = 3L,
+  polygon_mask = NULL,
+  closed_border = FALSE,
+  nodata_crossing = "strict",
+  crossing_width = 0.5,
+  crossing_cost = 4,
   n_threads = NULL,
   filename = "",
   overwrite = FALSE,
   wopt = list(),
-  band = NULL,
   save_log = getOption("connectivity.save_log", .log_by_env())
 )
 }
@@ -35,14 +39,55 @@ after scaling. Missing values are excluded. All raster inputs must share a
 CRS, resolution and pixel grid; auxiliary rasters must cover the analysis
 window. They are not resampled.}
 
+\item{...}{Not used. Every argument after \code{condition_file} must be named,
+in full; an unnamed or unknown argument is an error.}
+
+\item{band}{Optional layer of \code{condition_file} to use, numbered from 1 as in
+GDAL, rasterio and terra, for a filename or a \code{SpatRaster} alike: for
+example, one year of a condition time series. It selects a layer of
+\code{condition_file} only: \code{pa_file} and \code{resistance_file} must have one
+layer. \code{NULL} (default) requires a single-layer \code{condition_file}.}
+
+\item{scale}{Optional divisor for condition values (\code{NULL}, 0 or 1 leaves
+values unchanged). A numeric pair or list supplies separate condition and
+protected-area divisors, e.g. \code{c(100, 100)} or \code{list(NULL, 100)}.}
+
 \item{pa_file}{Optional single-layer protected-area proportion raster or
-filename; see \code{band} for a multi-layer one. Values must be in \verb{[0, 1]}
+filename. Values must be in \verb{[0, 1]}
 after scaling. The analysis uses the maximum of condition and protected
 fraction and evaluates protected cells only. PARC output is raw
 connectedness, independent of \code{option}.}
 
 \item{pa_to_pa}{Restrict PARC destinations to protected cells, weighted by
 protected fraction at coarser levels. Ignored if \code{pa_file} is \code{NULL}.}
+
+\item{option}{Habitat output: 1 returns connectedness, 2 multiplies by
+condition, and 3 (default) takes the square root of that product.}
+
+\item{resistance_file}{Optional single-layer resistance raster or filename.
+After scaling, \code{1 - resistance} is
+clipped to \verb{[0, 1]} for path traversal, so resistance of 1 or more,
+including \code{Inf}, gives the highest path cost. Missing resistance at valid
+condition cells falls back to condition and raises a warning. Resistance
+does not alter habitat values or the domain.}
+
+\item{resistance_scale}{Optional divisor applied only to resistance values.}
+
+\item{lambdas}{Positive dispersal bandwidths in kilometres. Scores are
+averaged across bandwidths.}
+
+\item{max_cost}{Finite relative traversal cost, at least 1.}
+
+\item{levels}{Aggregation levels. Positive integers are rounded to the
+nearest power of two, with ties rounded down; level 1 is included. The
+result must be a continuous power-of-two sequence. Aggregated grids are
+computed from the base-resolution values.}
+
+\item{window_size}{Positive odd window size for non-coarsest levels.}
+
+\item{outer_window}{Positive odd coarsest window size, at least \code{window_size}.}
+
+\item{window_mode}{Either \code{"circular"} (default) or \code{"square"}.}
 
 \item{polygon_mask}{Optional polygon \code{terra::SpatVector}, vector filename or
 object accepted by \code{\link[terra:vect]{terra::vect()}}. Polygons are reprojected to the raster
@@ -54,37 +99,50 @@ are \code{NA}. Cells touched by a polygon are included.}
 the analysis before cropping the output. If \code{TRUE}, exclude the landscape
 outside \code{polygon_mask} from both paths and habitat contributions.}
 
-\item{lambdas}{Positive dispersal bandwidths in kilometres. Scores are
-averaged across bandwidths.}
+\item{nodata_crossing}{How NoData cells of \code{condition_file} (sea, lakes,
+rivers) are treated. NoData in gaps at most \code{crossing_width} kilometres
+wide may be crossed, at \code{crossing_cost}; crossed NoData carries movement
+only, with no habitat area, protected area or climate. Wider gaps are not
+crossed.
+\itemize{
+\item \code{"strict"} (default): no wider gap is crossed anywhere, at any level,
+including rivers and inlets inside one landmass; routes around them
+within the search window are kept.
+\item \code{"landmass"}: separate landmasses are linked only across such gaps;
+within one landmass coarse levels still link land across wider water
+(an inlet, or a river whose banks join), as with \code{NULL}.
+\item \code{NULL}: the legacy handling of version 0.1.0, which ignores
+\code{crossing_width} and \code{crossing_cost}. The finest level does not cross
+NoData, but coarser levels link land on both sides of gaps narrower than
+about twice their cell size, at no cost, and only from some cells: a
+compact island near other land can have a linked part and a sealed
+part. Pass \code{nodata_crossing = NULL} to reproduce results of 0.1.0.
+}
 
-\item{max_cost}{Finite relative traversal cost, at least 1.}
+Without NoData every setting gives the same results. \code{"strict"} with
+\code{crossing_width = 0} crosses no gap, but it is not \code{NULL}: coarse levels
+never link land across NoData.}
 
-\item{window_size}{Positive odd window size for non-coarsest levels.}
+\item{crossing_width}{Widest NoData gap crossed, in kilometres (finite,
+at least 0); 0 crosses none. The default, 0.5, is a provisional
+general-purpose assumption that allows limited crossing of narrow gaps,
+not a calibrated ecological threshold; wider gaps are sensitivity
+scenarios to choose explicitly. A gap's width is measured once at base
+resolution, as the widest disc that fits between the land cells; on
+geographic grids cells are narrower towards the poles. This also makes
+NoData in concave corners of a coastline crossable, within about a fifth
+of the width of the corner. With an open-border \code{polygon_mask}, the read
+window grows by this width. Ignored when \code{nodata_crossing} is \code{NULL}, with
+a message when changed.}
 
-\item{outer_window}{Positive odd coarsest window size, at least \code{window_size}.}
-
-\item{window_mode}{Either \code{"circular"} (default) or \code{"square"}.}
-
-\item{levels}{Aggregation levels. Positive integers are rounded to the
-nearest power of two, with ties rounded down; level 1 is included. The
-result must be a continuous power-of-two sequence. Aggregated grids are
-computed from the base-resolution values.}
-
-\item{scale}{Optional divisor for condition values (\code{NULL}, 0 or 1 leaves
-values unchanged). A numeric pair or list supplies separate condition and
-protected-area divisors, e.g. \code{c(100, 100)} or \code{list(NULL, 100)}.}
-
-\item{resistance_file}{Optional single-layer resistance raster or filename;
-see \code{band} for a multi-layer one. After scaling, \code{1 - resistance} is
-clipped to \verb{[0, 1]} for path traversal, so resistance of 1 or more,
-including \code{Inf}, gives the highest path cost. Missing resistance at valid
-condition cells falls back to condition and raises a warning. Resistance
-does not alter habitat values or the domain.}
-
-\item{resistance_scale}{Optional divisor applied only to resistance values.}
-
-\item{option}{Habitat output: 1 returns connectedness, 2 multiplies by
-condition, and 3 (default) takes the square root of that product.}
+\item{crossing_cost}{Movement cost of crossed NoData per unit distance,
+relative to intact land (finite, at least 1): 1 costs as much as intact
+land, the default 4 four times as much. It is independent of condition,
+resistance and \code{max_cost}, and may exceed \code{max_cost}; a coarse cell
+holding land and crossable NoData costs the mean of their costs. Like the
+width, the default is a provisional assumption, not a calibrated value. No
+effect when \code{crossing_width} is 0; ignored when \code{nodata_crossing} is
+\code{NULL}, with a message when changed.}
 
 \item{n_threads}{Optional positive integer number of worker threads.
 \code{NULL} uses Rayon's default thread count.}
@@ -95,12 +153,6 @@ in-memory raster. Files default to single-precision floating-point values.}
 \item{overwrite}{Whether an existing output file may be overwritten.}
 
 \item{wopt}{Named list of \code{\link[terra:writeRaster]{terra::writeRaster()}} options.}
-
-\item{band}{Optional layer of \code{condition_file} to use, numbered from 1 as in
-GDAL, rasterio and terra, for a filename or a \code{SpatRaster} alike: for
-example, one year of a condition time series. A multi-layer \code{pa_file} or
-\code{resistance_file} uses the same layer, and a single-layer one is used as
-it is. \code{NULL} (default) requires single-layer inputs.}
 
 \item{save_log}{Whether to write a run log beside \code{filename} once it is
 written: a small text file of the settings, inputs and output of the run,
@@ -169,8 +221,13 @@ cases are judged from whether the extent fits longitude/latitude bounds.
 Each call reads the complete analysis window into memory. For large areas,
 call the function for each tile from \code{\link[=make_tiles]{make_tiles()}} with open borders and
 merge the results with \code{\link[terra:merge]{terra::merge()}}. The read window is padded by
-\code{(outer_window + 3) * max(levels)} pixels and aligned to the full raster's
-coarsest aggregation grid, so merged tiles equal a whole-raster result.
+\code{(outer_window + 3) * max(levels)} pixels, plus \code{crossing_width} with a
+NoData crossing mode, and aligned to the full raster's coarsest
+aggregation grid, so merged tiles equal a whole-raster result.
+
+After version 0.1.0 the default NoData handling changed from the legacy
+one to \code{nodata_crossing = "strict"}, so results change wherever NoData
+lies near land. Pass \code{nodata_crossing = NULL} to reproduce results of 0.1.0.
 }
 \examples{
 condition_file <- system.file("extdata", "site_condition.tif", package = "connectivity")
@@ -186,6 +243,9 @@ conn <- connectedness(
     outer_window = 9,
     levels = c(2, 4, 8, 16, 32),
     window_mode = "circular",
+    nodata_crossing = "strict",
+    crossing_width = 0.5,
+    crossing_cost = 4,
     option = 1,
     n_threads = 2
 )
@@ -199,6 +259,9 @@ habitat <- connectedness(
     outer_window = 9,
     levels = c(2, 4, 8, 16, 32),
     window_mode = "circular",
+    nodata_crossing = "strict",
+    crossing_width = 0.5,
+    crossing_cost = 4,
     option = 3,
     n_threads = 2
 )

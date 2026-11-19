@@ -20,7 +20,8 @@ test_that("the documented example is written as Python and Studio write it", {
     skip_on_os("windows")
     settings <- list(lambdas = c(2, 20, 200), levels = c(1L, 2L, 4L, 8L, 16L, 32L),
                      max_cost = 2, window_size = 5L, outer_window = 9L,
-                     window_mode = "circular", n_threads = 8L)
+                     window_mode = "circular", n_threads = 8L,
+                     nodata_crossing = "strict", crossing_width = 0.5, crossing_cost = 4)
     text <- .format_log(
         created = as.POSIXct("2026-11-11 03:14:15", tz = "UTC"), elapsed = 42.48,
         indicator = "connected_habitat", settings = settings,
@@ -31,7 +32,7 @@ test_that("the documented example is written as Python and Studio write it", {
     )
     expect_identical(text, paste0(paste(c(
         "# Connectivity run log",
-        "format = 1",
+        "format = 2",
         "software = \"connectivity R package 0.1.0.9000\"",
         paste0("engine = \"connectivity-core ", core_version_impl(), "\""),
         "created = \"2026-11-11T03:14:15Z\"",
@@ -46,6 +47,9 @@ test_that("the documented example is written as Python and Studio write it", {
         "window_size = 5",
         "outer_window = 9",
         "window_mode = \"circular\"",
+        "nodata_crossing = \"strict\"",
+        "crossing_width_km = 0.5",
+        "crossing_cost = 4",
         "condition_scale = 1",
         "resistance_scale = 100",
         "",
@@ -113,6 +117,7 @@ test_that("Connected Habitat runs write a log of the settings they used", {
         "window_size = 3",
         "outer_window = 5",
         "window_mode = \"circular\"",
+        "nodata_crossing = \"none\"",
         "condition_scale = 1",
         "",
         "[inputs]",
@@ -155,7 +160,8 @@ test_that("a layer of a multi-layer file is logged as the file and its band", {
     fixture <- raster_fixture()
     series <- write_tif(c(fixture$condition^0.5, fixture$condition))
     single <- write_tif(fixture$condition)
-    resistance <- write_tif(c(fixture$resistance, fixture$resistance))
+    resistance <- write_tif(fixture$resistance)
+    resistances <- write_tif(c(fixture$resistance, fixture$resistance))
     out <- tempfile(fileext = ".tif")
     logged <- function(...) {
         run_quietly(connectedness, ..., filename = out)
@@ -175,7 +181,7 @@ test_that("a layer of a multi-layer file is logged as the file and its band", {
     expect_identical(logged(condition_file = series, band = 1L, resistance_file = terra::rast(resistance)),
                      c("resistance_scale = 1", "band = 1", file("condition", series),
                        file("resistance", terra::sources(terra::rast(resistance)))))
-    expect_identical(logged(condition_file = single, resistance_file = terra::rast(resistance)[[1L]]),
+    expect_identical(logged(condition_file = single, resistance_file = terra::rast(resistances)[[1L]]),
                      c("resistance_scale = 1", file("condition", single), "resistance = \"<in memory>\""))
 })
 

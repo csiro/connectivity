@@ -61,7 +61,10 @@ test_that("invalid arguments fail before entering the core", {
         list(mask = matrix(NA, 13, 14)), list(mask = matrix(FALSE, 2, 3)),
         list(traversal = matrix(0.5, 2, 3)), list(transgrids = list()),
         list(transgrids = list(array(0, c(13, 14, 2)), array(0, c(13, 14, 3)))),
-        list(transgrids = list(array(0, c(2, 3, 2))))
+        list(transgrids = list(array(0, c(2, 3, 2)))),
+        list(nodata_crossing = "none"), list(nodata_crossing = NA),
+        list(crossing_width = -1), list(crossing_width = Inf),
+        list(crossing_cost = 0.5), list(crossing_cost = NaN)
     )
     for (change in cases) {
         args <- multilevel()

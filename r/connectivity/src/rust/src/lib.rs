@@ -1,5 +1,7 @@
 use connectivity_core::ndarray::{Array2, Array3};
-use connectivity_core::{level_transforms, Affine, Config, Inputs, Polygon, WindowMode};
+use connectivity_core::{
+    level_transforms, Affine, Config, Crossing, CrossingMode, Inputs, Polygon, WindowMode,
+};
 use extendr_api::prelude::*;
 use extendr_api::Result;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -45,6 +47,9 @@ fn connectivity_matrix_impl(
     offsets: Vec<i32>,
     window_mode: &str,
     pa_to_pa: bool,
+    nodata_crossing: &str,
+    crossing_width: f64,
+    crossing_cost: f64,
     n_threads: i32,
 ) -> Result<Vec<f64>> {
     if shape.len() != 2
@@ -108,6 +113,15 @@ fn connectivity_matrix_impl(
             "Lambdas and max_cost must be representable as finite float32 values",
         ));
     }
+    // "none" is the legacy NoData handling of 0.1.0; the core checks width and cost.
+    let crossing = match nodata_crossing {
+        "none" => None,
+        mode => Some(Crossing {
+            mode: CrossingMode::parse(mode).map_err(error)?,
+            width: crossing_width as f32,
+            cost: crossing_cost as f32,
+        }),
+    };
     let offsets = (offsets[0] as usize, offsets[1] as usize);
     let base = (
         transform[0],
@@ -135,6 +149,7 @@ fn connectivity_matrix_impl(
         offsets,
         window_mode: WindowMode::parse(window_mode).map_err(error)?,
         pa_to_pa,
+        crossing,
     };
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(n_threads as usize)
