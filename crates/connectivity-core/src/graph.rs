@@ -19,7 +19,7 @@ pub struct Nodes {
     pub frac: Vec<f32>,        // area fraction of the cell inside the window
     pub cond: Vec<f32>,        // condition
     pub trav: Vec<f32>,        // traversal value (condition when no traversal raster)
-    pub weight: Vec<f32>,      // path weight w = (1 - max_cost) * trav + max_cost
+    pub weight: Vec<f32>,      // path weight w = (1 - max_cost) * trav + max_cost, or crossing::mixed_weight
     pub count: Vec<f32>,       // cell count or area weight times the fraction
     pub pa: Vec<f32>,          // protected fraction (1.0 when pa_to_pa is off)
     pub rim: Vec<bool>,        // geometric outer-edge flag (circular windows)

@@ -584,7 +584,7 @@ pub fn load_workload(dir: &std::path::Path) -> Fixture {
             "pa_to_pa" => f.pa_to_pa = rest[0] == "1",
             "crossing" => {
                 let mode = CrossingMode::parse(rest[0]).unwrap();
-                f.crossing = Some(Crossing { mode, width: f32_bits(rest[1]), traversal: f32_bits(rest[2]) });
+                f.crossing = Some(Crossing { mode, width: f32_bits(rest[1]), cost: f32_bits(rest[2]) });
             }
             "transform" => {
                 let v: Vec<f64> = rest[1..].iter().map(|s| f64::from_bits(s.parse().unwrap())).collect();

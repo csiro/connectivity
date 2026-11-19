@@ -33,8 +33,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let inputs = Inputs { condition: &condition, mask: &mask, traversal: None, transgrids: None, transforms: &transforms };
     let config = Config { levels: &levels, lambdas: &[2.0, 20.0], outer_window: 5, offsets, ..Config::default() };
 
+    // The default crossing is strict: NoData gaps up to 0.5 km wide (none here) are crossed at a
+    // cost of 4, and no wider gap is crossed at any level. `crossing: None` is the legacy handling,
+    // under which coarse levels link land across narrow NoData gaps at no cost
     let connectedness = connectivity(&inputs, &config)?;
     summary("connectedness", &connectedness);
+    summary("connectedness, legacy", &connectivity(&inputs, &Config { crossing: None, ..config })?);
     // Connected Habitat is caller post-processing; Python's default is option 3
     let mut habitat = connectedness.clone();
     Zip::from(&mut habitat).and(&condition).for_each(|h, &c| *h = (c * *h).sqrt());

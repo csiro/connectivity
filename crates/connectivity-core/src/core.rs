@@ -70,9 +70,9 @@ pub fn conn_cross(inputs: &Inputs, config: &Config, cross: &Crossing, relax: boo
 }
 
 /// `prepare` under a NoData crossing mode. NoData in gaps up to `cross.width` km wide is
-/// crossed at traversal value `cross.traversal` and carries no habitat area. Mode 1 admits only
-/// the focal cell's group of touching land and crossable NoData; mode 2 splits coarse cells
-/// into pieces of touching traversable cells, linked only where their base cells touch.
+/// crossed at path weight `cross.cost` and carries no habitat area. Mode 1 admits only the focal
+/// cell's group of touching land and crossable NoData; mode 2 splits coarse cells into pieces of
+/// touching traversable cells, linked only where their base cells touch.
 pub fn prepare_cross<'a>(inputs: &Inputs<'a>, config: &Config<'a>, cross: &Crossing, relax: bool) -> Result<Context<'a>> {
     validate(inputs, config)?;
     check_crossing(cross, &inputs.transforms[&1], config.is_geo)?;
@@ -83,25 +83,30 @@ pub fn prepare_cross<'a>(inputs: &Inputs<'a>, config: &Config<'a>, cross: &Cross
     let base_tr = inputs.transforms[&1];
     let (dy, dx) = crossing::cell_km(&base_tr, cond.nrows(), config.is_geo);
     let cells = crossing::crossable(&cond.mapv(f32::is_finite), cross.width as f64, dy, &dx)?;
-    // Land keeps its traversal value (NaN falls back to condition in the overviews, as without
-    // a crossing mode), or its condition when no traversal is given; other NoData gets NaN, so
-    // a traversal value there never makes it passable. A traversal input already NaN off land
-    // and crossable cells serves as it is, and without one or crossable cells, condition does
-    // (no traversal overview is built, as without a crossing mode).
+    // Traversal values are those of land: a traversal input with finite values on NoData is
+    // confined to land (copied), so they never make NoData passable or enter coarse means;
+    // otherwise it is borrowed, and without one condition serves, as without a crossing mode.
     let traversal = inputs.traversal;
-    let stray = |t: &Array2<f32>| t.indexed_iter().any(|(ij, v)| v.is_finite() && !cond[ij].is_finite() && !cells[ij]);
-    let trav_full = (cells.iter().any(|&c| c) || traversal.is_some_and(stray)).then(|| {
+    let stray = |t: &Array2<f32>| t.indexed_iter().any(|(ij, v)| v.is_finite() && !cond[ij].is_finite());
+    let confined = traversal.filter(|t| stray(t)).map(|t| {
+        Array2::from_shape_fn(cond.dim(), |ij| if cond[ij].is_finite() { t[ij] } else { f32::NAN })
+    });
+    let trav = confined.as_ref().or(traversal);
+    // Crossable NoData costs `cross.cost` in place of a traversal value: its share among each
+    // cell's cells with a path weight (1 on crossable NoData, 0 on land with a traversal value,
+    // NaN elsewhere) mixes the two weights (`crossing::mixed_weight`). Without crossable cells
+    // no share is built and the weights are those of land, as without a crossing mode.
+    let share = cells.iter().any(|&c| c).then(|| {
         Array2::from_shape_fn(cond.dim(), |ij| {
-            if cond[ij].is_finite() {
-                traversal.map_or(cond[ij], |t| t[ij])
-            } else if cells[ij] {
-                cross.traversal
+            if cells[ij] {
+                1.0
+            } else if cond[ij].is_finite() && trav.map_or(cond[ij], |t| t[ij]).is_finite() {
+                0.0
             } else {
                 f32::NAN
             }
         })
     });
-    let trav = trav_full.as_ref().or(traversal);
     let areas = config.is_geo.then(|| overview::row_areas(&base_tr, cond.nrows()));
     let mask = config.pa_to_pa.then_some(inputs.mask);
     let trans = inputs.transgrids.unwrap_or_default();
@@ -116,12 +121,13 @@ pub fn prepare_cross<'a>(inputs: &Inputs<'a>, config: &Config<'a>, cross: &Cross
         }
     };
     drop(base);
-    // The context owns a synthesized traversal; it borrows a caller's
-    let trav = match trav_full {
+    // The context owns a confined traversal; it borrows a caller's
+    let trav = match confined {
         Some(owned) => Some(CowArray::from(owned)),
         None => traversal.map(|t| CowArray::from(t.view())),
     };
-    let mut ctx = prepare_with(inputs, config, true, trav)?;
+    let mut ctx = prepare_with(inputs, config, true, trav, share)?;
+    ctx.cost = cross.cost;
     ctx.gate = gate;
     ctx.strict = strict;
     Ok(ctx)
@@ -245,9 +251,9 @@ fn check_crossing(cross: &Crossing, base: &Affine, is_geo: bool) -> Result<()> {
         cross.width
     );
     ensure!(
-        (0.0..=1.0).contains(&cross.traversal),
-        "Crossing traversal must be in [0, 1], got {}",
-        cross.traversal
+        cross.cost.is_finite() && cross.cost >= 1.0,
+        "Crossing cost must be a finite number >= 1, got {}",
+        cross.cost
     );
     let Affine { x_scale: a, x_skew: b, y_skew: d, y_scale: e, .. } = *base;
     let (width, height) = (a.hypot(d), b.hypot(e));
@@ -265,25 +271,28 @@ fn check_crossing(cross: &Crossing, base: &Affine, is_geo: bool) -> Result<()> {
     Ok(())
 }
 
-/// Overviews and settings for one call, indexed by ascending level.
+/// Overviews and settings for one call without a crossing mode (`Config::crossing` `None`, the
+/// legacy NoData handling), indexed by ascending level.
 pub fn prepare<'a>(inputs: &Inputs<'a>, config: &Config<'a>) -> Result<Context<'a>> {
-    prepare_with(inputs, config, false, inputs.traversal.map(|t| CowArray::from(t.view())))
+    prepare_with(inputs, config, false, inputs.traversal.map(|t| CowArray::from(t.view())), None)
 }
 
 /// `prepare`; with `land_climate`, coarse cells' transgrid means use their land (finite
 /// condition) cells only, as the crossing modes' parts do, so a cell holding one part gets that
 /// part's climate and land that cannot be reached never changes it. `trav` is the traversal used
-/// for path weights (a crossing mode can synthesize one), replacing `inputs.traversal`.
+/// for path weights (a crossing mode can confine one to land), replacing `inputs.traversal`, and
+/// `share` the base level of crossable NoData's share of path weights (crossing modes).
 ///
 /// Ownership: the base level of condition, traversal and transgrids is borrowed from the caller
 /// (a transgrid that is not in standard layout is copied once into it, so each cell's bands are
 /// contiguous; see `climate`); the context owns only what it derives: coarse levels, weights, the
-/// protected fraction and a synthesized traversal.
+/// protected fraction, a confined traversal and the crossing share.
 fn prepare_with<'a>(
     inputs: &Inputs<'a>,
     config: &Config<'a>,
     land_climate: bool,
     trav: Option<CowArray<'a, f32, Ix2>>,
+    share: Option<Array2<f32>>,
 ) -> Result<Context<'a>> {
     validate(inputs, config)?;
     let Inputs {
@@ -353,6 +362,11 @@ fn prepare_with<'a>(
         let rest = overviews(base.view(), Resampling::Average, None);
         std::iter::once(base).chain(rest.into_iter().map(CowArray::from)).collect()
     });
+    // Crossing modes: crossable NoData's share of each cell's path weights, averaged as traversal
+    let cross: Option<Vec<Array2<f32>>> = share.map(|base| {
+        let rest = overviews(base.view(), Resampling::Average, None);
+        std::iter::once(base).chain(rest).collect()
+    });
 
     // BERI climate: every scenario's base level (borrowed in standard layout) and band means
     let dims: Vec<(usize, usize)> = cond.iter().map(|a| a.dim()).collect();
@@ -405,6 +419,7 @@ fn prepare_with<'a>(
         weight,
         pa,
         trav,
+        cross,
         climate,
         transforms,
         fringe,
@@ -416,6 +431,7 @@ fn prepare_with<'a>(
         mode: window_mode,
         is_geo,
         factor: max_cost,
+        cost: 1.0,
         pa_to_pa,
         lambdas,
         gate: None,
@@ -608,7 +624,7 @@ mod tests {
         let modes = [None, Some(CrossingMode::Strict), Some(CrossingMode::Landmass)];
         for (mode, crossing) in [WindowMode::Circular, WindowMode::Square].into_iter().flat_map(|m| modes.map(|c| (m, c))) {
             let mut f = crate::testkit::Fixture::multilevel(mode, true, false);
-            f.crossing = crossing.map(|mode| Crossing { mode, width: 1.5, traversal: 0.3 });
+            f.crossing = crossing.map(|mode| Crossing { mode, width: 1.5, cost: 3.5 });
             let expected = conn(&f.inputs(), &f.config()).unwrap();
             let grids = f.trans.clone().unwrap();
             let band_major: Vec<Array3<f32>> = grids

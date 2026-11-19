@@ -452,9 +452,9 @@ use crate::core::{conn_cross, prepare_cross, Stats};
 use crate::{Crossing, CrossingMode};
 
 /// Crossing settings for a width in base cells of the inputs' grid.
-fn crossing(inputs: &Inputs, mode: CrossingMode, cells: f64, traversal: f32) -> Crossing {
+fn crossing(inputs: &Inputs, mode: CrossingMode, cells: f64, cost: f32) -> Crossing {
     let width = (cells * inputs.transforms[&1].x_scale.abs() / 1000.0) as f32;
-    Crossing { mode, width, traversal }
+    Crossing { mode, width, cost }
 }
 
 fn conn_gated(inputs: &Inputs, cfg: &Config, cells: f64, t: f32) -> anyhow::Result<(Array2<f32>, Stats)> {
@@ -506,7 +506,7 @@ const MODES: [Mode; 7] = [
     Mode::Strict(8.0),
 ];
 /// Traversal value of crossable NoData: 0 costs as much as fully degraded land.
-const CROSS: f32 = 0.0;
+const CROSS: f32 = 2.0; // crossing cost: these scenes' max_cost, as the earlier traversal 0
 
 fn score(cond: &Array2<f32>, focal: &Array2<bool>, mode: Mode) -> Array2<f32> {
     let mask = Array2::from_shape_fn(cond.dim(), |ij| !focal[ij] || cond[ij].is_nan());
@@ -1680,7 +1680,7 @@ fn under(f: &crate::testkit::Fixture, mode: Option<(CrossingMode, bool)>, width:
     match mode {
         None => conn(&f.inputs(), &f.config()).unwrap(),
         Some((mode, relax)) => {
-            let cross = Crossing { mode, width, traversal: 0.0 };
+            let cross = Crossing { mode, width, cost: 2.0 };
             conn_cross(&f.inputs(), &f.config(), &cross, relax).unwrap().0
         }
     }
@@ -1857,7 +1857,7 @@ fn check_variants() {
 }
 
 // Every node standing for crossable NoData alone carries no habitat area, no protected
-// fraction and no climate similarity, in both modes
+// fraction and no climate similarity, and costs the crossing cost whatever max_cost, in both modes
 #[test]
 fn check_crossable() {
     let (cond, west) = inlet_small(4);
@@ -1868,7 +1868,7 @@ fn check_crossable() {
     f.trans = Some(climate(&f.cond, 2, 2));
     f.transforms = level_transforms((RES, 0.0, 0.0, 0.0, -RES, f.cond.nrows() as f64 * RES), &f.levels, (0, 0));
     for (mode, relax) in ALL {
-        let cross = Crossing { mode, width: 1.0, traversal: 0.25 };
+        let cross = Crossing { mode, width: 1.0, cost: 3.5 };
         let ctx = prepare_cross(&f.inputs(), &f.config(), &cross, relax).unwrap();
         let mut s = Scratch::new(&ctx);
         s.eval(&ctx, 100, 50).unwrap();
@@ -1877,11 +1877,136 @@ fn check_crossable() {
         assert!(!water.is_empty(), "{}", label(mode, relax));
         for &u in &water {
             assert_eq!((n.cond[u], n.pa[u]), (0.0, 0.0), "{}", label(mode, relax));
-            if n.level[u] == 0 {
-                assert_eq!(n.trav[u], 0.25, "{}", label(mode, relax));
+            assert_eq!(n.weight[u], 3.5, "{}", label(mode, relax));
+        }
+    }
+}
+
+/// 8-connected components of `cells` (row-major list of (row, column)), numbered from 0 in
+/// order of first appearance, computed by flood fill for `check_weights`.
+fn components(cells: &[(usize, usize)]) -> Vec<usize> {
+    let mut label = vec![usize::MAX; cells.len()];
+    let mut next = 0;
+    for start in 0..cells.len() {
+        if label[start] != usize::MAX {
+            continue;
+        }
+        label[start] = next;
+        let mut stack = vec![start];
+        while let Some(k) = stack.pop() {
+            for m in 0..cells.len() {
+                let near = cells[k].0.abs_diff(cells[m].0) <= 1 && cells[k].1.abs_diff(cells[m].1) <= 1;
+                if near && label[m] == usize::MAX {
+                    label[m] = next;
+                    stack.push(m);
+                }
+            }
+        }
+        next += 1;
+    }
+    label
+}
+
+// Every node's path weight is the mean of the weights of its base cells that have one, worked out
+// here from the definition: land at (1 - max_cost) t + max_cost for its traversal value t,
+// crossable NoData at the crossing cost, whatever max_cost and the traversal values on NoData.
+// Covers base cells, coarse cells mixing land and crossable NoData, cells split into several
+// pieces (strict) and group parts (landmass), with costs below, at and above max_cost
+#[test]
+fn check_weights() {
+    use crate::crossing::crossable;
+    let (h, w) = (24, 28);
+    // A river two cells wide (columns 9 and 10), wider than the 1.5 km crossing width, with a
+    // one-cell bay in its west bank at (5, 8) and a one-cell pond in the east bank at (13, 13)
+    let mut cond = Array2::from_shape_fn((h, w), |(i, j)| 0.2 + ((i * 7 + j * 13) % 10) as f32 * 0.08);
+    fill(&mut cond, 0..h, 9..11, f32::NAN);
+    cond[[5, 8]] = f32::NAN;
+    cond[[13, 13]] = f32::NAN;
+    // Traversal values differ from condition, and are finite on NoData, where they must not count
+    let trav = Array2::from_shape_fn((h, w), |(i, j)| ((i * 5 + j * 3) % 11) as f32 / 10.0);
+    let cells = crossable(&cond.mapv(f32::is_finite), 1.5, 1.0, &[1.0; 24]).unwrap();
+    assert!(cells[[5, 8]] && cells[[13, 13]], "bay and pond are crossable");
+    assert!((0..h).all(|i| !cells[[i, 9]] && !cells[[i, 10]]), "the river is not");
+    let levels = vec![1, 2, 4];
+    let mut f = crate::testkit::Fixture {
+        mask: Array2::from_elem((h, w), true),
+        trav: Some(trav.clone()),
+        trans: None,
+        transforms: level_transforms((1000.0, 0.0, 0.0, 0.0, -1000.0, h as f64 * 1000.0), &levels, (0, 0)),
+        levels,
+        lambdas: vec![2.0, 20.0],
+        is_geo: false,
+        max_cost: 2.0,
+        window_size: 3,
+        outer_window: 5,
+        offsets: (0, 0),
+        mode: WindowMode::Circular,
+        pa_to_pa: false,
+        crossing: None,
+        cond: cond.clone(),
+    };
+    let domain = |i: usize, j: usize| cond[[i, j]].is_finite() || cells[[i, j]];
+    let all: Vec<(usize, usize)> = (0..h).flat_map(|i| (0..w).map(move |j| (i, j))).filter(|&(i, j)| domain(i, j)).collect();
+    let group = components(&all);
+    let group_of = |ij: (usize, usize)| group[all.iter().position(|&c| c == ij).unwrap()];
+    let mut checked = [0usize; 3]; // nodes of base cells, coarse single parts, coarse multi parts
+    for (max_cost, cost) in [(2.0f32, 4.0f32), (2.0, 1.0), (20.0, 4.0), (1.0, 4.0), (2.0, 30.0)] {
+        f.max_cost = max_cost;
+        let weight = |(i, j): (usize, usize)| -> f64 {
+            if cells[[i, j]] {
+                cost as f64
+            } else {
+                (1.0 - max_cost as f64) * trav[[i, j]] as f64 + max_cost as f64
+            }
+        };
+        let mean = |list: &[(usize, usize)]| list.iter().map(|&c| weight(c)).sum::<f64>() / list.len() as f64;
+        for (mode, relax) in ALL {
+            let cross = Crossing { mode, width: 1.5, cost };
+            let ctx = prepare_cross(&f.inputs(), &f.config(), &cross, relax).unwrap();
+            let mut s = Scratch::new(&ctx);
+            for focal in [(5, 7), (6, 8), (13, 12), (12, 14)] {
+                s.eval(&ctx, focal.0, focal.1).unwrap();
+                let n = &s.nodes;
+                let mut u = 0;
+                while u < n.len() {
+                    // The nodes of one cell are consecutive
+                    let (l, cell) = (n.level[u], n.cell[u]);
+                    let end = (u..n.len()).find(|&v| (n.level[v], n.cell[v]) != (l, cell)).unwrap_or(n.len());
+                    let size = ctx.levels[l as usize] as usize;
+                    let (r0, c0) = (cell.0 as usize * size, cell.1 as usize * size);
+                    let inside: Vec<(usize, usize)> = (r0..(r0 + size).min(h))
+                        .flat_map(|i| (c0..(c0 + size).min(w)).map(move |j| (i, j)))
+                        .filter(|&(i, j)| domain(i, j))
+                        .collect();
+                    let mut expected: Vec<f64> = match mode {
+                        // Pieces: 8-connected parts of the cell's traversable cells
+                        CrossingMode::Strict => {
+                            let parts = components(&inside);
+                            (0..=*parts.iter().max().unwrap())
+                                .map(|p| mean(&inside.iter().zip(&parts).filter(|(_, &q)| q == p).map(|(&c, _)| c).collect::<Vec<_>>()))
+                                .collect()
+                        }
+                        // The focal cell's group within the cell
+                        CrossingMode::Landmass => {
+                            let own = group_of(focal);
+                            vec![mean(&inside.iter().copied().filter(|&c| group_of(c) == own).collect::<Vec<_>>())]
+                        }
+                    };
+                    let mut actual: Vec<f64> = n.weight[u..end].iter().map(|&v| v as f64).collect();
+                    expected.sort_by(f64::total_cmp);
+                    actual.sort_by(f64::total_cmp);
+                    let at = format!("{} max_cost {max_cost} cost {cost} focal {focal:?} level {l} cell {cell:?}", label(mode, relax));
+                    assert_eq!(actual.len(), expected.len(), "{at}");
+                    for (a, e) in actual.iter().zip(&expected) {
+                        assert!((a - e).abs() <= 1.0e-5 * e, "{at}: {a} vs {e}");
+                    }
+                    checked[if l == 0 { 0 } else if end - u > 1 { 2 } else { 1 }] += end - u;
+                    u = end;
+                }
             }
         }
     }
+    assert!(checked.iter().all(|&c| c > 0), "{checked:?}");
 }
 
 /// Mainland (rows 0 to `m - 1`) and a 5 x 30 island 2 rows below it, so that for some `m` coarse
@@ -1926,7 +2051,7 @@ fn check_shared() {
             let alone = shared_fixture(m, false, pa, beri);
             let island = with.mask.mapv(|masked| !masked);
             for (mode, relax) in ALL {
-                let cross = Crossing { mode, width: 0.0, traversal: 0.0 };
+                let cross = Crossing { mode, width: 0.0, cost: 2.0 };
                 let (a, stats) = conn_cross(&with.inputs(), &with.config(), &cross, relax).unwrap();
                 let parts = match mode {
                     CrossingMode::Landmass => stats.gate.unwrap().mixed,
@@ -2155,7 +2280,7 @@ fn bundled_geo() {
         f.trans = beri.then(|| trans.clone());
         for (mode, relax) in ALL.into_iter().take(2) {
             for w in [0.0f32, width] {
-                let c = Crossing { mode, width: w, traversal: 0.0 };
+                let c = Crossing { mode, width: w, cost: 2.0 };
                 let (_, stats) = conn_cross(&f.inputs(), &f.config(), &c, relax).unwrap();
                 let bytes = stats.gate.map(|g| g.bytes).or(stats.strict.map(|s| s.bytes)).unwrap();
                 println!("{} W={w} beri={beri} ({} scenarios): held {:.2} MB", label(mode, relax), trans.len(), bytes as f64 / 1e6);

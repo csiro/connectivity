@@ -1,8 +1,9 @@
 """Regression tests for the Python workflows on the bundled Tasmania example data.
 
 Exact checks (NaN placement, bit-identical repeats, seamless tiles, Connected Habitat
-post-processing) are platform independent; the frozen means come from the 2.5.0 build
-and allow for floating-point differences between platforms.
+post-processing) are platform independent; the frozen means come from the 2.5.0 build, run with
+the legacy NoData handling (`nodata_crossing=None`) that 2.5.0 had, and allow for floating-point
+differences between platforms.
 """
 
 import warnings
@@ -13,6 +14,7 @@ import rasterio
 from affine import Affine
 
 import connectivity as cn
+import rust_conn
 from connectivity import example_data_path
 from connectivity.rastio import read_raster
 from connectivity.utils import _crop_array
@@ -25,9 +27,10 @@ THREADS = 4
 SHAPE = (516, 588)
 RTOL = 1e-5
 SHORT = dict(levels=[2, 4], outer_window=3, window_size=3, n_threads=THREADS)
+LEGACY = dict(nodata_crossing=None)  # the NoData handling of 2.x, which FROZEN comes from
 
-# Frozen from the 2.5.0 build (default parameters unless noted, window_size 5); the R
-# package 0.1.0 gives the same means to within 1e-7 relative
+# Frozen from the 2.5.0 build (default parameters unless noted, window_size 5), reproduced with
+# LEGACY; the R package 0.1.0 gives the same means to within 1e-7 relative
 FROZEN = {
     "connectedness": 0.36226272030321477,
     "parc": 0.6971164168245471,
@@ -54,7 +57,7 @@ def condition():
 
 @pytest.fixture(scope="module")
 def connectedness():
-    return cn.connectedness(condition_file=COND, option=1, n_threads=THREADS)
+    return cn.connectedness(condition_file=COND, option=1, n_threads=THREADS, **LEGACY)
 
 
 def test_habitat_options(condition, connectedness):
@@ -64,8 +67,8 @@ def test_habitat_options(condition, connectedness):
     assert finite.min() >= 0 and finite.max() <= 1
     assert nanmean(connectedness) == pytest.approx(FROZEN["connectedness"], rel=RTOL)
     # Connected Habitat stays in Python: option 2 = condition x connectedness, 3 = its sqrt
-    option2 = cn.connectedness(condition_file=COND, option=2, n_threads=THREADS)
-    option3 = cn.connectedness(condition_file=COND, n_threads=THREADS)
+    option2 = cn.connectedness(condition_file=COND, option=2, n_threads=THREADS, **LEGACY)
+    option3 = cn.connectedness(condition_file=COND, n_threads=THREADS, **LEGACY)
     np.testing.assert_array_equal(bits(option2), bits(condition * connectedness))
     np.testing.assert_array_equal(bits(option3), bits(np.sqrt(np.multiply(condition, connectedness, dtype=np.float32))))
     with pytest.raises(ValueError, match="option must be one of 1, 2, or 3"):
@@ -81,7 +84,7 @@ def test_thread_counts():
 
 def test_window_modes(connectedness):
     square = cn.connectedness(condition_file=COND, option=1, window_mode="square", levels=[2, 4, 8],
-                              outer_window=5, n_threads=THREADS)
+                              outer_window=5, n_threads=THREADS, **LEGACY)
     np.testing.assert_array_equal(np.isnan(square), np.isnan(connectedness))
     assert nanmean(square) == pytest.approx(FROZEN["square_short"], rel=RTOL)
     with pytest.raises(ValueError, match="window_mode must be one of"):
@@ -90,8 +93,8 @@ def test_window_modes(connectedness):
 
 def test_parc_and_pa_to_pa(condition):
     pa = read_raster(PA, levels=[1])[0]
-    parc = cn.connectedness(condition_file=COND, pa_file=PA, n_threads=THREADS)
-    gated = cn.connectedness(condition_file=COND, pa_file=PA, pa_to_pa=True, n_threads=THREADS)
+    parc = cn.connectedness(condition_file=COND, pa_file=PA, n_threads=THREADS, **LEGACY)
+    gated = cn.connectedness(condition_file=COND, pa_file=PA, pa_to_pa=True, n_threads=THREADS, **LEGACY)
     # PARC evaluates protected cells only; the output is connectedness (no Connected Habitat)
     protected = (pa > 0) & ~np.isnan(np.maximum(condition, pa))
     np.testing.assert_array_equal(np.isfinite(parc), protected)
@@ -104,8 +107,8 @@ def test_parc_and_pa_to_pa(condition):
 
 
 def test_beri(connectedness):
-    out = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES, n_threads=THREADS)
-    current = cn.beri(condition_file=COND, current_file=CURRENT, n_threads=THREADS)
+    out = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES, n_threads=THREADS, **LEGACY)
+    current = cn.beri(condition_file=COND, current_file=CURRENT, n_threads=THREADS, **LEGACY)
     for result in (out, current):
         assert result.dtype == np.float32 and result.shape == SHAPE
         np.testing.assert_array_equal(np.isnan(result), np.isnan(connectedness))
@@ -170,7 +173,7 @@ def test_input_grids(tmp_path):
     with pytest.raises(ValueError, match=f"^current_file {same}"):
         cn.beri(condition_file=COND, current_file=write_grid(tmp_path / "coarse.tif", crs, transform * Affine.scale(2)),
                 **SHORT)
-    with pytest.raises(ValueError, match="^pa_file must have exactly one layer; choose one with band$"):
+    with pytest.raises(ValueError, match="^pa_file must have exactly one layer, but it has 19; band selects a layer"):
         cn.connectedness(condition_file=COND, pa_file=CURRENT, **SHORT)
     fewer = moved(tmp_path / "bands.tif", FUTURES[0], bands=list(range(1, 19)))
     with pytest.raises(ValueError, match="^Every climate scenario must have the same band count as current_file$"):
@@ -234,56 +237,58 @@ def test_band(tmp_path):
     write_resistance(resistance)
     cond, pa, res = (write_series(tmp_path / f"{n}_series.tif", f)
                      for n, f in (("cond", COND), ("pa", PA), ("res", resistance)))
-    k = 3
-    one = {n: moved(tmp_path / f"{n}{k}.tif", f, bands=[k]) for n, f in (("cond", cond), ("pa", pa), ("res", res))}
     with rasterio.open(COND) as src:
         transform, crs = src.transform, src.crs
     x0, y0, r = transform.c, transform.f, transform.a
     polygon = gpd.GeoDataFrame(geometry=[box(x0 + 100.3 * r, y0 - 300.7 * r, x0 + 220.6 * r, y0 - 180.2 * r)], crs=crs)
     climate = dict(current_file=CURRENT, future_files=FUTURES[:1])
-    # Band k of a series gives the result of a single-band copy of band k, bit for bit; a
-    # multi-band PA or resistance raster uses the same band, transgrids keep all theirs
+    # Band k of a condition series gives the result of a single-band copy of band k, bit for bit.
+    # The band selects condition only: single-band PA and resistance rasters are used as they
+    # are with every band, and the climate rasters keep all their bands
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)  # missing resistance cells
-        for border in ({}, dict(polygon_mask=polygon), dict(polygon_mask=polygon, closed_border=True)):
-            args = SHORT | border
-            out_file = str(tmp_path / "out.tif")
-            out = cn.connectedness(condition_file=cond, band=k, filename=out_file, **args)
-            np.testing.assert_array_equal(bits(out), bits(cn.connectedness(condition_file=one["cond"], **args)))
-            with rasterio.open(out_file) as written:
-                np.testing.assert_array_equal(bits(written.read(1)), bits(out))
-            np.testing.assert_array_equal(
-                bits(cn.connectedness(condition_file=cond, pa_file=pa, resistance_file=res, band=k, **args)),
-                bits(cn.connectedness(condition_file=one["cond"], pa_file=one["pa"], resistance_file=one["res"],
-                                      **args)))
-            np.testing.assert_array_equal(
-                bits(cn.beri(condition_file=cond, resistance_file=res, band=k, **climate, **args)),
-                bits(cn.beri(condition_file=one["cond"], resistance_file=one["res"], **climate, **args)))
-        # Single-band PA and resistance rasters are used as they are with every band
-        np.testing.assert_array_equal(
-            bits(cn.connectedness(condition_file=cond, pa_file=PA, resistance_file=resistance, band=k, **SHORT)),
-            bits(cn.connectedness(condition_file=one["cond"], pa_file=PA, resistance_file=resistance, **SHORT)))
+        for k in (1, 3):
+            one = moved(tmp_path / f"cond{k}.tif", cond, bands=[k])
+            borders = ({}, dict(polygon_mask=polygon), dict(polygon_mask=polygon, closed_border=True)) if k == 3 else ({},)
+            for border in borders:
+                args = SHORT | border
+                out_file = str(tmp_path / "out.tif")
+                out = cn.connectedness(condition_file=cond, band=k, filename=out_file, **args)
+                np.testing.assert_array_equal(bits(out), bits(cn.connectedness(condition_file=one, **args)))
+                with rasterio.open(out_file) as written:
+                    np.testing.assert_array_equal(bits(written.read(1)), bits(out))
+                np.testing.assert_array_equal(
+                    bits(cn.connectedness(condition_file=cond, pa_file=PA, resistance_file=resistance, band=k, **args)),
+                    bits(cn.connectedness(condition_file=one, pa_file=PA, resistance_file=resistance, **args)))
+                np.testing.assert_array_equal(
+                    bits(cn.beri(condition_file=cond, resistance_file=resistance, band=k, **climate, **args)),
+                    bits(cn.beri(condition_file=one, resistance_file=resistance, **climate, **args)))
     # A single-band condition raster is band 1
     np.testing.assert_array_equal(bits(cn.connectedness(condition_file=COND, band=1, **SHORT)),
                                   bits(cn.connectedness(condition_file=COND, **SHORT)))
     # GDAL's vrt:// strings read one band too, and the output is still a GeoTIFF
+    k = 3
     out_file = str(tmp_path / "vrt.tif")
     out = cn.connectedness(condition_file=f"vrt://{cond}?bands={k}", filename=out_file, **SHORT)
     np.testing.assert_array_equal(bits(out), bits(cn.connectedness(condition_file=cond, band=k, **SHORT)))
     with rasterio.open(out_file) as written:
         assert written.driver == "GTiff"
         np.testing.assert_array_equal(bits(written.read(1)), bits(out))
-    # Errors
-    choose = "must have exactly one layer; choose one with band$"
-    with pytest.raises(ValueError, match=f"^condition_file {choose}"):
+    # Errors: a multi-band condition needs band; multi-band PA and resistance rasters are refused
+    # with or without band, which never picks one of their bands
+    with pytest.raises(ValueError, match="^condition_file must have exactly one layer; choose one with band$"):
         cn.connectedness(condition_file=cond, **SHORT)
-    with pytest.raises(ValueError, match=f"^resistance_file {choose}"):
-        cn.beri(condition_file=COND, current_file=CURRENT, resistance_file=res, **SHORT)
-    for count, name, args in ((3, "condition_file", dict(condition_file=cond, band=4)),
-                              (1, "condition_file", dict(condition_file=COND, band=2)),
-                              (2, "pa_file", dict(condition_file=cond, pa_file=write_series(tmp_path / "pa2.tif", PA, 2),
-                                                  band=3))):
-        with pytest.raises(ValueError, match=f"^band must be between 1 and {count}, the number of layers in {name}$"):
+    single = ("must have exactly one layer, but it has 3; band selects a layer of condition_file only, so "
+              "write the layer to use to a single-band raster first$")
+    for band in (None, 1, 3):
+        with pytest.raises(ValueError, match=f"^pa_file {single}"):
+            cn.connectedness(condition_file=cond if band else COND, pa_file=pa, band=band, **SHORT)
+        with pytest.raises(ValueError, match=f"^resistance_file {single}"):
+            cn.connectedness(condition_file=cond if band else COND, resistance_file=res, band=band, **SHORT)
+        with pytest.raises(ValueError, match=f"^resistance_file {single}"):
+            cn.beri(condition_file=cond if band else COND, resistance_file=res, band=band, **climate, **SHORT)
+    for count, args in ((3, dict(condition_file=cond, band=4)), (1, dict(condition_file=COND, band=2))):
+        with pytest.raises(ValueError, match=f"^band must be between 1 and {count}, the number of layers in condition_file$"):
             cn.connectedness(**args, **SHORT)
     for band in (0, -1, 1.0, True, "1"):
         with pytest.raises(ValueError, match="^band must be a positive integer$"):
@@ -347,7 +352,7 @@ def test_resistance_surface(tmp_path, connectedness):
     res_file = str(tmp_path / "resistance.tif")
     gaps = write_resistance(res_file)
     with pytest.warns(UserWarning, match=f"^{gaps} cell\\(s\\) have valid condition but missing resistance"):
-        out = cn.connectedness(condition_file=COND, resistance_file=res_file, option=1, n_threads=THREADS)
+        out = cn.connectedness(condition_file=COND, resistance_file=res_file, option=1, n_threads=THREADS, **LEGACY)
     np.testing.assert_array_equal(np.isnan(out), np.isnan(connectedness))
     assert not np.array_equal(bits(out), bits(connectedness))
     assert nanmean(out) == pytest.approx(FROZEN["resistance"], rel=RTOL)
@@ -385,7 +390,7 @@ def test_polygon_cells(connectedness):
               Point(x0 + 300.45 * r, y0 - 250.55 * r).buffer(60.3 * r)]
     for shape in shapes:
         polygon = gpd.GeoDataFrame(geometry=[shape], crs=crs)
-        out = cn.connectedness(condition_file=COND, polygon_mask=polygon, option=1, n_threads=THREADS)
+        out = cn.connectedness(condition_file=COND, polygon_mask=polygon, option=1, n_threads=THREADS, **LEGACY)
         assert type(out) is np.ndarray and out.dtype == np.float32
         # Open borders return every valid cell the polygon touches, as the whole raster scores
         # it; R's connectedness() returns the same cells and values
@@ -396,18 +401,28 @@ def test_polygon_cells(connectedness):
     # The crop reprojects a polygon in another CRS, as the read does
     polygon = gpd.GeoDataFrame(geometry=shapes[:1], crs=crs)
     with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)  # no margin is used internally
-        out = cn.connectedness(condition_file=COND, polygon_mask=polygon, option=1, n_threads=THREADS)
+        warnings.simplefilter("error", DeprecationWarning)  # no deprecated path is used internally
+        out = cn.connectedness(condition_file=COND, polygon_mask=polygon, option=1, n_threads=THREADS, **LEGACY)
     projected = cn.connectedness(condition_file=COND, polygon_mask=polygon.to_crs(3577), option=1,
-                                 n_threads=THREADS)
+                                 n_threads=THREADS, **LEGACY)
     np.testing.assert_array_equal(bits(projected), bits(out))
-    # Deprecated margins: margin_px is ignored, read_raster's margin still applies until 3.0
-    with pytest.warns(DeprecationWarning, match="'margin_px' is deprecated and ignored"):
-        margin = cn.connectedness(condition_file=COND, polygon_mask=polygon, margin_px=32, option=1,
-                                  n_threads=THREADS)
-    np.testing.assert_array_equal(bits(margin), bits(out))
-    with pytest.warns(DeprecationWarning, match="'valid_margin_px' is deprecated"):
-        read_raster(COND, polygon=polygon, levels=[1, 2, 4, 8], expand_px=3)
+    # The margin arguments deprecated in 2.5 are gone, so passing them fails
+    with pytest.raises(TypeError, match="margin_px"):
+        cn.connectedness(condition_file=COND, polygon_mask=polygon, margin_px=32, **SHORT)
+    with pytest.raises(TypeError, match="margin_px"):
+        cn.beri(condition_file=COND, current_file=CURRENT, polygon_mask=polygon, margin_px=0, **SHORT)
+    with pytest.raises(TypeError, match="valid_margin_px"):
+        read_raster(COND, polygon=polygon, levels=[1, 2, 4, 8], expand_px=3, valid_margin_px=0)
+    # A sixth positional argument, once valid_margin_px, is refused rather than taken as band
+    with pytest.raises(TypeError):
+        read_raster(COND, polygon, [1, 2], None, 3, 1)
+    # read_raster marks only the cells the polygon touches as valid, with open and closed borders;
+    # an open border reads the cells around them as context
+    for expand in (0, 3):
+        data, mask, transforms, _, _, _ = read_raster(COND, polygon=polygon, levels=[1, 2, 4, 8], expand_px=expand)
+        touched = ~geometry_mask(shapes[:1], data.shape, Affine(*transforms[1]), all_touched=True)
+        np.testing.assert_array_equal(~mask, touched & np.isfinite(data))
+        assert (np.isfinite(data) & ~touched).any() == (expand > 0)
 
 
 def test_pixel_coverage(tmp_path):
@@ -459,7 +474,7 @@ def pieces(land):
 
 
 # Without a permitted crossing, small pieces of land score the same, bit for bit, alone and with
-# all the other land, in both modes; without a crossing mode some do not
+# all the other land, in both modes; with the legacy handling some do not
 def test_crossing_islands(tmp_path, condition):
     labels, sizes = pieces(np.isfinite(condition))
     picks = [p for p in np.argsort(sizes)[::-1][1:] if 100 <= sizes[p] <= 700][:3]
@@ -473,10 +488,11 @@ def test_crossing_islands(tmp_path, condition):
             dst.write(np.where(labels == p, condition, profile["nodata"]).astype(np.float32), 1)
         alone[p] = str(path)
     for mode in (None, "landmass", "strict"):
-        together = cn.connectedness(condition_file=COND, option=1, nodata_crossing=mode, **CROSS)
+        settings = dict(nodata_crossing=mode) if mode is None else dict(nodata_crossing=mode, crossing_width=0)
+        together = cn.connectedness(condition_file=COND, option=1, **settings, **CROSS)
         same = []
         for p in picks:
-            out = cn.connectedness(condition_file=alone[p], option=1, nodata_crossing=mode, **CROSS)
+            out = cn.connectedness(condition_file=alone[p], option=1, **settings, **CROSS)
             inside = labels == p
             same.append(np.array_equal(bits(out)[inside], bits(together)[inside]))
         if mode is None:
@@ -491,7 +507,7 @@ def test_crossing_tiles():
         transform = src.transform
     tiles = cn.make_tiles(COND, nrows=2, ncols=2, align_to=32)
     for mode in ("landmass", "strict"):
-        settings = dict(nodata_crossing=mode, crossing_width=2.0, crossing_traversal=0.2, **CROSS)
+        settings = dict(nodata_crossing=mode, crossing_width=2.0, crossing_cost=3.0, **CROSS)
         whole = cn.connectedness(condition_file=COND, **settings)
         for k in range(len(tiles)):
             tile = tiles.iloc[[k]]
@@ -504,8 +520,8 @@ def test_crossing_tiles():
 
 # PARC and BERI run in both modes; a crossing changes some cells and leaves NaN where it was
 def test_crossing_indicators():
-    plain = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES[:1], **CROSS)
-    parc = cn.connectedness(condition_file=COND, pa_file=PA, pa_to_pa=True, **CROSS)
+    plain = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES[:1], **LEGACY, **CROSS)
+    parc = cn.connectedness(condition_file=COND, pa_file=PA, pa_to_pa=True, **LEGACY, **CROSS)
     for mode in ("landmass", "strict"):
         settings = dict(nodata_crossing=mode, crossing_width=2.0, **CROSS)
         beri = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES[:1], **settings)
@@ -517,15 +533,188 @@ def test_crossing_indicators():
 
 
 def test_crossing_settings(capsys):
-    for bad, error in [
-        (dict(nodata_crossing="river"), ValueError),
-        (dict(nodata_crossing=1), TypeError),
-        (dict(nodata_crossing="strict", crossing_width=-1), ValueError),
-        (dict(nodata_crossing="strict", crossing_width=float("inf")), ValueError),
-        (dict(nodata_crossing="strict", crossing_width="2"), ValueError),
-        (dict(nodata_crossing="strict", crossing_traversal=1.5), ValueError),
+    for bad, error, message in [
+        (dict(nodata_crossing="river"), ValueError, "nodata_crossing must be 'strict', 'landmass' or None"),
+        (dict(nodata_crossing="none"), ValueError, "nodata_crossing must be 'strict', 'landmass' or None"),
+        (dict(nodata_crossing=1), TypeError, "nodata_crossing must be 'strict', 'landmass' or None"),
+        (dict(crossing_width=-1), ValueError, "crossing_width must be a finite number of kilometres >= 0, got -1"),
+        (dict(crossing_width=float("inf")), ValueError, "crossing_width must be a finite number"),
+        (dict(crossing_width=float("nan")), ValueError, "crossing_width must be a finite number"),
+        (dict(crossing_width="2"), ValueError, "crossing_width must be a finite number"),
+        (dict(crossing_cost=0.5), ValueError, "crossing_cost must be a finite number >= 1, got 0.5"),
+        (dict(crossing_cost=0), ValueError, "crossing_cost must be a finite number >= 1, got 0"),
+        (dict(crossing_cost=-4), ValueError, "crossing_cost must be a finite number >= 1, got -4"),
+        (dict(crossing_cost=float("inf")), ValueError, "crossing_cost must be a finite number >= 1, got inf"),
+        (dict(crossing_cost=float("nan")), ValueError, "crossing_cost must be a finite number >= 1, got nan"),
+        (dict(crossing_cost=True), ValueError, "crossing_cost must be a finite number >= 1, got True"),
+        # Invalid values fail also where they would have no effect
+        (dict(nodata_crossing=None, crossing_cost=0.5), ValueError, "crossing_cost must be"),
+        (dict(nodata_crossing="landmass", crossing_width=0, crossing_cost=0.5), ValueError, "crossing_cost must be"),
     ]:
-        with pytest.raises(error):
-            cn.connectedness(condition_file=COND, **bad, **SHORT)
-    cn.connectedness(condition_file=COND, crossing_width=2.0, **SHORT)
-    assert "'crossing_width' and 'crossing_traversal' are ignored" in capsys.readouterr().out
+        for function, extra in ((cn.connectedness, {}), (cn.beri, dict(current_file=CURRENT))):
+            with pytest.raises(error, match=f"^{message}"):
+                function(condition_file=COND, **bad, **extra, **SHORT)
+    # Under the legacy handling a width and cost have no effect: a notice when they are changed
+    legacy = cn.connectedness(condition_file=COND, **LEGACY, **SHORT)
+    assert "ignored" not in capsys.readouterr().out
+    for changed in (dict(crossing_width=2.0), dict(crossing_cost=1.0), dict(crossing_width=0, crossing_cost=30)):
+        out = cn.connectedness(condition_file=COND, **LEGACY, **changed, **SHORT)
+        np.testing.assert_array_equal(bits(out), bits(legacy))
+        assert "'crossing_width' and 'crossing_cost' are ignored" in capsys.readouterr().out
+    # Integer and numpy values are accepted, and the mode ignores case and spaces
+    np.testing.assert_array_equal(
+        bits(cn.connectedness(condition_file=COND, nodata_crossing=" Strict ", crossing_width=np.float32(0.5),
+                              crossing_cost=np.int64(4), **SHORT)),
+        bits(cn.connectedness(condition_file=COND, **SHORT)))
+
+
+CONNECTEDNESS_ORDER = [
+    "condition_file", "band", "scale", "pa_file", "pa_to_pa", "option", "resistance_file", "resistance_scale",
+    "lambdas", "max_cost", "levels", "window_size", "outer_window", "window_mode", "polygon_mask", "closed_border",
+    "nodata_crossing", "crossing_width", "crossing_cost", "n_threads", "filename", "save_log",
+]
+BERI_ORDER = [
+    "condition_file", "band", "scale", "current_file", "future_files", "resistance_file", "resistance_scale",
+    "lambdas", "max_cost", "levels", "window_size", "outer_window", "window_mode", "polygon_mask", "closed_border",
+    "nodata_crossing", "crossing_width", "crossing_cost", "n_threads", "filename", "save_log",
+]
+# Defaults kept from 2.x; the crossing defaults are the core's
+DEFAULTS = dict(band=None, scale=None, pa_file=None, pa_to_pa=False, option=3, resistance_file=None,
+                resistance_scale=None, lambdas=[2, 20, 200], max_cost=2.0, levels=[2, 4, 8, 16, 32], window_size=5,
+                outer_window=9, window_mode="circular", polygon_mask=None, closed_border=False, future_files=None,
+                n_threads=None, filename="", save_log=None)
+
+
+# Every argument but condition_file is keyword-only, in the documented order, so a positional
+# call of 2.x fails instead of binding to another argument
+def test_signatures():
+    import inspect
+
+    for function, order in ((cn.connectedness, CONNECTEDNESS_ORDER), (cn.beri, BERI_ORDER)):
+        params = inspect.signature(function).parameters
+        assert list(params) == order
+        assert params["condition_file"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+        assert all(params[k].kind is inspect.Parameter.KEYWORD_ONLY for k in order[1:])
+        crossing = tuple(params[k].default for k in ("nodata_crossing", "crossing_width", "crossing_cost"))
+        assert crossing == rust_conn.DEFAULT_CROSSING == ("strict", 0.5, 4.0)
+        for name in order[1:]:
+            if name in DEFAULTS:
+                assert params[name].default == DEFAULTS[name], (function.__name__, name)
+        # The docstring documents every argument, in this order
+        if function.__doc__:
+            documented = [line.split(" : ")[0].strip() for line in function.__doc__.splitlines() if " : " in line]
+            assert [name for name in documented if name in order] == order, function.__name__
+    assert inspect.signature(cn.beri).parameters["current_file"].default is inspect.Parameter.empty
+    with pytest.raises(TypeError, match="positional argument"):
+        cn.connectedness(COND, PA)
+    with pytest.raises(TypeError, match="positional argument"):
+        cn.connectedness(COND, None, False, None, False, None, [2, 20])
+    with pytest.raises(TypeError, match="positional argument"):
+        cn.beri(COND, CURRENT)
+    with pytest.raises(TypeError, match="current_file"):
+        cn.beri(condition_file=COND, **SHORT)
+    for removed in ("margin_px", "crossing_traversal", "valid_margin_px"):
+        with pytest.raises(TypeError, match=removed):
+            cn.connectedness(condition_file=COND, **{removed: 0}, **SHORT)
+    np.testing.assert_array_equal(bits(cn.connectedness(COND, **SHORT)),
+                                  bits(cn.connectedness(condition_file=COND, **SHORT)))
+    np.testing.assert_array_equal(bits(cn.beri(COND, current_file=CURRENT, **SHORT)),
+                                  bits(cn.beri(condition_file=COND, current_file=CURRENT, **SHORT)))
+
+
+# Frozen from the 3.0.0 development build with the default strict crossing (regression values,
+# not independent ones); the legacy values are FROZEN
+FROZEN_STRICT = {
+    "connectedness": 0.3652536108175584,
+    "beri": 0.4091173515425484,
+}
+
+
+# The default is strict crossing at 0.5 km and cost 4, and differs from the legacy handling. The
+# bundled cells, about 0.69 x 0.93 km, leave no gap of 0.5 km or less, so it crosses nothing here
+# and equals strict mode at width 0
+def test_default_crossing(connectedness):
+    out = cn.connectedness(condition_file=COND, option=1, n_threads=THREADS)
+    explicit = cn.connectedness(condition_file=COND, option=1, nodata_crossing="strict", crossing_width=0.5,
+                                crossing_cost=4.0, n_threads=THREADS)
+    np.testing.assert_array_equal(bits(out), bits(explicit))
+    zero = cn.connectedness(condition_file=COND, option=1, crossing_width=0, n_threads=THREADS)
+    np.testing.assert_array_equal(bits(out), bits(zero))
+    np.testing.assert_array_equal(np.isnan(out), np.isnan(connectedness))
+    assert not np.array_equal(bits(out), bits(connectedness))
+    assert nanmean(out) == pytest.approx(FROZEN_STRICT["connectedness"], rel=RTOL)
+    beri = cn.beri(condition_file=COND, current_file=CURRENT, future_files=FUTURES, n_threads=THREADS)
+    assert nanmean(beri) == pytest.approx(FROZEN_STRICT["beri"], rel=RTOL)
+
+
+def write_river(path, river=(20, 21), condition=1.0, climate=None):
+    """A 30 x 40 raster of 1 km cells (EPSG:3577): land of `condition`, and NoData in the
+    columns `river`, a river as wide as their count. With `climate`, a (bands, 30, 40) array,
+    it is written instead, with NoData where the condition is."""
+    transform = Affine(1000.0, 0, 1_000_000.0, 0, -1000.0, -4_000_000.0)
+    values = np.full((30, 40), np.float32(condition), dtype=np.float32)
+    values[:, river[0]:river[1]] = np.nan
+    if climate is not None:
+        values = climate.astype(np.float32)
+    values = values.reshape((-1, 30, 40))
+    profile = dict(driver="GTiff", width=40, height=30, count=values.shape[0], dtype="float32", crs="EPSG:3577",
+                   transform=transform, nodata=np.nan)
+    with rasterio.open(path, "w", **profile) as dst:
+        dst.write(values)
+    return str(path)
+
+
+RIVER = dict(levels=[2, 4, 8], window_size=3, outer_window=5, option=1, n_threads=THREADS)
+
+
+# The crossing cost is a movement cost per kilometre relative to intact land, independent of
+# max_cost. On intact land (condition 1) every land cell costs 1 whatever max_cost is, so results
+# do not depend on max_cost at any crossing cost; a crossing costing 1 is as cheap as the land, so
+# adjusted paths equal intact ones up to routing's 10 m rounding of intact lengths and scores
+# stay near 1, while a dearer crossing lowers cells whose destinations lie across it
+def test_crossing_cost(tmp_path):
+    river = write_river(tmp_path / "river.tif")
+    cross = dict(nodata_crossing="strict", crossing_width=1.5)
+    runs = {(m, c): cn.connectedness(condition_file=river, max_cost=m, crossing_cost=c, **cross, **RIVER)
+            for m in (1.0, 2.0, 20.0) for c in (1, 4)}
+    for (m, c), out in runs.items():
+        np.testing.assert_array_equal(bits(out), bits(runs[1.0, c]), err_msg=f"max_cost {m} cost {c}")
+    one, four = runs[1.0, 1], runs[1.0, 4]
+    assert np.nanmin(one) > 0.999 and np.nanmax(one) <= 1
+    assert (four[np.isfinite(four)] <= one[np.isfinite(four)]).all() and np.nanmin(four) < 0.99
+    # A cost above max_cost lowers scores further
+    dear = cn.connectedness(condition_file=river, max_cost=2.0, crossing_cost=30, **cross, **RIVER)
+    assert (dear[np.isfinite(dear)] <= four[np.isfinite(dear)]).all() and np.nanmin(dear) < np.nanmin(four)
+    # Widths just below, at and above the river's 1 km: crossed at 1 km and wider only
+    zero = cn.connectedness(condition_file=river, nodata_crossing="strict", crossing_width=0, **RIVER)
+    for width, crossed in ((0.99, False), (1.0, True), (1.01, True)):
+        out = cn.connectedness(condition_file=river, nodata_crossing="strict", crossing_width=width, **RIVER)
+        assert np.array_equal(bits(out), bits(zero)) != crossed, width
+    # Not crossed: strict mode at width 0 ignores the cost; the legacy handling differs from it
+    for cost in (1, 30):
+        np.testing.assert_array_equal(
+            bits(cn.connectedness(condition_file=river, nodata_crossing="strict", crossing_width=0, crossing_cost=cost,
+                                  **RIVER)), bits(zero))
+    assert not np.array_equal(bits(cn.connectedness(condition_file=river, **LEGACY, **RIVER)), bits(zero))
+
+
+# Crossed NoData adds no climate: under the crossing modes, climate values on the river (NaN or
+# not) leave BERI unchanged bit for bit, with multi-band climate rasters; the legacy handling
+# averages them into coarse cells
+def test_crossing_climate(tmp_path):
+    i, j = np.indices((30, 40))
+    cond_values = np.where((j >= 20) & (j < 21), np.nan, 0.3 + 0.6 * ((i * 7 + j * 3) % 10) / 10)
+    cond = write_river(tmp_path / "cond.tif", climate=cond_values)
+    grids = {}
+    for name, river in (("nan", np.nan), ("hot", 5.0)):
+        for scenario, shift in (("now", 0.0), ("then", 0.3)):
+            bands = np.stack([0.1 * k + 0.02 * i + 0.01 * j + shift for k in range(3)])
+            bands[:, :, 20:21] = river
+            grids[name, scenario] = write_river(tmp_path / f"{name}_{scenario}.tif", climate=bands)
+    settings = dict(levels=[2, 4, 8], window_size=3, outer_window=5, n_threads=THREADS)
+    run = lambda name, **kw: cn.beri(condition_file=cond, current_file=grids[name, "now"],
+                                     future_files=[grids[name, "then"]], **kw, **settings)
+    for mode in ("strict", "landmass"):
+        np.testing.assert_array_equal(bits(run("nan", nodata_crossing=mode, crossing_width=1.5)),
+                                      bits(run("hot", nodata_crossing=mode, crossing_width=1.5)), err_msg=mode)
+    assert not np.array_equal(bits(run("nan", **LEGACY)), bits(run("hot", **LEGACY)))

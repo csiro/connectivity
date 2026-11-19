@@ -1,6 +1,6 @@
 use crate::affine::Affine;
 use crate::climate::{part_sims, Climate};
-use crate::crossing::Part;
+use crate::crossing::{mixed_weight, Part};
 use crate::distances;
 use crate::gate::{Gate, MIXED};
 use crate::strict::{Strict, MULTI};
@@ -26,6 +26,9 @@ pub struct Context<'a> {
     pub weight: Vec<Array2<f32>>, // cell count or area weight
     pub pa: Option<Vec<Array2<f32>>>,
     pub trav: Option<Vec<CowArray<'a, f32, Ix2>>>,
+    /// Crossing modes with crossable NoData: its share of each cell's path weights
+    /// (`crossing::mixed_weight`), 1 on crossable base cells
+    pub cross: Option<Vec<Array2<f32>>>,
     pub climate: Option<Climate<'a>>, // BERI: transgrids given
     pub transforms: Vec<Option<Affine>>,
     pub fringe: Vec<bool>, // links to the next level (it is twice this one)
@@ -37,6 +40,7 @@ pub struct Context<'a> {
     pub mode: WindowMode,
     pub is_geo: bool,
     pub factor: f32, // max_cost
+    pub cost: f32,   // path weight of crossable NoData (crossing modes)
     pub pa_to_pa: bool,
     pub lambdas: &'a [f32],
     pub gate: Option<Gate>,     // NoData crossing mode 1 (landmass)
@@ -56,7 +60,7 @@ impl Context<'_> {
             return false;
         }
         let at = [i as usize, j as usize];
-        self.cond[0][at].is_finite() || self.trav.as_ref().is_some_and(|t| t[0][at].is_finite())
+        self.cond[0][at].is_finite() || self.cross.as_ref().is_some_and(|x| x[0][at] == 1.0)
     }
 
     /// Level-l area fraction and outer-edge flag of local cell (li, lj) whose footprint is cut by
@@ -499,7 +503,7 @@ impl Scratch {
             // The focal group's part of a cell holding several groups
             let Some(part) = gate.part(l, at, self.group) else { return false };
             let (c, w) = part.habitat();
-            self.push_node(ctx, l, at, fraction, rim, c, w, part.trav, part.pa);
+            self.push_node(ctx, l, at, fraction, rim, c, w, part.trav, part.cross, part.pa);
             return true;
         }
         if group == 0 || group != self.group {
@@ -510,7 +514,8 @@ impl Scratch {
     }
 
     /// A cell whose traversable cells form one group or piece: the overviews hold its values,
-    /// land only for condition, weight and protected fraction.
+    /// land only for condition, weight, traversal and protected fraction, with crossable NoData's
+    /// share of path weights.
     #[inline(always)]
     fn push_single(&mut self, ctx: &Context, l: usize, at: [usize; 2], fraction: f32, rim: bool) {
         let (mut c, mut w) = (ctx.cond[l][at], ctx.weight[l][at]);
@@ -518,6 +523,7 @@ impl Scratch {
             Some(trav) => Some(trav[l][at]).filter(|v| v.is_finite()).unwrap_or(c),
             None => c,
         };
+        let x = ctx.cross.as_ref().map_or(0.0, |x| x[l][at]);
         if c.is_nan() || !w.is_finite() {
             (c, w) = (0.0, 0.0); // crossable NoData only: no habitat area
         }
@@ -525,7 +531,7 @@ impl Scratch {
             Some(pa) => Some(pa[l][at]).filter(|f| f.is_finite()).unwrap_or(0.0),
             None => 1.0,
         };
-        self.push_node(ctx, l, at, fraction, rim, c, w, t, pa);
+        self.push_node(ctx, l, at, fraction, rim, c, w, t, x, pa);
     }
 
     /// Strict mode: admit every piece of one cell, in piece order; returns how many were added.
@@ -540,7 +546,7 @@ impl Scratch {
                 let m = st.body(l, id).unwrap();
                 for (b, p) in m.parts.iter().enumerate() {
                     let (c, w) = p.habitat();
-                    self.push_node(ctx, l, at, fraction, rim, c, w, p.trav, p.pa);
+                    self.push_node(ctx, l, at, fraction, rim, c, w, p.trav, p.cross, p.pa);
                     self.piece.push(b as u16);
                     self.pieces.push(m.parts.len() as u16);
                     self.multi.push(id);
@@ -560,16 +566,18 @@ impl Scratch {
         }
     }
 
+    /// A node under a crossing mode: habitat `c` and area `w`, land traversal `t` and crossable
+    /// NoData's share `x` of its path weights.
     #[inline(always)]
     #[allow(clippy::too_many_arguments)]
-    fn push_node(&mut self, ctx: &Context, l: usize, at: [usize; 2], fraction: f32, rim: bool, c: f32, w: f32, t: f32, pa: f32) {
+    fn push_node(&mut self, ctx: &Context, l: usize, at: [usize; 2], fraction: f32, rim: bool, c: f32, w: f32, t: f32, x: f32, pa: f32) {
         let n = &mut self.nodes;
         n.level.push(l as u8);
         n.cell.push((at[0] as i32, at[1] as i32));
         n.frac.push(fraction);
         n.cond.push(c);
         n.trav.push(t);
-        n.weight.push((1.0 - ctx.factor) * t + ctx.factor);
+        n.weight.push(mixed_weight(t, x, ctx.factor, ctx.cost));
         n.count.push(w * fraction);
         n.pa.push(pa);
         n.rim.push(rim);

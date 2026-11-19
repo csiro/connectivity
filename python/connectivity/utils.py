@@ -14,26 +14,31 @@ def _normalise_window_mode(window_mode: str) -> str:
     return mode
 
 
-def _normalise_crossing(nodata_crossing, crossing_width, crossing_traversal):
-    """The NoData crossing mode, None, "landmass" or "strict", after checking the width (km)
-    and traversal value; the width and traversal are ignored, with a notice, without a mode."""
-    if nodata_crossing is None:
-        if crossing_width != 0 or crossing_traversal != 0:
-            print("Notice: 'crossing_width' and 'crossing_traversal' are ignored because 'nodata_crossing' is None.")
-        return None
-    if not isinstance(nodata_crossing, str):
-        raise TypeError("nodata_crossing must be None, 'landmass' or 'strict'.")
-    mode = nodata_crossing.strip().lower()
-    if mode not in {"landmass", "strict"}:
-        raise ValueError("nodata_crossing must be None, 'landmass' or 'strict'.")
+# Default NoData crossing of connectedness() and beri(): strict, 0.5 km, cost 4, as the core's
+# Config::default() (rust_conn.DEFAULT_CROSSING); provisional general-purpose assumptions
+CROSSING_WIDTH = 0.5
+CROSSING_COST = 4.0
+
+
+def _normalise_crossing(nodata_crossing, crossing_width, crossing_cost):
+    """The NoData crossing mode, "strict", "landmass" or None (legacy), after checking the
+    width (km) and cost. Under None both are ignored, with a notice when they are changed."""
 
     def number(value):
         return not isinstance(value, bool) and isinstance(value, (int, float, np.integer, np.floating))
 
+    if nodata_crossing is not None and not isinstance(nodata_crossing, str):
+        raise TypeError("nodata_crossing must be 'strict', 'landmass' or None.")
+    mode = None if nodata_crossing is None else nodata_crossing.strip().lower()
+    if mode not in {None, "landmass", "strict"}:
+        raise ValueError("nodata_crossing must be 'strict', 'landmass' or None.")
     if not number(crossing_width) or not math.isfinite(crossing_width) or crossing_width < 0:
         raise ValueError(f"crossing_width must be a finite number of kilometres >= 0, got {crossing_width!r}")
-    if not number(crossing_traversal) or not 0 <= crossing_traversal <= 1:
-        raise ValueError(f"crossing_traversal must be in [0, 1], got {crossing_traversal!r}")
+    if not number(crossing_cost) or not math.isfinite(crossing_cost) or crossing_cost < 1:
+        raise ValueError(f"crossing_cost must be a finite number >= 1, got {crossing_cost!r}")
+    if mode is None and (crossing_width != CROSSING_WIDTH or crossing_cost != CROSSING_COST):
+        print("Notice: 'crossing_width' and 'crossing_cost' are ignored because 'nodata_crossing' is None "
+              "(legacy NoData handling).")
     return mode
 
 
@@ -69,16 +74,6 @@ def _check_continuous_levels(levels: list[int]) -> None:
                 "levels must form a continuous power-of-two sequence; "
                 f"missing level {expected} between {current} and {next_level}"
             )
-
-
-def _warn_margin_px(margin_px) -> None:
-    if margin_px is not None:
-        warnings.warn(
-            "'margin_px' is deprecated and ignored: open-border runs compute only the cells "
-            "that polygon_mask touches. It will be removed in 3.0.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
 
 
 def _metre_transforms(transforms: dict, metres: float) -> dict:

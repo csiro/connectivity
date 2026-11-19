@@ -42,14 +42,20 @@ mod extract;
 ///   the non-PA landscape. An isolated PA scores 0. When `false`, all reachable nodes count.
 /// * `n_threads` - Optional number of CPU threads to use. If `None`, all available
 ///   cores are used.
-/// * `nodata_crossing` - `None` (NoData handled as in earlier versions), `"landmass"` or
-///   `"strict"`; see `connectivity_core::CrossingMode`.
-/// * `crossing_width` - Widest NoData gap crossed, in kilometres (finite, >= 0).
-/// * `crossing_traversal` - Traversal value of crossed NoData in [0, 1]; 0 costs `max_cost`.
+/// * `nodata_crossing` - `"strict"` (default), `"landmass"`, or `None` for the legacy NoData
+///   handling of 2.x; see `connectivity_core::CrossingMode`.
+/// * `crossing_width` - Widest NoData gap crossed, in kilometres (finite, >= 0; default 0.5).
+/// * `crossing_cost` - Path weight of crossed NoData per unit distance (finite, >= 1; default
+///   4), independent of `max_cost`: 1 costs as much as intact land.
+///
+/// The crossing defaults are those of `connectivity_core::Config::default()`, which the module
+/// exposes as `DEFAULT_CROSSING`.
 ///
 /// # Returns
 /// A 2D array of connectivity values for each cell at the native resolution.
-#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false, nodata_crossing=None, crossing_width=0.0, crossing_traversal=0.0))]
+#[pyfunction(signature = (condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode="circular", pa_to_pa=false, nodata_crossing=Some("strict"), crossing_width=0.5, crossing_cost=4.0))]
+// Spelled out because PyO3 shows the `Some("strict")` default as `...`
+#[pyo3(text_signature = "(condition, mask, transgrid_list, transforms, levels, lambdas, is_geo, max_cost, window_size, outer_window, offsets, traversal=None, n_threads=None, window_mode='circular', pa_to_pa=False, nodata_crossing='strict', crossing_width=0.5, crossing_cost=4.0)")]
 fn connectivity(
     py: Python<'_>,
     condition: &Bound<PyAny>,
@@ -69,7 +75,7 @@ fn connectivity(
     pa_to_pa: bool,
     nodata_crossing: Option<&str>,
     crossing_width: f32,
-    crossing_traversal: f32,
+    crossing_cost: f32,
 ) -> PyResult<Py<PyArray2<f32>>> {
     // Get the Numpy array
     let cond_array = extract::to_array(condition)
@@ -112,7 +118,7 @@ fn connectivity(
         Some(mode) => Some(Crossing {
             mode: CrossingMode::parse(mode).map_err(PyValueError::new_err)?,
             width: crossing_width,
-            traversal: crossing_traversal,
+            cost: crossing_cost,
         }),
         None => None,
     };
@@ -204,5 +210,15 @@ fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pixel_coverage, m)?)?;
     // The engine's version, which run logs record
     m.add("CORE_VERSION", connectivity_core::VERSION)?;
+    // The engine's default NoData crossing, (mode, width in km, cost), which the Python defaults
+    // must match; None if it ever defaults to the legacy handling
+    let crossing = Config::default().crossing.map(|c| {
+        let mode = match c.mode {
+            CrossingMode::Landmass => "landmass",
+            CrossingMode::Strict => "strict",
+        };
+        (mode, c.width as f64, c.cost as f64)
+    });
+    m.add("DEFAULT_CROSSING", crossing)?;
     Ok(())
 }

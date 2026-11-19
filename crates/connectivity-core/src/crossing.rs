@@ -1,7 +1,7 @@
 //! NoData crossing: the shared gap-width rule and the per-part values used by both modes.
 //!
 //! NoData cells in gaps at most `width` kilometres wide are crossable: they are traversable at a
-//! set traversal value and carry no habitat area. The test is a morphological closing of the
+//! set path weight (the crossing cost) and carry no habitat area. The test is a morphological closing of the
 //! land by a disc of diameter `width`, made once at base resolution with distances in
 //! kilometres, so it does not depend on the overview grid. Mode 1 (`gate`) groups touching
 //! traversable cells into landmasses; mode 2 (`strict`) splits coarse cells into pieces linked
@@ -21,7 +21,10 @@ use ndarray::{Array2, Array3};
 pub struct Part {
     pub cond: f32,  // mean condition of the part's land cells, NaN when it has none
     pub count: f32, // habitat area weight: land cells, or their cos-latitude areas
-    pub trav: f32,  // mean finite traversal value of the part's cells, else its condition
+    pub trav: f32,  // mean finite traversal value of the part's land cells, else its condition
+    /// Share of crossable NoData among the part's cells with a path weight (crossable cells and
+    /// land with a finite traversal value); NaN when it has neither (`mixed_weight`)
+    pub cross: f32,
     pub pa: f32,    // protected fraction of its land cells (PARC gating), else 1
     /// Mean of each scenario's bands over the part's land cells, scenario-major (BERI only)
     pub bands: Box<[f32]>,
@@ -44,6 +47,25 @@ impl Part {
     }
 }
 
+/// Path weight of a node whose cells with a path weight are a share `cross` of crossable NoData,
+/// each costing `cost` per unit distance, and otherwise land at mean traversal value `t`, weighted
+/// `(1 - factor) * t + factor`: the mean of their weights. A share of 0, or NaN for a node without
+/// such cells, gives land's weight bit for bit as without crossable cells; a share of 1 gives
+/// `cost` whatever `t`, condition, resistance and `max_cost` (`factor`) are.
+#[inline(always)]
+pub fn mixed_weight(t: f32, cross: f32, factor: f32, cost: f32) -> f32 {
+    let land = (1.0 - factor) * t + factor;
+    if cross > 0.0 {
+        if cross >= 1.0 {
+            cost
+        } else {
+            (1.0 - cross) * land + cross * cost
+        }
+    } else {
+        land
+    }
+}
+
 /// Running sums of one part, accumulated in f32 in row-major order as `overview` does, so a part
 /// gets the values the overviews would give its cell if it held only that part.
 #[derive(Clone, Default)]
@@ -52,7 +74,8 @@ pub struct Acc {
     land: f32,
     area: f32,
     trav: f32,
-    cells: f32,
+    cells: f32, // land cells with a finite traversal value
+    cross: f32, // crossable NoData cells
     pa: f32,
     bands: Vec<(f32, f32)>, // sum and finite count per scenario band
 }
@@ -66,7 +89,7 @@ pub struct Base<'a> {
     #[cfg(test)]
     pub crossable: usize,
     cond: &'a Array2<f32>, // tile
-    trav: &'a Array2<f32>, // tile: traversal values, constant on crossable NoData, NaN off the domain
+    trav: &'a Array2<f32>, // tile: traversal values of land (NaN elsewhere), or condition
     areas: Option<Vec<f32>>, // cos-latitude area factor of each tile row (geographic grids)
     mask: Option<&'a Array2<bool>>, // PARC gating: `false` marks protected cells
     trans: &'a [Array3<f32>],
@@ -124,17 +147,19 @@ impl<'a> Base<'a> {
         self.trans.first().map_or(0, |t| t.dim().2) * self.trans.len()
     }
 
-    /// Adds traversable frame cell (r, c) to `acc`.
+    /// Adds traversable frame cell (r, c) to `acc`. Crossable NoData only counts towards the
+    /// part's crossing share: it has no traversal value, habitat, protected fraction or climate.
     #[inline]
     pub fn add(&self, acc: &mut Acc, r: usize, c: usize) {
+        if !self.land[[r, c]] {
+            acc.cross += 1.0;
+            return;
+        }
         let ij = (r - self.pad.0, c - self.pad.1);
         let t = self.trav[ij];
         if t.is_finite() {
             acc.trav += t;
             acc.cells += 1.0;
-        }
-        if !self.land[[r, c]] {
-            return;
         }
         acc.cond += self.cond[ij];
         acc.land += 1.0;
@@ -168,11 +193,14 @@ impl<'a> Base<'a> {
                 *out = sum / n;
             }
         }
+        let weighted = acc.cells + acc.cross;
         Part {
             cond: if land { acc.cond / acc.land } else { f32::NAN },
             count: acc.area,
-            // Mean of the finite traversal values, else condition
+            // Mean of the finite traversal values of land, else condition
             trav: if acc.cells > 0.0 { acc.trav / acc.cells } else { acc.cond / acc.land },
+            // As the `cross` overview averages it: crossable 1, land with a traversal value 0
+            cross: if weighted > 0.0 { acc.cross / weighted } else { f32::NAN },
             pa: match self.mask {
                 Some(_) if land => acc.pa / acc.land,
                 Some(_) => 0.0,

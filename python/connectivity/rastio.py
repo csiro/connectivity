@@ -65,14 +65,13 @@ def _check_band(band) -> None:
         raise ValueError("band must be a positive integer")
 
 
-def _select_band(count: int, name: str, band: int | None, fixed: bool = False) -> int:
+def _select_band(count: int, name: str, band: int | None) -> int:
     """The 1-based band to read from a raster with `count` bands, as R's `.select_layer()`.
 
-    A multi-band raster needs `band` in range. A one-band raster is read as it is when `band`
-    is None or the raster is `fixed`, such as a protected-area layer used with every band of a
-    condition time series.
+    A multi-band raster needs `band` in range; a one-band raster is read as it is when `band`
+    is None.
     """
-    if count == 1 and (band is None or fixed):
+    if count == 1 and band is None:
         return 1
     if band is None:
         raise ValueError(f"{name} must have exactly one layer; choose one with band")
@@ -87,17 +86,20 @@ def _condition_band(file_path: str, band: int | None) -> int:
         return _select_band(src.count, "condition_file", band)
 
 
-def _input_window(
-    file_path: str, name: str, condition_file: str, window: Window, band: int | None = None, single: bool = True
-):
+def _input_window(file_path: str, name: str, condition_file: str, window: Window, single: bool = True):
     """Window of `file_path` covering `window` of the condition grid, checked as R does.
 
     The raster must have the condition raster's CRS and resolution, lie on its grid and cover
-    `window`. Returns the window and, for a `single` raster, the band to read, chosen with
-    `band` as `_select_band()` does for a `fixed` raster; otherwise the band count.
+    `window`. A `single` raster, such as `pa_file` or `resistance_file`, must have one band,
+    whatever band of `condition_file` is used; the window is returned alone. Otherwise the
+    window and the band count are returned.
     """
     with rasterio.open(condition_file) as ref, rasterio.open(file_path) as src:
-        bands = _select_band(src.count, name, band, fixed=True) if single else src.count
+        if single and src.count != 1:
+            raise ValueError(
+                f"{name} must have exactly one layer, but it has {src.count}; band selects a layer of "
+                "condition_file only, so write the layer to use to a single-band raster first"
+            )
         # The same tolerance as R: 1e-8 of a pixel
         tolerance = 1e-8 * max(abs(ref.transform.a), abs(ref.transform.e))
         if not _same_crs(src.crs, ref.crs) or any(
@@ -115,7 +117,8 @@ def _input_window(
             or row0 + window.height > src.height
         ):
             raise ValueError(f"{name} must cover the analysis window on the same grid as condition_file")
-        return Window(col0, row0, window.width, window.height), bands
+        found = Window(col0, row0, window.width, window.height)
+        return found if single else (found, src.count)
 
 
 def _read_window(file_path: str, window: Window, outside=None, scale: float | None = None, band: int | None = None):
@@ -207,7 +210,7 @@ def read_raster(
     levels: list[int] | None = None,
     scale: float | None = None,
     expand_px: int = 0,
-    valid_margin_px: int = 32,
+    *,
     band: int | None = None,
 ):
     """Reads data from a multi-band GeoTIFF (base resolution) and returns NaN-filled array + transforms + masks + offsets.
@@ -219,16 +222,14 @@ def read_raster(
         - scale (float or None): Scaling factor. If None, 0, or 1, data returned unchanged; otherwise divided by scale.
         - expand_px (int): Number of pixels to buffer the polygon for read-window context.
           0 means closed boundary (tight crop).
-        - valid_margin_px (int): Deprecated; it will be removed in 3.0. Extra pixels to buffer
-          the polygon for the valid analysis area in non-closed mode. A non-zero margin raises
-          a DeprecationWarning; pass 0 to mark only cells the polygon touches as valid, as
-          `connectedness()` and `beri()` do and as 3.0 will.
-        - band (int or None): 1-based band to read, numbered as in GDAL, rasterio and terra,
-          giving a single-band result. None (default) reads every band.
+        - band (int or None, keyword-only): 1-based band to read, numbered as in GDAL, rasterio
+          and terra, giving a single-band result. None (default) reads every band.
 
     Modes:
       - closed (expand_px == 0): crop to polygon extent AND mask outside polygon
       - non-closed (expand_px > 0): crop to bounding box of buffered polygon, DO NOT mask outside polygon
+    In both modes only cells the polygon touches are valid in the mask (`all_touched`); the
+    cells read around them in non-closed mode are context, valid only as inputs.
 
     Returns:
       - data_array: (rows, cols) for single-band or (rows, cols, bands) for multi-band, float32 with NaNs
@@ -243,23 +244,10 @@ def read_raster(
 
     if any(l <= 0 for l in levels):
         raise ValueError(f"levels must be positive ints, got: {levels}")
-    if valid_margin_px < 0:
-        raise ValueError(f"valid_margin_px must be >= 0, got: {valid_margin_px}")
     _check_band(band)
 
     # ensure levels contain 1
     levels = sorted({1, *levels})
-
-    # In non-closed mode, valid analysis margin must stay within the expanded read window.
-    # Read expansion is computed with (expand_px + 3) * max(levels) base pixels.
-    if expand_px > 0:
-        max_margin_px = int((expand_px + 3) * max(levels))
-        if valid_margin_px > max_margin_px:
-            raise ValueError(
-                "valid_margin_px cannot exceed the non-closed read-buffer limit: "
-                f"{valid_margin_px} > {max_margin_px} "
-                f"(=(expand_px + 3) * max(levels), expand_px={expand_px}, levels={levels})"
-            )
 
     with rasterio.open(file_path) as src:
         try:
@@ -278,7 +266,6 @@ def read_raster(
             out_image_data = np.ma.getdata(data_ma)
             data_mask = np.ma.getmaskarray(data_ma)
             core_geom_mask = None
-            valid_geom_mask = None
             tile_row0, tile_col0 = 0, 0
 
         else:
@@ -355,6 +342,7 @@ def read_raster(
             out_image_data = np.ma.getdata(out_ma).astype(np.float32)
             data_mask = np.ma.getmaskarray(out_ma)
 
+            # Valid analysis cells: those the polygon touches, in both modes
             core_geom_mask = geometry_mask(
                 geometries=[mapping(g) for g in polygon.geometry],
                 out_shape=out_image_data.shape[1:],
@@ -362,26 +350,6 @@ def read_raster(
                 invert=True,
                 all_touched=True,
             )
-
-            if closed or valid_margin_px == 0:
-                valid_geom_mask = core_geom_mask
-            else:
-                warnings.warn(
-                    "'valid_margin_px' is deprecated and will be removed in 3.0, when the mask "
-                    "marks only cells the polygon touches as valid. Pass valid_margin_px=0 for "
-                    "that behaviour now.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                valid_pad = float(valid_margin_px) * float(max(base_res_x, base_res_y))
-                valid_geoms = [geom.buffer(valid_pad) for geom in polygon.geometry]
-                valid_geom_mask = geometry_mask(
-                    geometries=[mapping(g) for g in valid_geoms],
-                    out_shape=out_image_data.shape[1:],
-                    transform=out_transform,
-                    invert=True,
-                    all_touched=True,
-                )
 
             # Add NaNs to data_mask as invalid too (both modes)
             data_mask |= np.isnan(out_image_data)
@@ -403,7 +371,7 @@ def read_raster(
             else:
                 invalid_2d = data_mask.astype(bool)
 
-            valid_inside = valid_geom_mask & ~invalid_2d
+            valid_inside = core_geom_mask & ~invalid_2d
             mask_array = ~valid_inside
         else:
             if data_mask.ndim == 3:

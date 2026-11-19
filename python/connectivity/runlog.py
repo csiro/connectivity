@@ -2,6 +2,14 @@
 
 The format is shared with the R package and Eco-Connectivity Studio, which restores the
 settings of a log dropped on its window.
+
+Format 2 (Python 3.0) always records the NoData crossing: `nodata_crossing` is "strict",
+"landmass" or "none" (the legacy handling, `nodata_crossing=None`), with `crossing_width_km`
+and `crossing_cost` under a mode. A format 1 log, written by earlier versions, without
+`nodata_crossing` describes a run with the legacy handling, which was then the only one; a
+reader must restore it as "none", never as the newer strict default. Format 1 logs of the
+unreleased 2.6.0 development versions recorded a `crossing_traversal` t instead of a cost; its
+equivalent cost is `(1 - max_cost) * t + max_cost`.
 """
 
 import os
@@ -14,7 +22,7 @@ from importlib.metadata import PackageNotFoundError, version
 import numpy as np
 from rust_conn import CORE_VERSION
 
-LOG_FORMAT = 1
+LOG_FORMAT = 2
 IN_MEMORY = "<in memory>"
 _HEADER = "# Connectivity run log"
 _OFF = {"0", "false", "no", "off"}
@@ -95,13 +103,14 @@ def _format_log(
         polygon_mask=None,
         closed_border: bool = False,
         threads=None,
-        nodata_crossing=None,
-        crossing_width=0.0,
-        crossing_traversal=0.0,
+        nodata_crossing,
+        crossing_width,
+        crossing_cost,
         software: str | None = None,
     ) -> str:
     """The run log text. Keys are written in the order, and under the conditions, of the
-    format; `indicator` is "connected_habitat", "parc" or "beri"."""
+    format; `indicator` is "connected_habitat", "parc" or "beri". `nodata_crossing` is the mode
+    the run used, None for the legacy handling, and must always be given."""
     if software is None:
         software = f"eco-connectivity Python package {_package_version()}"
     log = _Writer(_HEADER)
@@ -123,10 +132,11 @@ def _format_log(
     log.entry("window_size", _integer(window_size))
     log.entry("outer_window", _integer(outer_window))
     log.entry("window_mode", _quoted(window_mode))
+    # Always written, so a log of a legacy run is never restored with a newer default
+    log.entry("nodata_crossing", _quoted("none" if nodata_crossing is None else nodata_crossing))
     if nodata_crossing is not None:
-        log.entry("nodata_crossing", _quoted(nodata_crossing))
         log.entry("crossing_width_km", _real(crossing_width))
-        log.entry("crossing_traversal", _real(crossing_traversal))
+        log.entry("crossing_cost", _real(crossing_cost))
     log.entry("condition_scale", _scale(condition_scale))
     if indicator == "parc":
         log.entry("protected_areas_scale", _scale(protected_areas_scale))

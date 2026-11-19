@@ -20,8 +20,8 @@
 //! of each level to the next coarser one. Two integer Dijkstra searches from the focal cell
 //! give, for every reached cell `v`, the condition-adjusted path length `a_v` and the intact
 //! path length `g_v` in kilometres: an edge into `v` of length `d` costs `w_v * d` and `d`,
-//! with `w_v = (1 - max_cost) * t_v + max_cost` for traversal value `t_v`, rounded to integer
-//! units of 10 m for routing. With `q_v` the condition, `A_v` the habitat area weight and
+//! with `w_v = (1 - max_cost) * t_v + max_cost` for traversal value `t_v` (crossable NoData
+//! costs [`Crossing::cost`] instead; see NoData), rounded to integer units of 10 m for routing. With `q_v` the condition, `A_v` the habitat area weight and
 //! `p_v` the protected fraction (1 unless [`Config::pa_to_pa`]), connectedness for one lambda
 //! is
 //!
@@ -37,25 +37,37 @@
 //! # NoData
 //! NaN condition cells (NoData, e.g. sea, lakes or rivers in global condition data) never carry
 //! habitat area. [`Config::crossing`] sets how the graph treats them:
-//! - `None` (the default, as in earlier versions): NoData is left out at level 1, but an
-//!   overview cell is valid when any of its base cells is finite and coarse cells are linked by
-//!   position alone, so coarse levels link land on both sides of a gap narrower than about twice
-//!   their size, at no cost. Whether a focal cell uses such a link depends on its window, so a
-//!   compact island near other land can have a linked part and a sealed part.
+//! - [`CrossingMode::Strict`], the default (`Config::default()` sets a width of 0.5 km and a cost
+//!   of 4): no gap wider than [`Crossing::width`] is crossed anywhere, including rivers and inlets
+//!   inside one landmass; routes around a barrier within the window are kept.
 //! - [`CrossingMode::Landmass`]: separate landmasses are linked only across gaps at most
 //!   [`Crossing::width`] kilometres wide; within one landmass the graph is as with `None`.
-//! - [`CrossingMode::Strict`]: no gap wider than the width is crossed anywhere, including rivers
-//!   and inlets inside one landmass; routes around a barrier within the window are kept.
+//! - `None`, the legacy handling (the only one before 0.3.0, and still the results of 0.2.1 bit
+//!   for bit): NoData is left out at level 1, but an overview cell is valid when any of its base
+//!   cells is finite and coarse cells are linked by position alone, so coarse levels link land on
+//!   both sides of a gap narrower than about twice their size, at no cost. Whether a focal cell
+//!   uses such a link depends on its window, so a compact island near other land can have a
+//!   linked part and a sealed part.
 //!
-//! In both modes NoData in permitted gaps is crossed at the cost of [`Crossing::traversal`] and
-//! adds no habitat area, protected fraction or climate similarity, and outputs without NoData are
-//! bit-identical to `None`. See [`Crossing`] for how gaps are measured and how tiles behave.
+//! In both modes NoData in permitted gaps is crossed at path weight [`Crossing::cost`] per unit
+//! distance, independent of condition, traversal and [`Config::max_cost`], and adds no habitat
+//! area, protected fraction or climate similarity; it facilitates movement only. Outputs without
+//! NoData are bit-identical to `None`. A strict mode with a width of 0 crosses no gap, so its cost
+//! has no effect, but it is not `None`: coarse cells are still split into pieces linked only where
+//! their base cells touch, so coarse levels never link land across NoData. See [`Crossing`] for
+//! how gaps are measured and how tiles behave.
+//!
+//! The default width and cost are provisional general-purpose assumptions that allow limited
+//! crossing of narrow gaps, not calibrated ecological thresholds; wider gaps or other costs are
+//! sensitivity scenarios for the caller to choose.
+//!
 //! The modes cost extra setup and memory: group labels for the cells of every level (about
 //! 5.3 bytes per base cell) in landmass mode, three bytes per coarse cell plus a table of cells
-//! holding several pieces in strict mode, and with permitted gaps the traversal overview. Strict mode also builds
-//! graphs more slowly: on a 450 m test raster with levels 1 to 32, about 1.2 to 1.7 times as long
-//! as without a mode, most at a width of 0, where coasts split coarse cells into the most pieces;
-//! landmass mode takes about as long as without a mode.
+//! holding several pieces in strict mode, and with permitted gaps an overview of each cell's share
+//! of crossable NoData (four bytes per base cell, and a third as much for the coarse levels).
+//! Strict mode also builds graphs more slowly: whole connectedness runs on a 450 m test raster
+//! (levels 1 to 32, window size 5, 8 threads) took about 1.5 to 1.65 times as long as without a
+//! mode at widths of 0 to 1.8 km, and landmass mode about 1.1 times.
 //!
 //! # Inputs
 //! All 2-D arrays are `(rows, cols)` grids of one tile with the same shape, indexed
@@ -235,15 +247,20 @@ impl CrossingMode {
 /// NoData crossing settings for [`Config::crossing`].
 ///
 /// NoData cells (NaN condition) in gaps at most `width` kilometres wide are crossable: they are
-/// traversable at traversal value `traversal`, carry no habitat area, are never destinations
-/// and have no protected fraction or climate similarity. A gap's width is tested once at base
-/// resolution as the closing of the land cells by a disc of diameter `width`, with distances in
-/// kilometres (on geographic grids each row's cells are `cos(latitude)` narrower; on rotated
-/// projected grids cells keep their size, and sheared grids return an error). It is exact
-/// for straight channels along rows or columns, and also fills concave corners of a coastline
-/// within about a fifth of `width` of the corner; those cells too are crossable, so a coast's
-/// coarse cells cost slightly more to cross when `traversal` is low. Other NoData stays out of
-/// the graph, whatever its value in [`Inputs::traversal`].
+/// traversable at path weight `cost`, carry no habitat area, are never destinations and have no
+/// protected fraction or climate similarity. A gap's width is tested once at base resolution as
+/// the closing of the land cells by a disc of diameter `width`, with distances in kilometres (on
+/// geographic grids each row's cells are `cos(latitude)` narrower; on rotated projected grids
+/// cells keep their size, and sheared grids return an error). It is exact for straight channels
+/// along rows or columns, and also fills concave corners of a coastline within about a fifth of
+/// `width` of the corner; those cells too are crossable, so a coast's coarse cells cost slightly
+/// more to cross when `cost` exceeds the land's weight. Other NoData stays out of the graph,
+/// whatever its value in [`Inputs::traversal`].
+///
+/// Path weights: an overview cell, or a part of one, holding land and crossable NoData has the
+/// mean of their weights over its cells with a weight: crossable cells at `cost`, land at
+/// `(1 - max_cost) * t + max_cost` for its mean traversal value `t`, as the overviews average
+/// traversal values.
 ///
 /// BERI: a coarse cell's climate is the mean of its land (finite condition) cells' bands, as for
 /// each part of a cell holding several, so land that cannot be reached never changes a score.
@@ -264,13 +281,15 @@ pub struct Crossing {
     pub mode: CrossingMode,
     /// Widest gap crossed, in kilometres, finite and `>= 0`; 0 permits no crossing.
     pub width: f32,
-    /// Traversal value of crossable NoData in [0, 1]: 0 costs as much as fully degraded land
-    /// (path weight `max_cost`), 1 as much as intact land.
-    pub traversal: f32,
+    /// Path weight of crossable NoData per unit distance, finite and `>= 1`: 1 costs as much as
+    /// intact land (traversal value 1), 4 four times as much. It is independent of condition,
+    /// traversal values and [`Config::max_cost`], and may exceed `max_cost`.
+    pub cost: f32,
 }
 
-/// Settings of one [`connectivity`] call. `Config::default()` gives the Python and R defaults,
-/// with level 1 included as the core requires, except `window_size`: 3 here, 5 in both APIs.
+/// Settings of one [`connectivity`] call. `Config::default()` gives the defaults of the Python
+/// package (3.0), with level 1 included as the core requires, except `window_size`: 3 here, 5 in
+/// the Python and R packages. Its crossing is strict, with a width of 0.5 km and a cost of 4.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'a> {
     /// Overview levels in base pixels per overview cell: powers of two forming a continuous
@@ -303,8 +322,8 @@ pub struct Config<'a> {
     /// protected destination scores 0. For BERI it only makes focal cells without neighbours
     /// score 0; Python's `beri()` never sets it.
     pub pa_to_pa: bool,
-    /// NoData crossing mode; `None` keeps the behaviour of earlier versions (see the crate
-    /// docs, NoData, and [`Crossing`]).
+    /// NoData crossing; `None` is the legacy handling of 0.2 and earlier, not the default (see
+    /// the crate docs, NoData, and [`Crossing`]).
     pub crossing: Option<Crossing>,
 }
 
@@ -320,7 +339,7 @@ impl Default for Config<'_> {
             offsets: (0, 0),
             window_mode: WindowMode::Circular,
             pa_to_pa: false,
-            crossing: None,
+            crossing: Some(Crossing { mode: CrossingMode::Strict, width: 0.5, cost: 4.0 }),
         }
     }
 }
@@ -351,7 +370,7 @@ impl Default for Config<'_> {
 ///   (`"Outer window size must be odd-numbered"`).
 /// - A crossing width that is negative or not finite
 ///   (`"Crossing width must be a finite number of kilometres >= 0, got -1"`) or a crossing
-///   traversal outside [0, 1] (`"Crossing traversal must be in [0, 1], got 2"`).
+///   cost below 1 or not finite (`"Crossing cost must be a finite number >= 1, got 0.5"`).
 /// - Under a crossing mode, a base transform whose gap widths cannot be measured along rows and
 ///   columns: zero or non-finite cell sizes
 ///   (`"NoData crossing needs finite, non-zero cell sizes in the base transform"`), a sheared
@@ -373,8 +392,8 @@ impl Default for Config<'_> {
 /// around the 20 x 20 tile for the gap test, too large a grid; use a smaller width or a larger
 /// tile"`.
 ///
-/// An integer path cost beyond `u32::MAX`, e.g. from a very large `max_cost` or unscaled
-/// traversal values, stops the work on every thread and returns
+/// An integer path cost beyond `u32::MAX`, e.g. from a very large `max_cost` or crossing cost, or
+/// unscaled traversal values, stops the work on every thread and returns
 /// `"Path cost overflow; check max_cost and resistance scaling!"`.
 pub fn connectivity(inputs: &Inputs, config: &Config) -> anyhow::Result<Array2<f32>> {
     core::conn(inputs, config)
