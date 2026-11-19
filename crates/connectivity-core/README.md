@@ -27,7 +27,7 @@ Connected Habitat.
 
 ```toml
 [dependencies]
-connectivity-core = "0.2"
+connectivity-core = "0.3"
 ```
 
 It requires Rust 1.86 or later.
@@ -53,16 +53,23 @@ let connectedness = connectivity(&inputs, &config)?;
   with the condition array's shape, NaN where the mask is `true`.
 - `Inputs`: borrowed condition, mask, optional traversal and transgrids, and level transforms.
 - `Config`: levels, lambdas (km), `is_geo`, `max_cost`, window sizes, global tile offsets,
-  window mode and PARC `pa_to_pa` gating. `Config::default()` matches the Python and R
-  defaults except `window_size`, which is 3 here and 5 in both APIs.
+  window mode, PARC `pa_to_pa` gating and the NoData crossing. `Config::default()` matches
+  the defaults of the Python package 3.0 except `window_size`, which is 3 here and 5 in
+  Python and R.
+- `Crossing` and `CrossingMode`: how NoData gaps are crossed (`Strict`, the default, or
+  `Landmass`), the widest gap crossed in km (default 0.5) and the path weight of crossed
+  NoData (default 4, independent of `max_cost`; 1 is as cheap as intact land). The defaults
+  are provisional general-purpose assumptions, not calibrated ecological thresholds.
+  `crossing: None` keeps the legacy NoData handling of 0.2, under which coarse levels link
+  land across narrow gaps at no cost.
 - `pixel_coverage(&[Polygon], &Affine, nrows, ncols)`: fraction of each pixel covered by
   polygons with holes.
 - `Affine` and `level_transforms`: (row, col) to world transforms and the per-level transforms
   of a tile, anchored to the full raster's grid.
 - `WindowMode`: circular or square annuli.
 
-The crate documentation covers array shapes, mask semantics, BERI scenario and band order,
-coordinate units, tile offsets, the preparation and post-processing left to callers, and the
+The crate documentation covers array shapes, mask semantics, NoData and the crossing modes,
+BERI scenario and band order, coordinate units, tile offsets, the preparation and post-processing left to callers, and the
 errors returned for invalid inputs. Work runs on the current Rayon thread pool; results are
 bit-identical for any number of threads on the same build and platform.
 
@@ -71,8 +78,8 @@ synthetic arrays.
 
 ## Versioning and releases
 
-The crate is versioned independently of the Python package (`eco-connectivity` 2.6.0 uses
-`connectivity-core` 0.2.1). Core releases are tagged `connectivity-core-vX.Y.Z`; Python
+The crate is versioned independently of the Python package (`eco-connectivity` 3.0.0 uses
+`connectivity-core` 0.3.0). Core releases are tagged `connectivity-core-vX.Y.Z`; Python
 releases keep `vX.Y.Z` tags, and only those publish to PyPI. Changes to the crate are listed
 in [CHANGELOG.md](https://github.com/csiro/connectivity/blob/main/crates/connectivity-core/CHANGELOG.md).
 

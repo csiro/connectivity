@@ -1,16 +1,23 @@
 use anyhow::{ensure, Result};
 use ndarray::parallel::prelude::*;
-use ndarray::{Array2, Array3, Axis};
-use std::collections::HashMap;
+use ndarray::{Array2, ArrayView2, Axis, CowArray, Ix2};
 use std::sync::{Mutex, PoisonError};
 use std::time::Instant;
 // local modules
 use crate::affine;
 use crate::builder::{Context, Scratch};
+use crate::climate::Climate;
+use crate::crossing::{self, Base};
+#[cfg(test)]
+use crate::gate::GateStats;
+use crate::gate::Gate;
+use crate::strict::Strict;
+#[cfg(test)]
+use crate::strict::StrictStats;
+use crate::{Crossing, CrossingMode};
 use crate::overview;
 use crate::tables::{Tables, STATUSES};
 use crate::template::{Templates, CACHE_BUDGET};
-use crate::utils;
 use crate::{Config, Inputs};
 use affine::Affine;
 use overview::Resampling;
@@ -24,11 +31,16 @@ pub struct Stats {
     pub cache_peak: usize,   // largest cache heap while building, temporaries included
     pub cache_fixed: usize,  // per-level descriptors, allocated whatever the budget
     pub table_bytes: usize,  // distance tables alone
+    pub climate_bytes: usize, // BERI climate held by the call: coarse means and any layout copies
     pub cached: Vec<usize>,  // template phases cached per level
     pub linked: Vec<bool>,   // levels with cached links
     pub edges: [u64; STATUSES], // edges by distance-table status (hits, then fallback reasons)
     pub setup_s: f64,        // overviews, templates, contexts and scratch
     pub process_s: f64,      // focal-cell loop
+    #[cfg(test)]
+    pub gate: Option<GateStats>, // crossing mode 1 diagnostics
+    #[cfg(test)]
+    pub strict: Option<StrictStats>, // crossing mode 2 diagnostics
 }
 
 /// Core connectivity function (`crate::connectivity`)
@@ -41,8 +53,88 @@ pub fn conn(inputs: &Inputs, config: &Config) -> Result<Array2<f32>> {
 /// `conn` that also reports scratch memory and setup/processing time.
 pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stats)> {
     let start = Instant::now();
+    let ctx = match &config.crossing {
+        None => prepare(inputs, config)?,
+        Some(cross) => prepare_cross(inputs, config, cross, true)?,
+    };
+    run(inputs, ctx, start)
+}
+
+/// `conn_stats` under a NoData crossing mode; `relax` selects relaxed contact in mode 2 (the
+/// rule; tests compare it with plain contact).
+#[cfg(test)]
+pub fn conn_cross(inputs: &Inputs, config: &Config, cross: &Crossing, relax: bool) -> Result<(Array2<f32>, Stats)> {
+    let start = Instant::now();
+    let ctx = prepare_cross(inputs, config, cross, relax)?;
+    run(inputs, ctx, start)
+}
+
+/// `prepare` under a NoData crossing mode. NoData in gaps up to `cross.width` km wide is
+/// crossed at path weight `cross.cost` and carries no habitat area. Mode 1 admits only the focal
+/// cell's group of touching land and crossable NoData; mode 2 splits coarse cells into pieces of
+/// touching traversable cells, linked only where their base cells touch.
+pub fn prepare_cross<'a>(inputs: &Inputs<'a>, config: &Config<'a>, cross: &Crossing, relax: bool) -> Result<Context<'a>> {
+    validate(inputs, config)?;
+    check_crossing(cross, &inputs.transforms[&1], config.is_geo)?;
+    let cond = inputs.condition;
+    let mut sorted: Vec<i32> = config.levels.iter().map(|&l| l as i32).collect();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let base_tr = inputs.transforms[&1];
+    let (dy, dx) = crossing::cell_km(&base_tr, cond.nrows(), config.is_geo);
+    let cells = crossing::crossable(&cond.mapv(f32::is_finite), cross.width as f64, dy, &dx)?;
+    // Traversal values are those of land: a traversal input with finite values on NoData is
+    // confined to land (copied), so they never make NoData passable or enter coarse means;
+    // otherwise it is borrowed, and without one condition serves, as without a crossing mode.
+    let traversal = inputs.traversal;
+    let stray = |t: &Array2<f32>| t.indexed_iter().any(|(ij, v)| v.is_finite() && !cond[ij].is_finite());
+    let confined = traversal.filter(|t| stray(t)).map(|t| {
+        Array2::from_shape_fn(cond.dim(), |ij| if cond[ij].is_finite() { t[ij] } else { f32::NAN })
+    });
+    let trav = confined.as_ref().or(traversal);
+    // Crossable NoData costs `cross.cost` in place of a traversal value: its share among each
+    // cell's cells with a path weight (1 on crossable NoData, 0 on land with a traversal value,
+    // NaN elsewhere) mixes the two weights (`crossing::mixed_weight`). Without crossable cells
+    // no share is built and the weights are those of land, as without a crossing mode.
+    let share = cells.iter().any(|&c| c).then(|| {
+        Array2::from_shape_fn(cond.dim(), |ij| {
+            if cells[ij] {
+                1.0
+            } else if cond[ij].is_finite() && trav.map_or(cond[ij], |t| t[ij]).is_finite() {
+                0.0
+            } else {
+                f32::NAN
+            }
+        })
+    });
+    let areas = config.is_geo.then(|| overview::row_areas(&base_tr, cond.nrows()));
+    let mask = config.pa_to_pa.then_some(inputs.mask);
+    let trans = inputs.transgrids.unwrap_or_default();
+    let base = Base::new(&cells, cond, trav.unwrap_or(cond), &sorted, config.offsets, areas, mask, trans);
+    drop(cells);
+    let (gate, strict) = match cross.mode {
+        CrossingMode::Landmass => (Some(Gate::build(&base)), None),
+        CrossingMode::Strict => {
+            let mut st = Strict::build(&base)?;
+            st.relax = relax;
+            (None, Some(st))
+        }
+    };
+    drop(base);
+    // The context owns a confined traversal; it borrows a caller's
+    let trav = match confined {
+        Some(owned) => Some(CowArray::from(owned)),
+        None => traversal.map(|t| CowArray::from(t.view())),
+    };
+    let mut ctx = prepare_with(inputs, config, true, trav, share)?;
+    ctx.cost = cross.cost;
+    ctx.gate = gate;
+    ctx.strict = strict;
+    Ok(ctx)
+}
+
+fn run(inputs: &Inputs, ctx: Context, start: Instant) -> Result<(Array2<f32>, Stats)> {
     let (cond_base, mask_array) = (inputs.condition, inputs.mask);
-    let ctx = prepare(inputs, config)?;
 
     // One scratch per pool thread, sized up front; a row borrows its thread's scratch, so
     // focal cells only allocate if a window outgrows the initial capacity.
@@ -82,6 +174,7 @@ pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stat
         cache_peak: ctx.templates.peak + ctx.tables.bytes,
         cache_fixed: ctx.templates.fixed + ctx.tables.fixed,
         table_bytes: ctx.tables.bytes,
+        climate_bytes: ctx.climate.as_ref().map_or(0, |c| c.bytes),
         cached: ctx.templates.cached.to_vec(),
         linked: ctx.templates.linked.to_vec(),
         edges: scratch.iter().fold([0; STATUSES], |mut acc, s| {
@@ -91,6 +184,10 @@ pub fn conn_stats(inputs: &Inputs, config: &Config) -> Result<(Array2<f32>, Stat
         }),
         setup_s,
         process_s: start.elapsed().as_secs_f64() - setup_s,
+        #[cfg(test)]
+        gate: ctx.gate.as_ref().map(|g| g.stats.clone()),
+        #[cfg(test)]
+        strict: ctx.strict.as_ref().map(|s| s.stats.clone()),
     };
     Ok((outarray, stats))
 }
@@ -138,21 +235,75 @@ pub fn validate(inputs: &Inputs, config: &Config) -> Result<()> {
     ensure!(window > 0, "Window size must be positive");
     ensure!(window % 2 == 1, "Window size must be odd-numbered");
     ensure!(outer < window || outer % 2 == 1, "Outer window size must be odd-numbered");
+    if let Some(cross) = &config.crossing {
+        check_crossing(cross, &transforms[&1], config.is_geo)?;
+    }
     Ok(())
 }
 
-/// Overviews and settings for one call, indexed by ascending level.
-pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> {
+/// Crossing settings, and a base grid on which gap widths can be measured along rows and
+/// columns (`crossing::cell_km`): finite cell sizes, perpendicular rows and columns, and north-up
+/// on geographic grids.
+fn check_crossing(cross: &Crossing, base: &Affine, is_geo: bool) -> Result<()> {
+    ensure!(
+        cross.width.is_finite() && cross.width >= 0.0,
+        "Crossing width must be a finite number of kilometres >= 0, got {}",
+        cross.width
+    );
+    ensure!(
+        cross.cost.is_finite() && cross.cost >= 1.0,
+        "Crossing cost must be a finite number >= 1, got {}",
+        cross.cost
+    );
+    let Affine { x_scale: a, x_skew: b, y_skew: d, y_scale: e, .. } = *base;
+    let (width, height) = (a.hypot(d), b.hypot(e));
+    ensure!(
+        width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0,
+        "NoData crossing needs finite, non-zero cell sizes in the base transform"
+    );
+    if b != 0.0 || d != 0.0 {
+        ensure!(!is_geo, "NoData crossing needs a north-up geographic grid (transform terms b and d of 0), got b = {b}, d = {d}");
+        ensure!(
+            (a * b + d * e).abs() <= 1.0e-6 * width * height,
+            "NoData crossing needs perpendicular rows and columns, but the base transform is sheared: (a, b, d, e) = ({a}, {b}, {d}, {e})"
+        );
+    }
+    Ok(())
+}
+
+/// Overviews and settings for one call without a crossing mode (`Config::crossing` `None`, the
+/// legacy NoData handling), indexed by ascending level.
+pub fn prepare<'a>(inputs: &Inputs<'a>, config: &Config<'a>) -> Result<Context<'a>> {
+    prepare_with(inputs, config, false, inputs.traversal.map(|t| CowArray::from(t.view())), None)
+}
+
+/// `prepare`; with `land_climate`, coarse cells' transgrid means use their land (finite
+/// condition) cells only, as the crossing modes' parts do, so a cell holding one part gets that
+/// part's climate and land that cannot be reached never changes it. `trav` is the traversal used
+/// for path weights (a crossing mode can confine one to land), replacing `inputs.traversal`, and
+/// `share` the base level of crossable NoData's share of path weights (crossing modes).
+///
+/// Ownership: the base level of condition, traversal and transgrids is borrowed from the caller
+/// (a transgrid that is not in standard layout is copied once into it, so each cell's bands are
+/// contiguous; see `climate`); the context owns only what it derives: coarse levels, weights, the
+/// protected fraction, a confined traversal and the crossing share.
+fn prepare_with<'a>(
+    inputs: &Inputs<'a>,
+    config: &Config<'a>,
+    land_climate: bool,
+    trav: Option<CowArray<'a, f32, Ix2>>,
+    share: Option<Array2<f32>>,
+) -> Result<Context<'a>> {
     validate(inputs, config)?;
     let Inputs {
         condition: cond_base,
         mask: mask_array,
-        traversal: trav_array,
+        traversal: _,
         transgrids: trans_arrays,
         transforms: transform_map,
     } = *inputs;
     let Config {
-        levels,
+        levels: _,
         lambdas,
         is_geo,
         max_cost,
@@ -161,37 +312,36 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
         offsets,
         window_mode,
         pa_to_pa,
+        crossing: _,
     } = *config;
-    // If transgrids are provided run BERI, otherwise connectedness.
-    let run_beri = trans_arrays
-        .map(|arrays| !arrays.is_empty())
-        .unwrap_or(false);
     let (nrows, ncols) = (cond_base.shape()[0], cond_base.shape()[1]);
 
-    // Generate overviews
-    let mut cond_map =
-        overview::make_overview(cond_base, levels, offsets, Resampling::Average, None)?;
-    let weight_method = if is_geo {
-        Resampling::Area
-    } else {
-        Resampling::Count
+    // Ascending distinct levels; every per-level vector below is indexed like them
+    let mut sorted_levels: Vec<i32> = config.levels.iter().map(|&l| l as i32).collect();
+    sorted_levels.sort_unstable();
+    sorted_levels.dedup();
+    let coarse = &sorted_levels[1..]; // `validate` requires level 1
+    let overviews = |base: ArrayView2<f32>, method: Resampling, areas: Option<&[f32]>| -> Vec<Array2<f32>> {
+        coarse.iter().map(|&l| overview::coarse_level(base, l as usize, offsets, method, areas)).collect()
     };
-    let mut cell_weights = overview::make_overview(
-        cond_base,
-        levels,
-        offsets,
-        weight_method,
-        transform_map.get(&1),
-    )?;
-    // Ensure cell-counts has the same keys and dimension as condition array map;
-    utils::check_dims(&cell_weights, &cond_map)?;
+
+    // Condition: the caller's base level, then averages
+    let cond: Vec<CowArray<f32, Ix2>> = std::iter::once(CowArray::from(cond_base.view()))
+        .chain(overviews(cond_base.view(), Resampling::Average, None).into_iter().map(CowArray::from))
+        .collect();
+    // Habitat area weights: valid-cell counts, or cos-latitude areas on geographic grids
+    let weight_method = if is_geo { Resampling::Area } else { Resampling::Count };
+    let areas = overview::area_rows(weight_method, transform_map.get(&1), nrows)?;
+    let weight: Vec<Array2<f32>> = std::iter::once(overview::base_weights(cond_base.view(), weight_method, areas.as_deref()))
+        .chain(overviews(cond_base.view(), weight_method, areas.as_deref()))
+        .collect();
 
     // PARC target-gating: build a PA-membership overview from the mask. Each cell holds the
     // fraction of its condition-valid sub-cells that fall on a protected area. The base
     // indicator is NaN where condition is NaN so the average shares the cell-weights valid
     // set, making `num_cells * pa` equal the protected area at every level. When disabled,
     // no gating is applied and the output is bit-identical to the original PARC path.
-    let pa_map: Option<HashMap<i32, Array2<f32>>> = if pa_to_pa {
+    let pa: Option<Vec<Array2<f32>>> = pa_to_pa.then(|| {
         let pa_indicator = Array2::<f32>::from_shape_fn((nrows, ncols), |(i, j)| {
             if cond_base[[i, j]].is_nan() {
                 f32::NAN
@@ -201,81 +351,36 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
                 0.0
             }
         });
-        let map = overview::make_overview(
-            &pa_indicator, 
-            levels, 
-            offsets, 
-            Resampling::Average, 
-            None
-        )?;
-        utils::check_dims(&map, &cond_map)?;
-        Some(map)
-    } else {
-        None
-    };
+        let rest = overviews(pa_indicator.view(), Resampling::Average, None);
+        std::iter::once(pa_indicator).chain(rest).collect()
+    });
 
     // Optional traversal overview (resistance-derived, averaged like condition). Built
     // only when a resistance raster is supplied; when None the graph weight falls back to
     // condition, so the output is bit-identical to a resistance-free run.
-    let trav_map: Option<HashMap<i32, Array2<f32>>> = match trav_array {
-        Some(arr) => {
-            let map = overview::make_overview(arr, levels, offsets, Resampling::Average, None)?;
-            utils::check_dims(&map, &cond_map)?;
-            Some(map)
-        }
-        None => None,
-    };
-
-    // Generate overviews for all scenarios
-    let mut trans_maps: Vec<HashMap<i32, Array3<f32>>> = if let Some(arrays) = trans_arrays {
-        arrays
-            .iter()
-            .map(|arr| overview::make_overview_3d(arr, levels, offsets, Resampling::Average))
-            .collect::<Result<_>>()?
-    } else {
-        Vec::new() // Empty vec if None
-    };
-
-    // Level-indexed vectors replace per-cell hash lookups
-    let mut sorted_levels: Vec<i32> = cond_map.keys().copied().collect();
-    sorted_levels.sort_unstable();
-    let by_level = |map: &mut HashMap<i32, Array2<f32>>| -> Vec<Array2<f32>> {
-        sorted_levels.iter().map(|l| map.remove(l).unwrap()).collect()
-    };
-    let cond = by_level(&mut cond_map);
-    let weight = by_level(&mut cell_weights);
-    let pa = pa_map.map(|mut map| by_level(&mut map));
-    let trav = trav_map.map(|mut map| by_level(&mut map));
-    // Standard layout keeps each cell's bands contiguous (the base level copies the input's
-    // layout, e.g. a band-major view); values are unchanged.
-    let trans: Vec<Vec<Array3<f32>>> = trans_maps
-        .iter_mut()
-        .map(|map| {
-            sorted_levels
-                .iter()
-                .map(|l| {
-                    let arr = map.remove(l).unwrap();
-                    if arr.is_standard_layout() {
-                        arr
-                    } else {
-                        arr.as_standard_layout().into_owned()
-                    }
-                })
-                .collect()
-        })
-        .collect();
-    // Flat band slices need standard layout and the condition grid's shape at every level
-    let contiguous = trans.iter().all(|levels| {
-        levels.iter().zip(&cond).all(|(t, c)| {
-            t.is_standard_layout() && (t.dim().0, t.dim().1) == c.dim()
-        })
+    let trav: Option<Vec<CowArray<f32, Ix2>>> = trav.map(|base| {
+        let rest = overviews(base.view(), Resampling::Average, None);
+        std::iter::once(base).chain(rest.into_iter().map(CowArray::from)).collect()
     });
+    // Crossing modes: crossable NoData's share of each cell's path weights, averaged as traversal
+    let cross: Option<Vec<Array2<f32>>> = share.map(|base| {
+        let rest = overviews(base.view(), Resampling::Average, None);
+        std::iter::once(base).chain(rest).collect()
+    });
+
+    // BERI climate: every scenario's base level (borrowed in standard layout) and band means
+    let dims: Vec<(usize, usize)> = cond.iter().map(|a| a.dim()).collect();
+    let climate = match trans_arrays {
+        Some(arrays) if !arrays.is_empty() => {
+            Some(Climate::new(arrays, &sorted_levels, &dims, offsets, land_climate.then_some(cond_base))?)
+        }
+        _ => None,
+    };
     let fringe: Vec<bool> = (0..sorted_levels.len())
         .map(|l| sorted_levels.get(l + 1) == Some(&(sorted_levels[l] * 2)))
         .collect();
     let transforms: Vec<Option<Affine>> =
         sorted_levels.iter().map(|l| transform_map.get(l).copied()).collect();
-    let base = sorted_levels.iter().position(|&l| l == 1);
 
     // If outer_win is lower than win_size, use the regular win_size
     let outer = outer_window.max(window_size);
@@ -294,7 +399,6 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
         .collect();
     // Distance tables first, then window templates, within one shared cache budget that bounds
     // the cache's heap while it is built and afterwards
-    let dims: Vec<(usize, usize)> = cond.iter().map(|a| a.dim()).collect();
     let reserved = Templates::fixed(sorted_levels.len());
     let budget = CACHE_BUDGET.saturating_sub(reserved);
     let tables = Tables::new(&sorted_levels, &transforms, &dims, offsets, &fringe, is_geo, budget);
@@ -315,9 +419,8 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
         weight,
         pa,
         trav,
-        trans,
-        contiguous,
-        base,
+        cross,
+        climate,
         transforms,
         fringe,
         clip,
@@ -328,9 +431,11 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
         mode: window_mode,
         is_geo,
         factor: max_cost,
+        cost: 1.0,
         pa_to_pa,
         lambdas,
-        run_beri,
+        gate: None,
+        strict: None,
     })
 }
 
@@ -338,6 +443,8 @@ pub fn prepare<'a>(inputs: &Inputs, config: &Config<'a>) -> Result<Context<'a>> 
 mod tests {
     use super::*;
     use crate::window::WindowMode;
+    use ndarray::Array3;
+    use std::collections::HashMap;
 
     // Repeated runs must give bit-identical output.
     #[test]
@@ -357,7 +464,7 @@ mod tests {
         let inputs = Inputs { condition: &cond, mask: &mask, traversal: None, transgrids: None, transforms: &transforms };
         let config = Config {
             levels: &levels, lambdas: &[2.0, 20.0], is_geo: false, max_cost: 2.0, window_size: 3,
-            outer_window: 5, offsets: (0, 0), window_mode: WindowMode::Circular, pa_to_pa: false,
+            outer_window: 5, offsets: (0, 0), window_mode: WindowMode::Circular, pa_to_pa: false, crossing: None,
         };
         let run = || conn(&inputs, &config).unwrap();
 
@@ -505,6 +612,32 @@ mod tests {
                 if masked {
                     assert!(output[[i, j]].is_nan());
                 }
+            }
+        }
+    }
+
+    // Transgrids in any memory layout give the same bits: standard layout (borrowed), band-major
+    // and Fortran order (each copied once into standard layout), without and with crossing modes
+    #[test]
+    fn transgrid_layouts() {
+        use crate::{Crossing, CrossingMode};
+        let modes = [None, Some(CrossingMode::Strict), Some(CrossingMode::Landmass)];
+        for (mode, crossing) in [WindowMode::Circular, WindowMode::Square].into_iter().flat_map(|m| modes.map(|c| (m, c))) {
+            let mut f = crate::testkit::Fixture::multilevel(mode, true, false);
+            f.crossing = crossing.map(|mode| Crossing { mode, width: 1.5, cost: 3.5 });
+            let expected = conn(&f.inputs(), &f.config()).unwrap();
+            let grids = f.trans.clone().unwrap();
+            let band_major: Vec<Array3<f32>> = grids
+                .iter()
+                .map(|g| g.view().permuted_axes([2, 0, 1]).as_standard_layout().into_owned().permuted_axes([1, 2, 0]))
+                .collect();
+            let fortran: Vec<Array3<f32>> =
+                grids.iter().map(|g| g.view().reversed_axes().as_standard_layout().into_owned().reversed_axes()).collect();
+            assert!(!band_major[0].is_standard_layout() && !fortran[0].is_standard_layout());
+            for layout in [band_major, fortran] {
+                f.trans = Some(layout);
+                let out = conn(&f.inputs(), &f.config()).unwrap();
+                assert!(crate::testkit::same_bits(&out, &expected), "{mode:?} {crossing:?}");
             }
         }
     }

@@ -11,6 +11,7 @@ import rasterio
 import connectivity as cn
 from connectivity import example_data_path
 from connectivity.runlog import (
+    _HABITAT_OUTPUTS,
     _absolute,
     _format_log,
     _quoted,
@@ -42,16 +43,17 @@ def test_documented_example():
     # The documented example of the format, as R and Eco-Connectivity Studio write it from
     # [parameters] to the end of [output]
     text = _format_log(
-        created=CREATED, elapsed=42.48, software="eco-connectivity Python package 2.6.0",
+        created=CREATED, elapsed=42.48, software="eco-connectivity Python package 3.0.0",
         indicator="connected_habitat", option=3, lambdas=[2, 20, 200], levels=[1, 2, 4, 8, 16, 32],
         max_cost=2.0, window_size=5, outer_window=9, window_mode="circular",
+        nodata_crossing="strict", crossing_width=0.5, crossing_cost=4.0,
         resistance_scale=100, condition="/data/tasmania/site_condition.tif",
         resistance="/data/tasmania/resistance.tif", output="/data/results/connected_habitat.tif",
         threads=8,
     )
     assert text == f"""# Connectivity run log
-format = 1
-software = "eco-connectivity Python package 2.6.0"
+format = 2
+software = "eco-connectivity Python package 3.0.0"
 engine = "connectivity-core {CORE_VERSION}"
 created = "2026-11-11T03:14:15Z"
 elapsed_seconds = 42.5
@@ -65,6 +67,9 @@ max_cost = 2
 window_size = 5
 outer_window = 9
 window_mode = "circular"
+nodata_crossing = "strict"
+crossing_width_km = 0.5
+crossing_cost = 4
 condition_scale = 1
 resistance_scale = 100
 
@@ -108,7 +113,7 @@ def test_connectedness_log(tmp_path):
     cn.connectedness(condition_file=COND, filename=out, option=2, lambdas=[0.5, 20], **SHORT)
     text = read_log(tmp_path / "habitat.toml")
     assert "\r" not in text and text.endswith("\n") and not text.startswith("\ufeff")
-    assert lines(text)[:3] == ["# Connectivity run log", "format = 1", f'software = "eco-connectivity Python package {cn_version()}"']
+    assert lines(text)[:3] == ["# Connectivity run log", "format = 2", f'software = "eco-connectivity Python package {cn_version()}"']
     assert f'engine = "connectivity-core {CORE_VERSION}"' in text
     assert lines(text)[7:] == [
         "[parameters]",
@@ -120,6 +125,9 @@ def test_connectedness_log(tmp_path):
         "window_size = 3",
         "outer_window = 3",
         'window_mode = "circular"',
+        'nodata_crossing = "strict"',
+        "crossing_width_km = 0.5",
+        "crossing_cost = 4",
         "condition_scale = 1",
         "",
         "[inputs]",
@@ -167,6 +175,67 @@ def test_beri_log(tmp_path):
         assert line in lines(text)
     assert "pa_to_pa" not in text and "habitat_output" not in text
     check_toml(text)
+
+
+def crossing_lines(path):
+    """The log's lines from `nodata_crossing` to `condition_scale`."""
+    found = lines(read_log(path))
+    i = found.index('window_mode = "circular"')
+    return found[i + 1:found.index("condition_scale = 1")]
+
+
+# Every log records the crossing: the mode, and its width and cost when there is one. A legacy
+# run is "none", without them, so it can never be read as the newer strict default
+def test_crossing_log(tmp_path):
+    out = str(tmp_path / "crossing.tif")
+    log = tmp_path / "crossing.toml"
+    for settings, expected in [
+        (dict(nodata_crossing="strict", crossing_width=1.5, crossing_cost=2.5),
+         ['nodata_crossing = "strict"', "crossing_width_km = 1.5", "crossing_cost = 2.5"]),
+        (dict(nodata_crossing=" LandMass ", crossing_width=0, crossing_cost=1),
+         ['nodata_crossing = "landmass"', "crossing_width_km = 0", "crossing_cost = 1"]),
+        (dict(), ['nodata_crossing = "strict"', "crossing_width_km = 0.5", "crossing_cost = 4"]),
+        (dict(nodata_crossing=None), ['nodata_crossing = "none"']),
+    ]:
+        for function, extra in ((cn.connectedness, {}), (cn.beri, dict(current_file=CURRENT))):
+            function(condition_file=COND, filename=out, **settings, **extra, **SHORT)
+            assert crossing_lines(log) == expected, (function.__name__, settings)
+            check_toml(read_log(log))
+
+
+def restore(text):
+    """Keyword arguments of `connectedness()` from a run log, by the format's reading rules: a
+    format 1 log without `nodata_crossing` is a legacy run, as is "none" in format 2."""
+    import tomllib
+
+    log = tomllib.loads(text)
+    p = log["parameters"]
+    crossing = p.get("nodata_crossing", "none")
+    if log["format"] >= 2:
+        assert "nodata_crossing" in p
+    args = dict(lambdas=p["lambdas_km"], levels=[v for v in p["levels"] if v != 1], max_cost=p["max_cost"],
+                window_size=p["window_size"], outer_window=p["outer_window"], window_mode=p["window_mode"],
+                option={v: k for k, v in _HABITAT_OUTPUTS.items()}[p["habitat_output"]],
+                nodata_crossing=None if crossing == "none" else crossing)
+    if crossing != "none":
+        args |= dict(crossing_width=p["crossing_width_km"], crossing_cost=p["crossing_cost"])
+    return args
+
+
+# A run restored from its log gives the same output bit for bit, also a legacy run, and a log of
+# format 1 without crossing settings restores the legacy handling, not the new default
+def test_restore(tmp_path):
+    pytest.importorskip("tomllib")
+    out = str(tmp_path / "run.tif")
+    for settings in (dict(), dict(nodata_crossing=None), dict(nodata_crossing="landmass", crossing_width=2.0,
+                                                               crossing_cost=1.5)):
+        first = cn.connectedness(condition_file=COND, filename=out, option=1, **settings, **SHORT)
+        args = restore(read_log(tmp_path / "run.toml"))
+        again = cn.connectedness(condition_file=COND, n_threads=4, **args)
+        np.testing.assert_array_equal(np.asarray(again).view(np.uint32), np.asarray(first).view(np.uint32))
+    old = read_log(tmp_path / "run.toml").replace("format = 2", "format = 1")
+    old = "\n".join(line for line in lines(old) if not line.startswith(("nodata_crossing", "crossing_"))) + "\n"
+    assert restore(old)["nodata_crossing"] is None
 
 
 def test_turning_logs_off(tmp_path, monkeypatch):
@@ -218,4 +287,5 @@ def cn_version():
 def check_toml(text):
     tomllib = pytest.importorskip("tomllib")
     parsed = tomllib.loads(text)
-    assert parsed["format"] == 1 and "parameters" in parsed and "output" in parsed
+    assert parsed["format"] == 2 and "parameters" in parsed and "output" in parsed
+    assert parsed["parameters"]["nodata_crossing"] in ("none", "landmass", "strict")

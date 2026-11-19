@@ -2,7 +2,8 @@
 
 The expected values are the frozen samples of the Rust ``multilevel_values`` test
 (crates/connectivity-core/src/core.rs), reached here through the Python binding, so they
-also check how arguments are passed to the core.
+also check how arguments are passed to the core. They are values of the legacy NoData
+handling, so the fixture passes ``nodata_crossing=None``.
 """
 
 import threading
@@ -51,7 +52,8 @@ def multilevel(mode="circular", beri=False, pa_to_pa=False):
         transforms[level] = (scale, 0.0, 500_000.0 + col0 * 1000.0, 0.0, -scale, 6_000_000.0 - row0 * 1000.0)
     return dict(condition=cond, mask=mask, transgrid_list=grids, transforms=transforms, levels=levels,
                 lambdas=[2.0, 20.0], is_geo=False, max_cost=20.0, window_size=3, outer_window=5,
-                offsets=offsets, traversal=traversal, window_mode=mode, pa_to_pa=pa_to_pa)
+                offsets=offsets, traversal=traversal, window_mode=mode, pa_to_pa=pa_to_pa,
+                nodata_crossing=None)
 
 
 def run(**changes):
@@ -231,3 +233,40 @@ def test_coverage_errors(polygons, message):
     with pytest.raises(RuntimeError) as info:
         rust_conn.pixel_coverage(polygons, TRANSFORM, (6, 6))
     assert str(info.value).startswith(message)
+
+
+def test_crossing_modes():
+    # Without NoData every crossing mode gives the plain output bit for bit
+    args = multilevel(beri=True)
+    del args["nodata_crossing"]
+    args["condition"] = np.nan_to_num(args["condition"], nan=0.4)
+    plain = rust_conn.connectivity(**args, nodata_crossing=None)
+    for mode in ("landmass", "strict", " Strict "):
+        for cost in (1.0, 4.0, 50.0):
+            out = rust_conn.connectivity(**args, nodata_crossing=mode, crossing_width=3.0, crossing_cost=cost)
+            np.testing.assert_array_equal(bits(out), bits(plain))
+    with pytest.raises(ValueError, match="Invalid nodata_crossing 'none'. Expected 'landmass' or 'strict'."):
+        run(nodata_crossing="none")
+    with pytest.raises(RuntimeError, match="Crossing width must be a finite number of kilometres >= 0, got -1"):
+        run(nodata_crossing="strict", crossing_width=-1.0)
+    for cost, text in ((0.5, "0.5"), (0.0, "0"), (-1.0, "-1"), (float("nan"), "NaN"), (float("inf"), "inf")):
+        with pytest.raises(RuntimeError, match=f"Crossing cost must be a finite number >= 1, got {text}$"):
+            run(nodata_crossing="strict", crossing_cost=cost)
+    with pytest.raises(TypeError):
+        run(nodata_crossing="strict", crossing_traversal=0.5)
+
+
+# The binding's crossing defaults are the core's Config::default(), exposed as DEFAULT_CROSSING:
+# strict, 0.5 km, cost 4; None selects the legacy handling, whose frozen values are checked above
+def test_crossing_defaults():
+    import inspect
+
+    assert rust_conn.DEFAULT_CROSSING == ("strict", 0.5, 4.0)
+    args = multilevel()
+    del args["nodata_crossing"]
+    explicit = rust_conn.connectivity(**args, nodata_crossing="strict", crossing_width=0.5, crossing_cost=4.0)
+    np.testing.assert_array_equal(bits(rust_conn.connectivity(**args)), bits(explicit))
+    legacy = rust_conn.connectivity(**args, nodata_crossing=None)
+    assert not np.array_equal(bits(legacy), bits(explicit))
+    text = inspect.signature(rust_conn.connectivity).parameters
+    assert [str(text[k].default) for k in ("nodata_crossing", "crossing_width", "crossing_cost")] == ["strict", "0.5", "4.0"]

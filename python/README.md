@@ -17,7 +17,11 @@
       - [Optional resistance surface](#optional-resistance-surface)
     - [PARC-Connectedness](#parc-connectedness)
     - [Bioclimatic Ecosystem Resilience Index (BERI)](#bioclimatic-ecosystem-resilience-index-beri)
+    - [NoData gaps: rivers, coasts and islands](#nodata-gaps-rivers-coasts-and-islands)
+    - [Condition time series](#condition-time-series)
+    - [Run logs](#run-logs)
   - [Running Analysis with Tiles](#running-analysis-with-tiles)
+  - [Migrating from 2.x to 3.0](#migrating-from-2x-to-30)
   - [Citation and scientific references](#citation-and-scientific-references)
   - [Acknowledgements and licence](#acknowledgements-and-licence)
       
@@ -237,14 +241,60 @@ beris = beri(
 ```
 <img src="https://raw.githubusercontent.com/csiro/connectivity/main/figs/beri.png" width="385" height="300">
 
+### NoData gaps: rivers, coasts and islands
+NoData cells of the condition raster, such as sea, lakes and rivers, never count
+as habitat. The multi-resolution graph aggregates cells into coarser levels, and
+`nodata_crossing` sets whether and where paths may cross NoData:
+
+- `"strict"` (the default since 3.0): NoData gaps at most `crossing_width`
+  kilometres wide (default 0.5) may be crossed, at `crossing_cost` (default 4),
+  and no wider gap is crossed at any level, including rivers and inlets inside
+  one landmass. Routes around a barrier within the search window are kept.
+- `"landmass"`: separate landmasses are linked only across such gaps; within
+  one landmass coarse levels still link land across wider water.
+- `None`: the legacy handling of versions 2.x. The finest level does not cross
+  NoData, but coarse levels link land on both sides of gaps narrower than about
+  twice their cell size, at no cost, and only from some cells, which can leave
+  steps on islands, coastlines and irregular boundaries.
+
+`crossing_cost` is a movement cost per unit distance relative to intact land:
+1 costs as much as intact land, 4 four times as much. It is independent of
+condition, resistance and `max_cost`. Crossed NoData only carries movement: it
+adds no habitat area, protected area or climate. The default width and cost are
+provisional general-purpose assumptions that allow limited crossing of narrow
+gaps, not calibrated ecological thresholds; choose wider gaps or other costs
+explicitly, as sensitivity scenarios. `crossing_width = 0` crosses no gap but
+keeps strict routing, which is not the same as `nodata_crossing = None`.
+
+```python
+# A sensitivity scenario: cross gaps up to 2 km wide at twice the cost of intact land
+connd_2km = connectedness(
+    condition_file = condition_file,
+    nodata_crossing = "strict",
+    crossing_width = 2.0,
+    crossing_cost = 2.0,
+)
+
+# Reproduce results of version 2.x
+connd_legacy = connectedness(condition_file = condition_file, nodata_crossing = None)
+```
+
+The default changes results wherever NoData lies near land, an intentional
+change of method in 3.0. On the bundled Tasmania raster, whose cells are about
+0.69 x 0.93 km so that no gap is 0.5 km wide or less, it changes almost every
+cell of plain connectedness slightly (by 0.003 on average, up to 0.21); the 4%
+of cells that change by more than 0.01 lie within 8 cells of NoData or the
+raster edge, nearly all of them.
+
 ### Condition time series
 Use `band` to select one band of a multi-band condition raster, such as one
 year of a time series stored as a multi-band GeoTIFF. Bands are numbered from
-1, as in GDAL, rasterio and terra. A `pa_file` or `resistance_file` with one
-band is used with every band, while a multi-band one uses the same band as the
-condition raster. The climate rasters of `beri()` are not affected: their bands
-are environmental variables. Without `band`, a multi-band condition raster
-raises an error.
+1, as in GDAL, rasterio and terra. `band` applies to the condition raster only:
+`pa_file` and `resistance_file` must have one band, which is used with every
+band of the condition raster, so a layer of a multi-band protected-area or
+resistance raster has to be written to its own file first. The climate rasters
+of `beri()` keep all their bands, which are environmental variables. Without
+`band`, a multi-band condition raster raises an error.
 
 ```python
 import rasterio
@@ -267,7 +317,9 @@ When `filename` is given, `connectedness()` and `beri()` also write a run log
 beside the output: `result.tif` gets `result.toml`, a small text file of the
 indicator, settings, input paths and output of the run. The R package and
 Eco-Connectivity Studio write the same format, and dropping a log on Studio's
-window restores its settings. Pass `save_log=False` to skip the log for one
+window restores its settings. Version 3.0 writes format 2, which always records
+the NoData crossing (`nodata_crossing = "none"` for the legacy handling); a log
+of format 1 without one describes a legacy run. Pass `save_log=False` to skip the log for one
 call, or set the environment variable `CONNECTIVITY_SAVE_LOG=0` (or `false`,
 `no`, `off`) for a whole session or batch job, which turns off the R package's
 logs too. An existing run log is replaced, but another file of that name is
@@ -389,5 +441,48 @@ Version 4. CSIRO Data Collection.
 See the [example-data README](https://github.com/csiro/connectivity/blob/main/python/connectivity/data/README.md)
 for layer metadata and attribution, also installed with the package as
 `connectivity/data/README.md`.
+
+## Migrating from 2.x to 3.0
+
+Version 3.0 settles the API; see [NEWS.md](https://github.com/csiro/connectivity/blob/main/python/NEWS.md) for every change.
+
+- **Keyword arguments.** Every argument after `condition_file` is keyword-only,
+  and `beri()` requires `current_file`. A positional call of 2.x raises
+  `TypeError` instead of binding to another argument.
+
+  ```python
+  # 2.x
+  connectedness("condition.tif", "pa.tif", True)
+  beri("condition.tif", "current.tif", ["future.tif"])
+  # 3.0
+  connectedness("condition.tif", pa_file="pa.tif", pa_to_pa=True)
+  beri("condition.tif", current_file="current.tif", future_files=["future.tif"])
+  ```
+
+- **NoData crossing.** The default is now strict crossing of gaps up to 0.5 km
+  at a cost of 4, a change of method that changes results near NoData. Pass
+  `nodata_crossing=None` to reproduce 2.x results. The 2.6 development builds'
+  `crossing_traversal=t` is replaced by `crossing_cost=(1 - max_cost) * t + max_cost`,
+  which is no longer tied to `max_cost`.
+
+  ```python
+  connectedness("condition.tif", nodata_crossing=None)  # as 2.x
+  connectedness("condition.tif", crossing_width=2.0, crossing_cost=2.0)  # a scenario
+  ```
+
+- **Bands.** `band` selects a band of `condition_file` only. A multi-band
+  `pa_file` or `resistance_file` raises `ValueError`; write the layer you need
+  to a single-band raster first, for example with
+  `gdal_translate -b 3 pa_series.tif pa_2003.tif`.
+- **Removed margins.** `margin_px` (`connectedness()`, `beri()`) and
+  `valid_margin_px` (`read_raster()`), deprecated in 2.5, are removed: drop
+  them. `read_raster()` marks only the cells a polygon touches as valid, and
+  its `band` argument is keyword-only.
+- **Argument order.** The documented order runs from inputs (`band`, `scale`,
+  protected areas or climate, resistance) through the method (`lambdas`,
+  `max_cost`, `levels`, windows), the area of interest (`polygon_mask`,
+  `closed_border`) and NoData crossing to execution and output (`n_threads`,
+  `filename`, `save_log`).
+- **Run logs** are written in format 2.
 
 [Back to top!](#connectivity-multi-resolution-landscape-connectivity-in-python)

@@ -48,13 +48,16 @@ pub fn to_array<'py>(data: &Bound<'py, PyAny>) -> Result<Option<Array2<f32>>> {
 
 
 /// Convert a Python 3D numpy array into an Option<Array3<f32>> that can be used in Rust.
+/// The owned copy is made in standard layout (each cell's bands contiguous), which the core
+/// borrows as it is; a band-major view, as the Python package passes, is reordered in that one
+/// copy rather than copied and then reordered by the core.
 pub fn to_array_3d<'py>(data: &Bound<'py, PyAny>) -> Result<Option<Array3<f32>>> {
     if data.is_none() {
         Ok(None) // Python passed `None`
     } else {
         let py_array = data.extract::<PyReadonlyArray3<'_, f32>>()
             .map_err(|e| anyhow::anyhow!("Failed to extract 3D array: {}", e))?;
-        let array_owned = py_array.as_array().to_owned();
+        let array_owned = py_array.as_array().as_standard_layout().into_owned();
         Ok(Some(array_owned))
     }
 }

@@ -313,9 +313,33 @@ impl Tables {
     /// Distance and status of `slot` for a source in local row `row` of level `l`.
     #[inline]
     pub fn get(&self, l: usize, row: i32, slot: usize) -> (f32, u8) {
-        let idx = if self.geo { row as usize * SLOTS + slot } else { slot };
-        match self.dist[l].get(idx) {
-            Some(&d) => (d, self.status[l][idx]),
+        self.row(l, row).get(slot)
+    }
+
+    /// Every slot for sources in local row `row` of level `l` (any row on projected grids).
+    #[inline]
+    pub fn row(&self, l: usize, row: i32) -> Row<'_> {
+        let start = if self.geo { row as usize * SLOTS } else { 0 };
+        match self.dist[l].get(start..start + SLOTS) {
+            Some(dist) => Row { dist, status: &self.status[l][start..start + SLOTS] },
+            None => Row { dist: &[], status: &[] }, // level not tabulated: every slot falls back
+        }
+    }
+}
+
+/// The table entries of one level and source row (`Tables::row`), read once for many edges.
+#[derive(Clone, Copy)]
+pub struct Row<'a> {
+    dist: &'a [f32],
+    status: &'a [u8],
+}
+
+impl Row<'_> {
+    /// Distance and status of `slot`; BUDGET when the level has no table.
+    #[inline]
+    pub fn get(&self, slot: usize) -> (f32, u8) {
+        match self.dist.get(slot) {
+            Some(&d) => (d, self.status[slot]),
             None => (f32::NAN, BUDGET),
         }
     }

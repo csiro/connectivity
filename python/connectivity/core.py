@@ -1,3 +1,4 @@
+import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -6,6 +7,7 @@ import geopandas as gpd
 from rust_conn import connectivity
 from .rastio import (
     _check_band,
+    _crossing_pad,
     _condition_band,
     _coordinate_info,
     _input_frame,
@@ -17,6 +19,9 @@ from .rastio import (
 )
 from .runlog import _save_log
 from .utils import (
+    CROSSING_COST,
+    CROSSING_WIDTH,
+    _normalise_crossing,
     _normalise_window_mode,
     _make_traversal,
     _check_continuous_levels,
@@ -24,57 +29,107 @@ from .utils import (
     _crop_array,
     _metre_transforms,
     _round_to_pow2,
-    _warn_margin_px,
 )
 
 _MAX_BERI_READ_WORKERS = 8
 
 
+# Shared parameter descriptions of connectedness() and beri(), placed at "{crossing}"
+_CROSSING_DOC = """nodata_crossing : {"strict", "landmass", None}, optional
+    How NoData cells of `condition_file` (sea, lakes, rivers) are treated. NoData in gaps at
+    most `crossing_width` kilometres wide may be crossed, at `crossing_cost`; crossed NoData
+    carries movement only, with no habitat area, protected area or climate. Wider gaps are
+    not crossed.
+    - "strict" (default): no wider gap is crossed anywhere, at any level, including rivers
+      and inlets inside one landmass; routes around them within the search window are kept.
+    - "landmass": separate landmasses are linked only across such gaps; within one
+      landmass coarse levels still link land across wider water (an inlet, or a river
+      whose banks join), as with None.
+    - None: the legacy handling of versions 2.x, which ignores `crossing_width` and
+      `crossing_cost`. The finest level does not cross NoData, but coarser levels link land
+      on both sides of gaps narrower than about twice their cell size, at no cost, and only
+      from some cells: a compact island near other land can have a linked part and a sealed
+      part. Pass `nodata_crossing=None` to reproduce results of version 2.x.
+    Without NoData every setting gives the same results. "strict" with `crossing_width=0`
+    crosses no gap, but it is not None: coarse levels never link land across NoData.
+crossing_width : float, optional
+    Widest NoData gap crossed, in kilometres (finite, >= 0); 0 crosses none. The default,
+    0.5, is a provisional general-purpose assumption that allows limited crossing of narrow
+    gaps, not a calibrated ecological threshold; wider gaps are sensitivity scenarios to
+    choose explicitly. A gap's width is measured once at base resolution, as the widest disc
+    that fits between the land cells; on geographic grids cells are narrower towards the
+    poles. This also makes NoData in concave corners of a coastline crossable, within about
+    a fifth of the width of the corner. With an open-border `polygon_mask`, the read window
+    grows by this width. Ignored when `nodata_crossing` is None, with a notice when changed.
+crossing_cost : float, optional
+    Movement cost of crossed NoData per unit distance, relative to intact land (finite,
+    >= 1): 1 costs as much as intact land, the default 4 four times as much. It is
+    independent of condition, resistance and `max_cost`, and may exceed `max_cost`; a
+    coarse cell holding land and crossable NoData costs the mean of their costs. Like the
+    width, the default is a provisional assumption, not a calibrated value. No effect when
+    `crossing_width` is 0; ignored when `nodata_crossing` is None, with a notice when
+    changed."""
+
+
 # Connectedness main funciton
 def connectedness(
         condition_file: str,
+        *,
+        band: int | None = None,
+        scale: float | tuple | None = None,
         pa_file: str | None = None,
         pa_to_pa: bool = False,
-        polygon_mask: gpd.GeoDataFrame | None = None,
-        closed_border: bool = False,
-        margin_px: int | None = None,
-        lambdas: list[float] = [2, 20, 200],
-        max_cost: float = 2.0, 
-        window_size: int = 5, 
-        outer_window: int = 9,
-        window_mode: str = "circular",
-        levels: list[int] = [2, 4, 8, 16, 32],
-        scale: float | tuple | None = None,
+        option: int = 3,
         resistance_file: str | None = None,
         resistance_scale: float | None = None,
-        option: int = 3,
+        lambdas: list[float] = [2, 20, 200],
+        max_cost: float = 2.0,
+        levels: list[int] = [2, 4, 8, 16, 32],
+        window_size: int = 5,
+        outer_window: int = 9,
+        window_mode: str = "circular",
+        polygon_mask: gpd.GeoDataFrame | None = None,
+        closed_border: bool = False,
+        nodata_crossing: str | None = "strict",
+        crossing_width: float = CROSSING_WIDTH,
+        crossing_cost: float = CROSSING_COST,
         n_threads: int | None = None,
         filename: str = "",
-        band: int | None = None,
         save_log: bool | None = None,
     ):
     """Computes a multi-scale habitat and PARC connectedness metrics
     
     This based on habiat condition using a hierarchical neighborhood-based over multiple resolution
-    levels (raster overviews).
+    levels (raster overviews), which are generated on-the-fly.
 
-    This algorithm operates on the overview layers of a GeoTIFF file (including 
-    Cloud-Optimized GeoTIFFs). Please ensure that these overview layers are generated 
-    using the `average`, not `nearest` resampling method. Use the `create_overviews()` 
-    function to generate the required overview layers correctly.
-    
     The approximate one-sided search reach in the condition raster is computed as:
     max-reach = outer_window * max(levels) * resolution
+
+    Every argument after `condition_file` is keyword-only, e.g.
+    `connectedness("condition.tif", pa_file="pa.tif", lambdas=[2, 20])`.
 
     Parameters
     ----------
     condition_file : str
         Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
         adjusted using the `scale` parameter.
+    band : int, optional
+        The 1-based band of `condition_file` to use, numbered as in GDAL, rasterio and terra,
+        e.g. one year of a condition time series stored as a multi-band raster. If None
+        (default), `condition_file` must have one band. It selects a band of `condition_file`
+        only: `pa_file` and `resistance_file` must have one band whatever `band` is, so write
+        the layer to use to a single-band raster first.
+    scale : float or tuple, optional
+        Scaling factor(s) applied to the condition and PA rasters.
+        - If a single float is provided, it is applied only to the condition raster.
+        - If a tuple of two values is provided, the first value scales the condition raster
+        and the second value scales the PA raster.
+        - Each element may be ``None``, ``0``, or ``1`` to indicate no scaling for that raster.
     pa_file : str, optional
-        Path to the raster file containing protected-area (PA) proportions. This file is required to
-        calculate PARC-connectedness. If provided, the function will compute PARC-connectedness instead
-        of standard habitat connectedness. If `None`, only habitat connectedness is calculated.
+        Path to the single-band raster file containing protected-area (PA) proportions. This
+        file is required to calculate PARC-connectedness. If provided, the function will
+        compute PARC-connectedness instead of standard habitat connectedness. If `None`, only
+        habitat connectedness is calculated.
     pa_to_pa : bool, optional
         PARC edition only (requires `pa_file`). If True, restrict the source-destination
         connectivity so that only graph nodes falling on a protected area contribute to the
@@ -85,20 +140,24 @@ def connectedness(
         boundary contributes only its protected fraction. An isolated PA (one that can reach no
         other PA) scores 0. If False (default), every reachable cell is counted, i.e. the
         original PARC behaviour. Ignored when `pa_file` is None.
-    polygon_mask : gpd.GeoDataFrame, optional
-        A GeoDataFrame containing polygon geometry that defines the area of
-        interest. If provided, analysis is limited to this area; if None,
-        the entire image is processed. See `closed_border` for boundary behavior.
-        Cells touched by the polygon are computed and returned; the output covers
-        the polygon bounds on the raster grid, with NaN in cells it does not touch.
-    closed_border : bool
-        Specifies how polygon boundaries are handled when `polygon_mask`
-        is provided. If True, only cells inside the polygon are included.
-        If False, cells outside the polygon within a buffer are considered for the analysis.
-    margin_px : int, optional
-        Deprecated and ignored, with a `DeprecationWarning`; it will be removed in 3.0.
-        Open-border runs compute only the cells that `polygon_mask` touches. The margin
-        cells it added were never returned and did not change the other cells.
+    option : int, optional
+        Option flag to generate the connected condition from connectedness and input habitat-condition 
+        (this is ignored for PARC-connectedness).
+        Default is 3:
+            - 1: connectedness
+            - 2: connectedness * condition
+            - 3: sqrt(connectedness * condition)
+    resistance_file : str, optional
+        Path to an optional single-band resistance raster (values in [0, 1], high = harder to
+        cross). When provided it is decoupled from condition and used *only* for path traversal:
+        the weight becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost`. Condition still
+        drives all indicator values (habitat area and the value multiplier). If ``None``
+        (default), the condition raster is used for traversal too. Cells valid in condition but
+        missing in resistance fall back to condition for traversal and emit a warning (no cell
+        is dropped).
+    resistance_scale : float, optional
+        Scaling factor applied to the resistance raster (divides it, like ``scale`` for
+        condition) so its values land in [0, 1]. If ``None``, 0, or 1, it is used unchanged.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -107,7 +166,12 @@ def connectedness(
         The cost of moving through a fully-degraded site. Used in weighting the path traversal
         (default = 2, i.e. twice the cost of passing through an intact cell). Applied as
         `w = (1.0 - max_cost) * t + max_cost`, where `t` is the traversal value: the condition
-        value by default, or `1 - resistance` when `resistance_file` is given (see below).
+        value by default, or `1 - resistance` when `resistance_file` is given (see above).
+        Crossed NoData costs `crossing_cost` instead.
+    levels : list of int
+        List of overview levels used for multi-scale analysis. Must form a continuous
+        power-of-two sequence (1 is added internally).
+        Default is [2, 4, 8, 16, 32].
     window_size : int
         Odd local window width used for non-coarsest levels. For instance,
         window_size=3 produces an effective 6×6 current-level window in the
@@ -122,55 +186,35 @@ def connectedness(
         source-centered circular annuli with fractional area/count support at
         annulus boundaries. "square" uses the same source-centered fractional
         construction with square annuli. Default is "circular".
-    levels : list of int
-        List of overview levels used for multi-scale analysis. Must form a continuous
-        power-of-two sequence (1 is added internally).
-        Default is [2, 4, 8, 16, 32].
-    scale : float or tuple, optional
-        Scaling factor(s) applied to the condition and PA rasters.
-        - If a single float is provided, it is applied only to the condition raster.
-        - If a tuple of two values is provided, the first value scales the condition raster
-        and the second value scales the PA raster.
-        - Each element may be ``None``, ``0``, or ``1`` to indicate no scaling for that raster.
-    resistance_file : str, optional
-        Path to an optional resistance raster (values in [0, 1], high = harder to cross). When
-        provided it is decoupled from condition and used *only* for path traversal: the weight
-        becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost`. Condition still drives all
-        indicator values (habitat area and the value multiplier). If ``None`` (default), the
-        condition raster is used for traversal too, i.e. the original behaviour (bit-identical).
-        Cells valid in condition but missing in resistance fall back to condition for traversal
-        and emit a warning (no cell is dropped).
-    resistance_scale : float, optional
-        Scaling factor applied to the resistance raster (divides it, like ``scale`` for
-        condition) so its values land in [0, 1]. If ``None``, 0, or 1, it is used unchanged.
-    option : int, optional
-        Option flag to generate the connected condition from connectedness and input habitat-condition 
-        (this is ignored for PARC-connectedness).
-        Default is 3:
-            - 1: connectedness
-            - 2: connectedness * condition
-            - 3: sqrt(connectedness * condition)
+    polygon_mask : gpd.GeoDataFrame, optional
+        A GeoDataFrame containing polygon geometry that defines the area of
+        interest. If provided, analysis is limited to this area; if None,
+        the entire image is processed. See `closed_border` for boundary behavior.
+        Only cells touched by the polygon are computed and returned; the output covers
+        the polygon bounds on the raster grid, with NaN in cells it does not touch.
+    closed_border : bool
+        Specifies how polygon boundaries are handled when `polygon_mask`
+        is provided. If True, only cells inside the polygon are included.
+        If False (default), the landscape outside the polygon, within the search reach, is
+        read and used for routing and windows, so the touched cells get the values a
+        whole-raster run gives them.
+    {crossing}
     n_threads : int, optional
         The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
     filename : str, optional
         Path to save the output file as a GeoTIFF. If empty, the result is not written to disk.
         Default is "".
-    band : int, optional
-        The 1-based band of `condition_file` to use, numbered as in GDAL, rasterio and terra,
-        e.g. one year of a condition time series stored as a multi-band raster. A `pa_file` or
-        `resistance_file` with more than one band uses the same band; a single-band one is used
-        as it is, e.g. a fixed protected-area layer. If None (default), every input must have
-        one band.
     save_log : bool, optional
         Whether to write a run log beside `filename` once it is written: a small text file of
         the settings, inputs and output of the run, with the output's extension replaced by
-        `.toml` (`result.tif` gets `result.toml`). Eco-Connectivity Studio restores the
-        settings of a log dropped on its window. An existing run log is replaced, but another
-        file of that name is kept, with a warning. Not writing the log is a warning, never an
-        error. If None (default), logs are written unless the environment variable
-        `CONNECTIVITY_SAVE_LOG` is `0`, `false`, `no` or `off`, which also turns off the R
-        package's logs. Nothing is written when `filename` is empty.
+        `.toml` (`result.tif` gets `result.toml`). The log records the NoData crossing used,
+        including `nodata_crossing = "none"` for the legacy handling. Eco-Connectivity Studio
+        restores the settings of a log dropped on its window. An existing run log is replaced,
+        but another file of that name is kept, with a warning. Not writing the log is a
+        warning, never an error. If None (default), logs are written unless the environment
+        variable `CONNECTIVITY_SAVE_LOG` is `0`, `false`, `no` or `off`, which also turns off
+        the R package's logs. Nothing is written when `filename` is empty.
 
     Returns
     -------
@@ -178,9 +222,9 @@ def connectedness(
 
     Notes
     -----
-    - `pa_file` and `resistance_file` must have the CRS and resolution of `condition_file`, lie
-      on its grid and cover the analysis window, as in the R package; they may extend beyond it.
-      They must have one band unless `band` is given.
+    - `pa_file` and `resistance_file` must have one band and the CRS and resolution of
+      `condition_file`, lie on its grid and cover the analysis window, as in the R package; they
+      may extend beyond it.
     - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
       both omit one.
     - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
@@ -188,14 +232,18 @@ def connectedness(
       coordinates are then assumed to be degrees for cells smaller than one unit and metres
       for larger cells; mixed cases are judged from whether the extent fits longitude/latitude
       bounds.
+    - The default NoData crossing changed in version 3.0 from the legacy handling to
+      "strict" with a 0.5 km width and a cost of 4, an intentional change of method: results
+      change wherever NoData lies near land. Pass `nodata_crossing=None` to reproduce
+      results of version 2.x.
     - Appropriate choice of `lambdas` and `levels` significantly affects the output connectedness.
     - This function is suitable for applications in spatial pattern analysis, texture segmentation,
 
     """
     started = time.perf_counter()
     window_mode = _normalise_window_mode(window_mode)
-    _warn_margin_px(margin_px)
     _check_band(band)
+    nodata_crossing = _normalise_crossing(nodata_crossing, crossing_width, crossing_cost)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -220,15 +268,17 @@ def connectedness(
     levels = sorted({1, *(_round_to_pow2(x) for x in levels)})
     _check_continuous_levels(levels)
 
-    # For closed border there'll be no padding
-    pad_size = 0 if closed_border else outer_window
-
     # The condition band, then coordinates as in R: the polygon in the raster's CRS, engine
     # units in degrees or metres
     cond_band = _condition_band(condition_file, band)
     crs, is_geo, metres = _coordinate_info(condition_file)
     if polygon_mask is not None:
         polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
+
+    # For closed border there'll be no padding; NoData crossing reads its gap width further
+    pad_size = 0 if closed_border else outer_window
+    if pad_size and nodata_crossing is not None:
+        pad_size += _crossing_pad(condition_file, crossing_width, is_geo, metres, max(levels))
 
     # Read condition raster overviews; this checks levels as well
     cond_array, mask_array, affine_dict, _, tile_row0, tile_col0 = read_raster(
@@ -237,16 +287,15 @@ def connectedness(
         levels=levels, 
         scale=s1, # only for condition raster
         expand_px=pad_size,
-        valid_margin_px=0,
         band=cond_band,
     )
 
     # Other inputs must cover the condition's window on its grid, as in R; check them all first
     window, outside = _input_frame(polygon_mask, closed_border, affine_dict, mask_array, tile_row0, tile_col0)
     if pa_file is not None:
-        pa_window, pa_band = _input_window(pa_file, "pa_file", condition_file, window, band)
+        pa_window = _input_window(pa_file, "pa_file", condition_file, window)
     if resistance_file is not None:
-        res_window, res_band = _input_window(resistance_file, "resistance_file", condition_file, window, band)
+        res_window = _input_window(resistance_file, "resistance_file", condition_file, window)
 
     # Return early if the analysis window has no usable condition cells.
     if np.isnan(cond_array).all() or np.all(mask_array):
@@ -254,7 +303,7 @@ def connectedness(
     else:
         # Process PA-array for PARC-connectedness
         if pa_file is not None:
-            pa_array = _read_window(pa_file, pa_window, outside, scale=s2, band=pa_band)
+            pa_array = _read_window(pa_file, pa_window, outside, scale=s2, band=1)
 
             # Update the condition dict with the max(c, p) for each cell in each level
             cond_array = np.maximum(cond_array, pa_array)
@@ -270,8 +319,7 @@ def connectedness(
             # only for path weighting). None keeps the resistance-free behaviour unchanged.
             res_array = None
             if resistance_file is not None:
-                res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale,
-                                         band=res_band)
+                res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale, band=1)
             traversal = _make_traversal(cond_array, res_array)
 
             # The base Rust connectivity funciton
@@ -291,6 +339,9 @@ def connectedness(
                 n_threads = n_threads,
                 window_mode = window_mode,
                 pa_to_pa = pa_to_pa,
+                nodata_crossing = nodata_crossing,
+                crossing_width = crossing_width,
+                crossing_cost = crossing_cost,
             )
 
             # Calculate the connected-habitat or just return the PARC-connectedness
@@ -314,7 +365,8 @@ def connectedness(
             window_mode=window_mode, condition_scale=s1, protected_areas_scale=s2,
             resistance_scale=resistance_scale, band=band, closed_border=closed_border,
             condition=condition_file, resistance=resistance_file, protected_areas=pa_file,
-            polygon_mask=polygon_mask, threads=n_threads,
+            polygon_mask=polygon_mask, threads=n_threads, nodata_crossing=nodata_crossing,
+            crossing_width=crossing_width, crossing_cost=crossing_cost,
         )
 
     return out_array
@@ -324,23 +376,26 @@ def connectedness(
 # BERI main funciton
 def beri(
         condition_file: str,
+        *,
+        band: int | None = None,
+        scale: float | None = None,
         current_file: str,
         future_files: list[str] | None = None,
-        polygon_mask: gpd.GeoDataFrame | None = None,
-        closed_border: bool = False,
-        margin_px: int | None = None,
-        lambdas: list[float] = [2, 20, 200],
-        max_cost: float = 2.0, 
-        window_size: int = 5, 
-        outer_window: int = 9,
-        window_mode: str = "circular",
-        levels: list[int] = [2, 4, 8, 16, 32],
-        scale: float | None = None,
         resistance_file: str | None = None,
         resistance_scale: float | None = None,
+        lambdas: list[float] = [2, 20, 200],
+        max_cost: float = 2.0,
+        levels: list[int] = [2, 4, 8, 16, 32],
+        window_size: int = 5,
+        outer_window: int = 9,
+        window_mode: str = "circular",
+        polygon_mask: gpd.GeoDataFrame | None = None,
+        closed_border: bool = False,
+        nodata_crossing: str | None = "strict",
+        crossing_width: float = CROSSING_WIDTH,
+        crossing_cost: float = CROSSING_COST,
         n_threads: int | None = None,
         filename: str = "",
-        band: int | None = None,
         save_log: bool | None = None,
     ):
     """Computes the Bioclimatic Ecosystem Resilience Index (BERI)
@@ -355,30 +410,39 @@ def beri(
     The approximate one-sided search reach in the condition raster is computed as:
     max-reach = outer_window * max(levels) * resolution
 
+    Every argument after `condition_file` is keyword-only, and `current_file` is required, e.g.
+    `beri("condition.tif", current_file="1990.tif", future_files=["2050.tif"])`.
+
     Parameters
     ----------
     condition_file : str
         Path to the input habitat-condition raster file. Values should range from 0 to 1 and can be 
         adjusted using the `scale` parameter. 
+    band : int, optional
+        The 1-based band of `condition_file` to use, numbered as in GDAL, rasterio and terra,
+        e.g. one year of a condition time series stored as a multi-band raster. If None
+        (default), `condition_file` must have one band. It selects a band of `condition_file`
+        only: `resistance_file` must have one band whatever `band` is, and `current_file` and
+        `future_files` keep all their bands, which are environmental variables.
+    scale : float, optional
+        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged;
+        otherwise it is divided by scale.
     current_file : str
-        Path to the current compositional turnover layer (e.g., dissimilarity surface under current climate).
+        Required. Path to the current compositional turnover layer (e.g., dissimilarity surface
+        under current climate), with one band or more.
     future_files : list of str, optional
         List of file paths representing future compositional turnover layers (scenarios).
         Each must have the same number and order of bands as `current_file`.
-    polygon_mask : gpd.GeoDataFrame, optional
-        A GeoDataFrame containing polygon geometry that defines the area of
-        interest. If provided, analysis is limited to this area; if None,
-        the entire image is processed. See `closed_border` for boundary behavior.
-        Cells touched by the polygon are computed and returned; the output covers
-        the polygon bounds on the raster grid, with NaN in cells it does not touch.
-    closed_border : bool
-        Specifies how polygon boundaries are handled when `polygon_mask`
-        is provided. If True, only cells inside the polygon are included.
-        If False, cells outside the polygon within a buffer are considered for the analysis.
-    margin_px : int, optional
-        Deprecated and ignored, with a `DeprecationWarning`; it will be removed in 3.0.
-        Open-border runs compute only the cells that `polygon_mask` touches. The margin
-        cells it added were never returned and did not change the other cells.
+    resistance_file : str, optional
+        Path to an optional single-band resistance raster (values in [0, 1], high = harder to
+        cross). When provided it is decoupled from condition and used *only* for path traversal:
+        the weight becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost`. Condition still
+        drives all indicator values. If ``None`` (default), condition is used for traversal too.
+        Cells valid in condition but missing in resistance fall back to condition for traversal
+        and emit a warning (no cell is dropped).
+    resistance_scale : float, optional
+        Scaling factor applied to the resistance raster (divides it, like ``scale``) so its
+        values land in [0, 1]. If ``None``, 0, or 1, it is used unchanged.
     lambdas : list of float, optional
         The bandwidth values for the connectivity kernels. Controls the distance over 
         which the condition is used in the connectivity as a measure of organism 
@@ -387,7 +451,12 @@ def beri(
         The cost of moving through a fully-degraded site. Used in weighting the path traversal
         (default = 2, i.e. twice the cost of passing through an intact cell). Applied as
         `w = (1.0 - max_cost) * t + max_cost`, where `t` is the traversal value: the condition
-        value by default, or `1 - resistance` when `resistance_file` is given (see below).
+        value by default, or `1 - resistance` when `resistance_file` is given (see above).
+        Crossed NoData costs `crossing_cost` instead.
+    levels : list of int
+        List of overview levels used for multi-scale analysis. Must form a continuous
+        power-of-two sequence (1 is added internally).
+        Default is [2, 4, 8, 16, 32].
     window_size : int
         Odd local window width used for non-coarsest levels. For instance,
         window_size=3 produces an effective 6x6 current-level window in the
@@ -402,36 +471,25 @@ def beri(
         source-centered circular annuli with fractional area/count support at
         annulus boundaries. "square" uses the same source-centered fractional
         construction with square annuli. Default is "circular".
-    levels : list of int
-        List of overview levels used for multi-scale analysis. Must form a continuous
-        power-of-two sequence (1 is added internally).
-        Default is [2, 4, 8, 16, 32].
-    scale : float, optional
-        Scaling factor for condition raster. If None, 0, or 1, condition raster is used unchanged;
-        otherwise it is divided by scale.
-    resistance_file : str, optional
-        Path to an optional resistance raster (values in [0, 1], high = harder to cross). When
-        provided it is decoupled from condition and used *only* for path traversal: the weight
-        becomes `w = (1.0 - max_cost) * (1 - resistance) + max_cost`. Condition still drives all
-        indicator values. If ``None`` (default), condition is used for traversal too, i.e. the
-        original behaviour (bit-identical). Cells valid in condition but missing in resistance
-        fall back to condition for traversal and emit a warning (no cell is dropped).
-    resistance_scale : float, optional
-        Scaling factor applied to the resistance raster (divides it, like ``scale``) so its
-        values land in [0, 1]. If ``None``, 0, or 1, it is used unchanged.
+    polygon_mask : gpd.GeoDataFrame, optional
+        A GeoDataFrame containing polygon geometry that defines the area of
+        interest. If provided, analysis is limited to this area; if None,
+        the entire image is processed. See `closed_border` for boundary behavior.
+        Only cells touched by the polygon are computed and returned; the output covers
+        the polygon bounds on the raster grid, with NaN in cells it does not touch.
+    closed_border : bool
+        Specifies how polygon boundaries are handled when `polygon_mask`
+        is provided. If True, only cells inside the polygon are included.
+        If False (default), the landscape outside the polygon, within the search reach, is
+        read and used for routing and windows, so the touched cells get the values a
+        whole-raster run gives them.
+    {crossing}
     n_threads : int, optional
         The number of CPU cores for parallel processing in Rust connectivity.
         Default is None (all available cores).
     filename : str, optional
         Path to save the resulting BERI raster as a GeoTIFF. If empty, the output is not written
         to disk. Default is "".
-    band : int, optional
-        The 1-based band of `condition_file` to use, numbered as in GDAL, rasterio and terra,
-        e.g. one year of a condition time series stored as a multi-band raster. A
-        `resistance_file` with more than one band uses the same band; a single-band one is used
-        as it is. `current_file` and `future_files` are not affected: their bands are
-        environmental variables. If None (default), `condition_file` and `resistance_file` must
-        have one band.
     save_log : bool, optional
         Whether to write a run log beside `filename` once it is written, as in
         `connectedness()`: `result.tif` gets `result.toml`. If None (default), logs are written
@@ -449,7 +507,7 @@ def beri(
     - `current_file`, `future_files` and `resistance_file` must have the CRS and resolution of
       `condition_file`, lie on its grid and cover the analysis window, as in the R package; they
       may extend beyond it. Scenarios may have one band or more; `resistance_file` must have one
-      band unless `band` is given.
+      band.
     - `polygon_mask` is reprojected to the CRS of `condition_file`; both must have a CRS, or
       both omit one.
     - Projected CRS units are converted to metres for distances (`lambdas` are in kilometres);
@@ -457,13 +515,20 @@ def beri(
       coordinates are then assumed to be degrees for cells smaller than one unit and metres
       for larger cells; mixed cases are judged from whether the extent fits longitude/latitude
       bounds.
+    - The default NoData crossing changed in version 3.0 from the legacy handling to
+      "strict" with a 0.5 km width and a cost of 4, an intentional change of method: results
+      change wherever NoData lies near land. Pass `nodata_crossing=None` to reproduce
+      results of version 2.x. Wider crossing widths, such as those of some BERI applications,
+      are sensitivity scenarios to set explicitly. Under "strict" and "landmass", coarse cells'
+      climate is averaged over their land cells only, so climate values on NoData never change
+      a score.
     - BERI is derived by aggregating scenario results to capture the capacity of the ecosystem to maintain biodiversity.
 
     """
     started = time.perf_counter()
     window_mode = _normalise_window_mode(window_mode)
-    _warn_margin_px(margin_px)
     _check_band(band)
+    nodata_crossing = _normalise_crossing(nodata_crossing, crossing_width, crossing_cost)
 
     # Before reading raster, fix neighbours window
     if outer_window < window_size:
@@ -484,15 +549,17 @@ def beri(
     levels = sorted({1, *(_round_to_pow2(x) for x in levels)})
     _check_continuous_levels(levels)
 
-    # For closed border there'll be no padding
-    pad_size = 0 if closed_border else outer_window
-
     # The condition band, then coordinates as in R: the polygon in the raster's CRS, engine
     # units in degrees or metres
     cond_band = _condition_band(condition_file, band)
     crs, is_geo, metres = _coordinate_info(condition_file)
     if polygon_mask is not None:
         polygon_mask = _match_crs(polygon_mask, crs, "polygon_mask")
+
+    # For closed border there'll be no padding; NoData crossing reads its gap width further
+    pad_size = 0 if closed_border else outer_window
+    if pad_size and nodata_crossing is not None:
+        pad_size += _crossing_pad(condition_file, crossing_width, is_geo, metres, max(levels))
 
     # Read raster overview as a dictionary; this checks levels as well.
     cond_array, mask_array, affine_dict, _, tile_row0, tile_col0  = read_raster(
@@ -501,7 +568,6 @@ def beri(
         levels=levels, 
         scale=scale, # only for condition raster
         expand_px=pad_size,
-        valid_margin_px=0,
         band=cond_band,
     )
 
@@ -510,13 +576,13 @@ def beri(
     window, outside = _input_frame(polygon_mask, closed_border, affine_dict, mask_array, tile_row0, tile_col0)
     names = ["current_file", *(f"future_files[{i}]" for i in range(len(future_files)))]
     scenarios = [
-        (path, *_input_window(path, name, condition_file, window, single=False))
+        (path, _input_window(path, name, condition_file, window, single=False))
         for path, name in zip([current_file, *future_files], names)
     ]
-    if len({bands for *_, bands in scenarios}) > 1:
+    if len({bands for _, (_, bands) in scenarios}) > 1:
         raise ValueError("Every climate scenario must have the same band count as current_file")
     if resistance_file is not None:
-        res_window, res_band = _input_window(resistance_file, "resistance_file", condition_file, window, band)
+        res_window = _input_window(resistance_file, "resistance_file", condition_file, window)
 
     # Return early if the analysis window has no usable condition cells.
     if np.isnan(cond_array).all() or np.all(mask_array):
@@ -524,7 +590,7 @@ def beri(
     else:
         # Climate bands are not scaled
         def _read_transgrid(scenario):
-            path, scenario_window, _ = scenario
+            path, (scenario_window, _) = scenario
             return _read_window(path, scenario_window, outside)
 
         if len(scenarios) == 1:
@@ -538,7 +604,7 @@ def beri(
         # for path weighting). None keeps the resistance-free behaviour unchanged.
         res_array = None
         if resistance_file is not None:
-            res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale, band=res_band)
+            res_array = _read_window(resistance_file, res_window, outside, scale=resistance_scale, band=1)
         traversal = _make_traversal(cond_array, res_array)
 
         # The base Rust connectivity funciton
@@ -557,6 +623,9 @@ def beri(
             traversal = traversal,
             n_threads = n_threads,
             window_mode = window_mode,
+            nodata_crossing = nodata_crossing,
+            crossing_width = crossing_width,
+            crossing_cost = crossing_cost,
         )
 
     tr = affine_dict[1]
@@ -573,7 +642,21 @@ def beri(
             condition_scale=scale, resistance_scale=resistance_scale, band=band,
             closed_border=closed_border, condition=condition_file, resistance=resistance_file,
             current_climate=current_file, future_climates=future_files,
-            polygon_mask=polygon_mask, threads=n_threads,
+            polygon_mask=polygon_mask, threads=n_threads, nodata_crossing=nodata_crossing,
+            crossing_width=crossing_width, crossing_cost=crossing_cost,
         )
 
     return out_array
+
+
+def _with_crossing(doc):
+    """`doc` with `_CROSSING_DOC` at its "{crossing}" line, indented as that line is (Python 3.13
+    removes docstrings' common indentation, earlier versions keep it); None under `python -OO`."""
+    if not doc:
+        return doc
+    line = next(line for line in doc.splitlines() if line.strip() == "{crossing}")
+    return doc.replace(line, textwrap.indent(_CROSSING_DOC, line[: len(line) - len(line.lstrip())]))
+
+
+connectedness.__doc__ = _with_crossing(connectedness.__doc__)
+beri.__doc__ = _with_crossing(beri.__doc__)

@@ -1,22 +1,10 @@
-use ndarray::{s, Array2, Array3, ArrayView1};
+//! Checks shared with the frozen reference implementation (tests only).
+use ndarray::Array2;
 use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 
 
-/// Get the transgrid values for ij cell from the current climate's base level, as a view.
-/// Empty when there are no transgrids or ij lies outside the array.
-pub fn get_current(current: Option<&Array3<f32>>, i: usize, j: usize) -> ArrayView1<'_, f32> {
-    if let Some(array3) = current {
-        if i < array3.shape()[0] && j < array3.shape()[1] {
-            return array3.slice(s![i, j, ..]);
-        }
-    }
-    // Empty view if anything fails
-    ArrayView1::from(&[])
-}
-
-
-// Make sure cell-num mask is the same as input cond.
+// Make sure cell-num mask is the same as input cond (the frozen reference's check).
 pub fn check_dims(
     a: &HashMap<i32, Array2<f32>>,
     b: &HashMap<i32, Array2<f32>>,
