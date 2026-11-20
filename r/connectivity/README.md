@@ -201,7 +201,7 @@ habitat <- connectedness(
     outer_window = 9,
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     levels = c(2, 4, 8, 16, 32),
     option = 3
@@ -263,7 +263,7 @@ parc <- connectedness(
     outer_window = 9,
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     levels = c(2, 4, 8, 16, 32)
 )
@@ -313,7 +313,7 @@ beri_map <- beri(
     outer_window = 9,
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     levels = c(2, 4, 8, 16, 32)
 )
@@ -338,7 +338,7 @@ as habitat. The multi-resolution graph aggregates cells into coarser levels, and
 `nodata_crossing` sets whether and where paths may cross NoData:
 
 - `"strict"` (the default; version 0.1.0 used the legacy handling below):
-  NoData gaps at most `crossing_width` kilometres wide (default 0.5) may be
+  NoData gaps at most `crossing_width` kilometres wide (default 1) may be
   crossed, at `crossing_cost` (default 4), and no wider gap is crossed at any level,
   including rivers and inlets inside one landmass. Routes around a barrier
   within the search window are kept.
@@ -349,14 +349,18 @@ as habitat. The multi-resolution graph aggregates cells into coarser levels, and
   twice their cell size, at no cost, and only from some cells, which can leave
   steps on islands, coastlines and irregular boundaries.
 
-`crossing_cost` is a movement cost per unit distance relative to intact land:
-1 costs as much as intact land, 4 four times as much. It is independent of
-condition, resistance and `max_cost`. Crossed NoData only carries movement: it
-adds no habitat area, protected area or climate. The default width and cost are
-provisional general-purpose assumptions that allow limited crossing of narrow
-gaps, not calibrated ecological thresholds; choose wider gaps or other costs
-explicitly, as sensitivity scenarios. `crossing_width = 0` crosses no gap but
-keeps strict routing, which is not the same as `nodata_crossing = NULL`.
+`crossing_width` is a hard limit: wider gaps are never crossed.
+`crossing_cost` penalises the crossings it permits, as a movement cost per unit
+distance relative to intact land: 1 costs as much as intact land, 4 four times
+as much. It is independent of condition, resistance and `max_cost`, and neither
+setting depends on `lambdas`. Crossed NoData only carries movement: it adds no
+habitat area, protected area or climate. The defaults are pragmatic,
+literature-informed choices, not universally calibrated ecological parameters;
+appropriate values depend on the species, spatial resolution, timescale and
+assessment objectives, including longer-term climate-related assessments such
+as BERI. When NoData marks areas that should not be traversed, set
+`crossing_width = 0`: it crosses no gap but keeps strict routing, which is not
+the same as `nodata_crossing = NULL`.
 
 ```r
 # A sensitivity scenario: cross gaps up to 2 km wide at twice the cost of intact land
@@ -372,10 +376,10 @@ habitat_legacy <- connectedness(condition_file = condition_file, nodata_crossing
 ```
 
 The default changes results wherever NoData lies near land, an intentional
-change of method after version 0.1.0. On the bundled Tasmania raster, whose
-cells are about 0.69 x 0.93 km so that no gap is 0.5 km wide or less, it
-changes almost every cell of plain connectedness slightly (by 0.003 on average,
-up to 0.21), and 4% of cells by more than 0.01.
+change of method after version 0.1.0. On the bundled Tasmania raster (cells
+about 0.69 x 0.93 km), it changes almost every cell of plain connectedness (by
+0.008 on average, up to 0.71); 17% of cells change by more than 0.01, and 89%
+of those lie within 8 cells of NoData or the raster edge.
 
 ### Run logs
 

@@ -130,8 +130,9 @@
          paste(given, collapse = ", "), call. = FALSE)
 }
 
-# The defaults of crossing_width (km) and crossing_cost, as in Python and the core.
-.CROSSING_WIDTH <- 0.5
+# The defaults of crossing_width (km) and crossing_cost, as in Python; the width
+# is wider than the core's Config::default(), 0.5 km.
+.CROSSING_WIDTH <- 1
 .CROSSING_COST <- 4
 
 # The NoData crossing settings, after checking them: `nodata_crossing` is

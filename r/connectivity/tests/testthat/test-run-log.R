@@ -21,7 +21,7 @@ test_that("the documented example is written as Python and Studio write it", {
     settings <- list(lambdas = c(2, 20, 200), levels = c(1L, 2L, 4L, 8L, 16L, 32L),
                      max_cost = 2, window_size = 5L, outer_window = 9L,
                      window_mode = "circular", n_threads = 8L,
-                     nodata_crossing = "strict", crossing_width = 0.5, crossing_cost = 4)
+                     nodata_crossing = "strict", crossing_width = 1, crossing_cost = 4)
     text <- .format_log(
         created = as.POSIXct("2026-11-11 03:14:15", tz = "UTC"), elapsed = 42.48,
         indicator = "connected_habitat", settings = settings,
@@ -48,7 +48,7 @@ test_that("the documented example is written as Python and Studio write it", {
         "outer_window = 9",
         "window_mode = \"circular\"",
         "nodata_crossing = \"strict\"",
-        "crossing_width_km = 0.5",
+        "crossing_width_km = 1",
         "crossing_cost = 4",
         "condition_scale = 1",
         "resistance_scale = 100",

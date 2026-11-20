@@ -1,21 +1,24 @@
-# Version 3.0.0 (development version)
+# Version 3.0.0
 
 For upgrade instructions, see [Migrating from 2.x to 3.0](README.md#migrating-from-2x-to-30).
 
 ## Breaking changes
 
 - `connectedness()` and `beri()` now default to `nodata_crossing="strict"`,
-  `crossing_width=0.5` km and `crossing_cost=4`. This changes the calculation
+  `crossing_width=1.0` km and `crossing_cost=4`. This changes the calculation
   near NoData. Older versions could link land across wider gaps at no cost at
   coarser levels, creating steps on islands, coastlines and irregular boundaries.
-  - Pass `nodata_crossing=None` to reproduce 2.x results. To forbid all gap
-    crossings while using strict routing, set `crossing_width=0` in strict mode.
-  - The default width and cost are provisional assumptions. Set a wider gap
-    explicitly when testing sensitivity, including in BERI applications.
-  - On the bundled Tasmania raster (cells about 0.69 × 0.93 km), the new default
-    permits no gap crossings. Plain connectedness changes in almost every
-    valid cell, by 0.003 on average and up to 0.21. Of the 4% of cells that
-    change by more than 0.01, 94% are within 8 cells of NoData or the raster edge.
+  - Pass `nodata_crossing=None` to reproduce 2.x results. When NoData marks
+    areas that should not be traversed, set `crossing_width=0` in strict mode.
+  - The defaults are pragmatic, literature-informed choices, not universally
+    calibrated ecological parameters. The width is a hard limit and the cost a
+    penalty on permitted crossings, both independent of `lambdas`; suitable
+    values depend on species, resolution, timescale and assessment objectives,
+    including longer-term climate-related assessments such as BERI.
+  - On the bundled Tasmania raster (cells about 0.69 × 0.93 km), plain
+    connectedness changes in almost every valid cell, by 0.008 on average and
+    up to 0.71. Of the 17% of cells that change by more than 0.01, 89% are
+    within 8 cells of NoData or the raster edge.
 - Every argument of `connectedness()` and `beri()` after `condition_file` is
   keyword-only. Pass the required `current_file` to `beri()` by name. Calls
   that pass additional positional arguments raise `TypeError`.
@@ -72,7 +75,8 @@ For upgrade instructions, see [Migrating from 2.x to 3.0](README.md#migrating-fr
   - An existing run log is replaced. Other files at the log path are kept with
     a warning. If a log cannot be written, the run warns and returns its result.
 - The low-level `rust_conn.connectivity()` accepts the same crossing options.
-  `rust_conn.DEFAULT_CROSSING` exposes the engine defaults.
+  `rust_conn.DEFAULT_CROSSING` exposes the engine defaults, which use a
+  0.5 km width; `connectedness()` and `beri()` default to 1 km.
 
 ## Changed
 

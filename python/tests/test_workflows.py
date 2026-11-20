@@ -563,7 +563,7 @@ def test_crossing_settings(capsys):
         assert "'crossing_width' and 'crossing_cost' are ignored" in capsys.readouterr().out
     # Integer and numpy values are accepted, and the mode ignores case and spaces
     np.testing.assert_array_equal(
-        bits(cn.connectedness(condition_file=COND, nodata_crossing=" Strict ", crossing_width=np.float32(0.5),
+        bits(cn.connectedness(condition_file=COND, nodata_crossing=" Strict ", crossing_width=np.float32(1.0),
                               crossing_cost=np.int64(4), **SHORT)),
         bits(cn.connectedness(condition_file=COND, **SHORT)))
 
@@ -578,7 +578,7 @@ BERI_ORDER = [
     "lambdas", "max_cost", "levels", "window_size", "outer_window", "window_mode", "polygon_mask", "closed_border",
     "nodata_crossing", "crossing_width", "crossing_cost", "n_threads", "filename", "save_log",
 ]
-# Defaults kept from 2.x; the crossing defaults are the core's
+# Defaults kept from 2.x; the crossing defaults are checked on their own
 DEFAULTS = dict(band=None, scale=None, pa_file=None, pa_to_pa=False, option=3, resistance_file=None,
                 resistance_scale=None, lambdas=[2, 20, 200], max_cost=2.0, levels=[2, 4, 8, 16, 32], window_size=5,
                 outer_window=9, window_mode="circular", polygon_mask=None, closed_border=False, future_files=None,
@@ -596,7 +596,7 @@ def test_signatures():
         assert params["condition_file"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
         assert all(params[k].kind is inspect.Parameter.KEYWORD_ONLY for k in order[1:])
         crossing = tuple(params[k].default for k in ("nodata_crossing", "crossing_width", "crossing_cost"))
-        assert crossing == rust_conn.DEFAULT_CROSSING == ("strict", 0.5, 4.0)
+        assert crossing == ("strict", 1.0, 4.0)
         for name in order[1:]:
             if name in DEFAULTS:
                 assert params[name].default == DEFAULTS[name], (function.__name__, name)
@@ -622,24 +622,27 @@ def test_signatures():
                                   bits(cn.beri(condition_file=COND, current_file=CURRENT, **SHORT)))
 
 
-# Frozen from the 3.0.0 development build with the default strict crossing (regression values,
+# Frozen from the 3.0.0 build with the default strict crossing at 1 km (regression values,
 # not independent ones); the legacy values are FROZEN
 FROZEN_STRICT = {
-    "connectedness": 0.3652536108175584,
-    "beri": 0.4091173515425484,
+    "connectedness": 0.35848972145717334,
+    "beri": 0.4049220259882047,
 }
 
 
-# The default is strict crossing at 0.5 km and cost 4, and differs from the legacy handling. The
-# bundled cells, about 0.69 x 0.93 km, leave no gap of 0.5 km or less, so it crosses nothing here
-# and equals strict mode at width 0
+# The default is strict crossing at 1 km and cost 4, wider than the core's 0.5 km
+# (rust_conn.DEFAULT_CROSSING), and differs from the legacy handling. The bundled cells, about
+# 0.69 x 0.93 km, leave gaps that 1 km crosses and 0.5 km does not
 def test_default_crossing(connectedness):
+    assert rust_conn.DEFAULT_CROSSING == ("strict", 0.5, 4.0)
     out = cn.connectedness(condition_file=COND, option=1, n_threads=THREADS)
-    explicit = cn.connectedness(condition_file=COND, option=1, nodata_crossing="strict", crossing_width=0.5,
+    explicit = cn.connectedness(condition_file=COND, option=1, nodata_crossing="strict", crossing_width=1.0,
                                 crossing_cost=4.0, n_threads=THREADS)
     np.testing.assert_array_equal(bits(out), bits(explicit))
     zero = cn.connectedness(condition_file=COND, option=1, crossing_width=0, n_threads=THREADS)
-    np.testing.assert_array_equal(bits(out), bits(zero))
+    narrow = cn.connectedness(condition_file=COND, option=1, crossing_width=0.5, n_threads=THREADS)
+    np.testing.assert_array_equal(bits(narrow), bits(zero))
+    assert not np.array_equal(bits(out), bits(zero))
     np.testing.assert_array_equal(np.isnan(out), np.isnan(connectedness))
     assert not np.array_equal(bits(out), bits(connectedness))
     assert nanmean(out) == pytest.approx(FROZEN_STRICT["connectedness"], rel=RTOL)

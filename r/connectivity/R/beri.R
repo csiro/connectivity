@@ -38,8 +38,7 @@
 #' cells only, so climate values on NoData and on unreachable land are
 #' excluded from scores. After version 0.1.0 the default changed from the
 #' legacy NoData handling to `"strict"`; pass `nodata_crossing = NULL` to reproduce
-#' results of 0.1.0. Wider crossing widths, such as those of some BERI
-#' applications, are sensitivity settings to choose explicitly.
+#' results of 0.1.0.
 #'
 #' @param current_file Required current-climate `terra::SpatRaster` or raster filename
 #'   of GDM-transformed environmental layers (transgrids). One or more layers
@@ -103,7 +102,7 @@
 #'     levels = c(2, 4, 8, 16, 32),
 #'     window_mode = "circular",
 #'     nodata_crossing = "strict",
-#'     crossing_width = 0.5,
+#'     crossing_width = 1,
 #'     crossing_cost = 4,
 #'     n_threads = 2
 #' )
@@ -126,7 +125,7 @@ beri <- function(condition_file, ...,
                  polygon_mask = NULL,
                  closed_border = FALSE,
                  nodata_crossing = "strict",
-                 crossing_width = 0.5,
+                 crossing_width = 1,
                  crossing_cost = 4,
                  n_threads = NULL,
                  filename = "",

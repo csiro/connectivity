@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "rust_conn"
-version = "3.0.0-dev0"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "connectivity-core",

@@ -14,9 +14,9 @@ def _normalise_window_mode(window_mode: str) -> str:
     return mode
 
 
-# Default NoData crossing of connectedness() and beri(): strict, 0.5 km, cost 4, as the core's
-# Config::default() (rust_conn.DEFAULT_CROSSING); provisional general-purpose assumptions
-CROSSING_WIDTH = 0.5
+# Default NoData crossing of connectedness() and beri(): strict, 1 km, cost 4, as in the R
+# package. The width is wider than the core's Config::default() (rust_conn.DEFAULT_CROSSING)
+CROSSING_WIDTH = 1.0
 CROSSING_COST = 4.0
 
 

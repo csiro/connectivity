@@ -210,8 +210,8 @@ fn rust_conn(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pixel_coverage, m)?)?;
     // The engine's version, which run logs record
     m.add("CORE_VERSION", connectivity_core::VERSION)?;
-    // The engine's default NoData crossing, (mode, width in km, cost), which the Python defaults
-    // must match; None if it ever defaults to the legacy handling
+    // The engine's default NoData crossing, (mode, width in km, cost); None if it ever defaults to
+    // the legacy handling. connectedness() and beri() widen the width to 1 km
     let crossing = Config::default().crossing.map(|c| {
         let mode = match c.mode {
             CrossingMode::Landmass => "landmass",

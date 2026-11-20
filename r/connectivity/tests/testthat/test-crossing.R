@@ -43,6 +43,15 @@ test_that("crossing settings are checked with Python's messages", {
                      values_of(run(nodata_crossing = "landmass")))
 })
 
+test_that("the crossing defaults are Python's: strict, 1 km and 4", {
+    for (fun in list(connectedness, beri)) {
+        defaults <- formals(fun)[c("nodata_crossing", "crossing_width", "crossing_cost")]
+        expect_identical(defaults, list(nodata_crossing = "strict", crossing_width = 1,
+                                        crossing_cost = 4))
+    }
+    expect_identical(c(.CROSSING_WIDTH, .CROSSING_COST), c(1, 4))
+})
+
 test_that("custom widths and costs are ignored under NULL, with a message", {
     fixture <- raster_fixture()
     run <- function(...) {
@@ -65,8 +74,8 @@ test_that("crossing modes change results only near NoData", {
     }
     legacy <- run(condition, nodata_crossing = NULL)
     strict <- run(condition)
-    # The defaults are strict, 0.5 km and 4
-    expect_identical(run(condition, nodata_crossing = "strict", crossing_width = 0.5,
+    # The defaults are strict, 1 km and 4
+    expect_identical(run(condition, nodata_crossing = "strict", crossing_width = 1,
                          crossing_cost = 4), strict)
     expect_identical(is.na(strict), is.na(legacy))
     expect_false(identical(strict, legacy))
@@ -170,7 +179,7 @@ test_that("run logs record the NoData crossing used", {
         return(lines[grepl("^(nodata_crossing|crossing_width_km|crossing_cost) ", lines)])
     }
     expect_identical(crossing_lines(),
-                     c("nodata_crossing = \"strict\"", "crossing_width_km = 0.5", "crossing_cost = 4"))
+                     c("nodata_crossing = \"strict\"", "crossing_width_km = 1", "crossing_cost = 4"))
     expect_identical(crossing_lines(nodata_crossing = "landmass", crossing_width = 2.5,
                                     crossing_cost = 1.5),
                      c("nodata_crossing = \"landmass\"", "crossing_width_km = 2.5",

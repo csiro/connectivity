@@ -3,19 +3,21 @@
 ## Breaking changes
 
 * `connectedness()` and `beri()` now default to `nodata_crossing = "strict"`,
-  `crossing_width = 0.5` km and `crossing_cost = 4`, as the Python package
+  `crossing_width = 1` km and `crossing_cost = 4`, as the Python package
   3.0. This changes the calculation near NoData: version 0.1.0 could link land
   across wider gaps at no cost at coarser levels, creating steps on islands,
   coastlines and irregular boundaries.
-  * Pass `nodata_crossing = NULL` to reproduce results of 0.1.0. To forbid all
-    gap crossings while keeping strict routing, set `crossing_width = 0`.
-  * The default width and cost are provisional assumptions, not calibrated
-    values. Set a wider gap explicitly when testing sensitivity, including in
-    BERI applications.
-  * On the bundled Tasmania raster (cells about 0.69 x 0.93 km), the new
-    default permits no gap crossings. Plain connectedness changes in almost
-    every valid cell, by 0.003 on average and up to 0.21; 4% of cells change
-    by more than 0.01.
+  * Pass `nodata_crossing = NULL` to reproduce results of 0.1.0. When NoData
+    marks areas that should not be traversed, set `crossing_width = 0` in
+    strict mode.
+  * The defaults are pragmatic, literature-informed choices, not universally
+    calibrated ecological parameters. The width is a hard limit and the cost a
+    penalty on permitted crossings, both independent of `lambdas`; suitable
+    values depend on species, resolution, timescale and assessment objectives,
+    including longer-term climate-related assessments such as BERI.
+  * On the bundled Tasmania raster (cells about 0.69 x 0.93 km), plain
+    connectedness changes in almost every valid cell, by 0.008 on average and
+    up to 0.71; 17% of cells change by more than 0.01.
 * Every argument of `connectedness()` and `beri()` after `condition_file` must
   be named, in full, as Python's keyword-only arguments: they follow `...`,
   so a positional, misspelt or abbreviated argument raises `Arguments after

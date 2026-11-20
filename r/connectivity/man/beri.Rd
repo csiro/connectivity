@@ -22,7 +22,7 @@ beri(
   polygon_mask = NULL,
   closed_border = FALSE,
   nodata_crossing = "strict",
-  crossing_width = 0.5,
+  crossing_width = 1,
   crossing_cost = 4,
   n_threads = NULL,
   filename = "",
@@ -120,25 +120,28 @@ Without NoData every setting gives the same results. \code{"strict"} with
 never link land across NoData.}
 
 \item{crossing_width}{Widest NoData gap crossed, in kilometres (finite,
-at least 0); 0 crosses none. The default, 0.5, is a provisional
-general-purpose assumption that allows limited crossing of narrow gaps,
-not a calibrated ecological threshold; wider gaps are sensitivity
-scenarios to choose explicitly. A gap's width is measured once at base
-resolution, as the widest disc that fits between the land cells; on
-geographic grids cells are narrower towards the poles. This also makes
-NoData in concave corners of a coastline crossable, within about a fifth
-of the width of the corner. With an open-border \code{polygon_mask}, the read
-window grows by this width. Ignored when \code{nodata_crossing} is \code{NULL}, with
-a message when changed.}
+at least 0; default 1). A hard limit: wider gaps are never crossed,
+whatever their cost. Set it to 0 when NoData marks areas that should not
+be traversed. A gap's width is measured once at base resolution, as the
+widest disc that fits between the land cells; on geographic grids cells
+are narrower towards the poles. This also makes NoData in concave corners
+of a coastline crossable, within about a fifth of the width of the corner.
+With an open-border \code{polygon_mask}, the read window grows by this width.
+Ignored when \code{nodata_crossing} is \code{NULL}, with a message when changed.}
 
 \item{crossing_cost}{Movement cost of crossed NoData per unit distance,
-relative to intact land (finite, at least 1): 1 costs as much as intact
-land, the default 4 four times as much. It is independent of condition,
-resistance and \code{max_cost}, and may exceed \code{max_cost}; a coarse cell
-holding land and crossable NoData costs the mean of their costs. Like the
-width, the default is a provisional assumption, not a calibrated value. No
-effect when \code{crossing_width} is 0; ignored when \code{nodata_crossing} is
-\code{NULL}, with a message when changed.}
+relative to intact land (finite, at least 1; default 4): a penalty on
+permitted crossings, so 1 costs as much as intact land and 4 four times as
+much. It is independent of condition, resistance and \code{max_cost}, and may
+exceed \code{max_cost}; a coarse cell holding land and crossable NoData costs
+the mean of their costs. No effect when \code{crossing_width} is 0; ignored
+when \code{nodata_crossing} is \code{NULL}, with a message when changed.
+
+Width and cost are both independent of \code{lambdas}. Their defaults are
+pragmatic, literature-informed choices, not universally calibrated
+ecological parameters: appropriate values depend on the species, spatial
+resolution, timescale and assessment objectives, such as longer-term
+climate-related assessments with \code{\link[=beri]{beri()}}.}
 
 \item{n_threads}{Optional positive integer number of worker threads.
 \code{NULL} uses Rayon's default thread count.}
@@ -198,8 +201,7 @@ NoData carries no climate, and coarse cells average climate over their land
 cells only, so climate values on NoData and on unreachable land are
 excluded from scores. After version 0.1.0 the default changed from the
 legacy NoData handling to \code{"strict"}; pass \code{nodata_crossing = NULL} to reproduce
-results of 0.1.0. Wider crossing widths, such as those of some BERI
-applications, are sensitivity settings to choose explicitly.
+results of 0.1.0.
 }
 \examples{
 condition_file <- system.file("extdata", "site_condition.tif", package = "connectivity")
@@ -220,7 +222,7 @@ beri_map <- beri(
     levels = c(2, 4, 8, 16, 32),
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     n_threads = 2
 )

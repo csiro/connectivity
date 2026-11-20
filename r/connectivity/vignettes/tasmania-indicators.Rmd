@@ -114,7 +114,7 @@ conns <- connectedness(
     option = 1,
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     n_threads = 2
 )
@@ -130,11 +130,12 @@ plot(
 The sea and other NoData cells of the condition raster never count as habitat.
 The calls in this vignette spell out the NoData crossing defaults:
 `nodata_crossing = "strict"` lets paths cross NoData gaps at most
-`crossing_width = 0.5` km wide, at `crossing_cost = 4` times the cost of intact
+`crossing_width = 1` km wide, at `crossing_cost = 4` times the cost of intact
 land, and no wider gap at any aggregation level. With cells of about
-0.69 x 0.93 km, no gap in this raster is that narrow, so Tasmania's coast and
-its islands are not linked across the sea. Set a wider `crossing_width` as a
-sensitivity scenario, or `nodata_crossing = NULL` to reproduce results of
+0.69 x 0.93 km, only gaps about one cell wide are crossed. These defaults are
+pragmatic choices, not calibrated values: adjust them to the species,
+resolution and purpose of an assessment, set `crossing_width = 0` when NoData
+should never be traversed, or `nodata_crossing = NULL` to reproduce results of
 version 0.1.0.
 
 ## 4. Connected habitat
@@ -155,7 +156,7 @@ connhabitat <- connectedness(
     option = 3,
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     n_threads = 2
 )
@@ -191,7 +192,7 @@ parc <- connectedness(
     levels = c(2, 4, 8, 16, 32),
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     n_threads = 2
 )
@@ -246,7 +247,7 @@ beri_map <- beri(
     levels = c(2, 4, 8, 16, 32),
     window_mode = "circular",
     nodata_crossing = "strict",
-    crossing_width = 0.5,
+    crossing_width = 1,
     crossing_cost = 4,
     n_threads = 2
 )
@@ -325,7 +326,7 @@ tile_maps <- lapply(seq_len(nrow(tiles)), function(i) {
         option = 3,
         window_mode = "circular",
         nodata_crossing = "strict",
-        crossing_width = 0.5,
+        crossing_width = 1,
         crossing_cost = 4,
         n_threads = 2
     ))

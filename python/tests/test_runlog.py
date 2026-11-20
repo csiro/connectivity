@@ -46,7 +46,7 @@ def test_documented_example():
         created=CREATED, elapsed=42.48, software="eco-connectivity Python package 3.0.0",
         indicator="connected_habitat", option=3, lambdas=[2, 20, 200], levels=[1, 2, 4, 8, 16, 32],
         max_cost=2.0, window_size=5, outer_window=9, window_mode="circular",
-        nodata_crossing="strict", crossing_width=0.5, crossing_cost=4.0,
+        nodata_crossing="strict", crossing_width=1.0, crossing_cost=4.0,
         resistance_scale=100, condition="/data/tasmania/site_condition.tif",
         resistance="/data/tasmania/resistance.tif", output="/data/results/connected_habitat.tif",
         threads=8,
@@ -68,7 +68,7 @@ window_size = 5
 outer_window = 9
 window_mode = "circular"
 nodata_crossing = "strict"
-crossing_width_km = 0.5
+crossing_width_km = 1
 crossing_cost = 4
 condition_scale = 1
 resistance_scale = 100
@@ -126,7 +126,7 @@ def test_connectedness_log(tmp_path):
         "outer_window = 3",
         'window_mode = "circular"',
         'nodata_crossing = "strict"',
-        "crossing_width_km = 0.5",
+        "crossing_width_km = 1",
         "crossing_cost = 4",
         "condition_scale = 1",
         "",
@@ -194,7 +194,7 @@ def test_crossing_log(tmp_path):
          ['nodata_crossing = "strict"', "crossing_width_km = 1.5", "crossing_cost = 2.5"]),
         (dict(nodata_crossing=" LandMass ", crossing_width=0, crossing_cost=1),
          ['nodata_crossing = "landmass"', "crossing_width_km = 0", "crossing_cost = 1"]),
-        (dict(), ['nodata_crossing = "strict"', "crossing_width_km = 0.5", "crossing_cost = 4"]),
+        (dict(), ['nodata_crossing = "strict"', "crossing_width_km = 1", "crossing_cost = 4"]),
         (dict(nodata_crossing=None), ['nodata_crossing = "none"']),
     ]:
         for function, extra in ((cn.connectedness, {}), (cn.beri, dict(current_file=CURRENT))):

@@ -150,6 +150,9 @@ connd = connectedness(
     outer_window = 11,
     window_mode = "circular",
     levels = [2, 4, 8, 16, 32], 
+    nodata_crossing = "strict",
+    crossing_width = 1.0,
+    crossing_cost = 4.0,
     option = 3,
     filename = "./results/connected_habitat.tif"
 )
@@ -236,6 +239,9 @@ beris = beri(
     outer_window = 11,
     window_mode = "circular",
     levels = [2, 4, 8, 16, 32],
+    nodata_crossing = "strict",
+    crossing_width = 1.0,
+    crossing_cost = 4.0,
     filename = "./results/berri.tif"
 )
 ```
@@ -247,7 +253,7 @@ as habitat. The multi-resolution graph aggregates cells into coarser levels, and
 `nodata_crossing` sets whether and where paths may cross NoData:
 
 - `"strict"` (the default since 3.0): NoData gaps at most `crossing_width`
-  kilometres wide (default 0.5) may be crossed, at `crossing_cost` (default 4),
+  kilometres wide (default 1) may be crossed, at `crossing_cost` (default 4),
   and no wider gap is crossed at any level, including rivers and inlets inside
   one landmass. Routes around a barrier within the search window are kept.
 - `"landmass"`: separate landmasses are linked only across such gaps; within
@@ -257,14 +263,18 @@ as habitat. The multi-resolution graph aggregates cells into coarser levels, and
   twice their cell size, at no cost, and only from some cells, which can leave
   steps on islands, coastlines and irregular boundaries.
 
-`crossing_cost` is a movement cost per unit distance relative to intact land:
-1 costs as much as intact land, 4 four times as much. It is independent of
-condition, resistance and `max_cost`. Crossed NoData only carries movement: it
-adds no habitat area, protected area or climate. The default width and cost are
-provisional general-purpose assumptions that allow limited crossing of narrow
-gaps, not calibrated ecological thresholds; choose wider gaps or other costs
-explicitly, as sensitivity scenarios. `crossing_width = 0` crosses no gap but
-keeps strict routing, which is not the same as `nodata_crossing = None`.
+`crossing_width` is a hard limit: wider gaps are never crossed.
+`crossing_cost` penalises the crossings it permits, as a movement cost per unit
+distance relative to intact land: 1 costs as much as intact land, 4 four times
+as much. It is independent of condition, resistance and `max_cost`, and neither
+setting depends on `lambdas`. Crossed NoData only carries movement: it adds no
+habitat area, protected area or climate. The defaults are pragmatic,
+literature-informed choices, not universally calibrated ecological parameters;
+appropriate values depend on the species, spatial resolution, timescale and
+assessment objectives, including longer-term climate-related assessments such
+as BERI. When NoData marks areas that should not be traversed, set
+`crossing_width = 0`: it crosses no gap but keeps strict routing, which is not
+the same as `nodata_crossing = None`.
 
 ```python
 # A sensitivity scenario: cross gaps up to 2 km wide at twice the cost of intact land
@@ -280,11 +290,10 @@ connd_legacy = connectedness(condition_file = condition_file, nodata_crossing = 
 ```
 
 The default changes results wherever NoData lies near land, an intentional
-change of method in 3.0. On the bundled Tasmania raster, whose cells are about
-0.69 x 0.93 km so that no gap is 0.5 km wide or less, it changes almost every
-cell of plain connectedness slightly (by 0.003 on average, up to 0.21); the 4%
-of cells that change by more than 0.01 lie within 8 cells of NoData or the
-raster edge, nearly all of them.
+change of method in 3.0. On the bundled Tasmania raster (cells about
+0.69 x 0.93 km), it changes almost every cell of plain connectedness from 2.x
+(by 0.008 on average, up to 0.71); 17% of cells change by more than 0.01, and
+89% of those lie within 8 cells of NoData or the raster edge.
 
 ### Condition time series
 Use `band` to select one band of a multi-band condition raster, such as one
@@ -459,7 +468,7 @@ Version 3.0 settles the API; see [NEWS.md](https://github.com/csiro/connectivity
   beri("condition.tif", current_file="current.tif", future_files=["future.tif"])
   ```
 
-- **NoData crossing.** The default is now strict crossing of gaps up to 0.5 km
+- **NoData crossing.** The default is now strict crossing of gaps up to 1 km
   at a cost of 4, a change of method that changes results near NoData. Pass
   `nodata_crossing=None` to reproduce 2.x results.
 

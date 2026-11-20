@@ -53,22 +53,25 @@ _CROSSING_DOC = """nodata_crossing : {"strict", "landmass", None}, optional
     Without NoData every setting gives the same results. "strict" with `crossing_width=0`
     crosses no gap, but it is not None: coarse levels never link land across NoData.
 crossing_width : float, optional
-    Widest NoData gap crossed, in kilometres (finite, >= 0); 0 crosses none. The default,
-    0.5, is a provisional general-purpose assumption that allows limited crossing of narrow
-    gaps, not a calibrated ecological threshold; wider gaps are sensitivity scenarios to
-    choose explicitly. A gap's width is measured once at base resolution, as the widest disc
-    that fits between the land cells; on geographic grids cells are narrower towards the
-    poles. This also makes NoData in concave corners of a coastline crossable, within about
-    a fifth of the width of the corner. With an open-border `polygon_mask`, the read window
-    grows by this width. Ignored when `nodata_crossing` is None, with a notice when changed.
+    Widest NoData gap crossed, in kilometres (finite, >= 0; default 1). A hard limit: wider
+    gaps are never crossed, whatever their cost. Set it to 0 when NoData marks areas that
+    should not be traversed. A gap's width is measured once at base resolution, as the
+    widest disc that fits between the land cells; on geographic grids cells are narrower
+    towards the poles. This also makes NoData in concave corners of a coastline crossable,
+    within about a fifth of the width of the corner. With an open-border `polygon_mask`, the
+    read window grows by this width. Ignored when `nodata_crossing` is None, with a notice
+    when changed.
 crossing_cost : float, optional
     Movement cost of crossed NoData per unit distance, relative to intact land (finite,
-    >= 1): 1 costs as much as intact land, the default 4 four times as much. It is
-    independent of condition, resistance and `max_cost`, and may exceed `max_cost`; a
-    coarse cell holding land and crossable NoData costs the mean of their costs. Like the
-    width, the default is a provisional assumption, not a calibrated value. No effect when
-    `crossing_width` is 0; ignored when `nodata_crossing` is None, with a notice when
-    changed."""
+    >= 1; default 4): a penalty on permitted crossings, so 1 costs as much as intact land
+    and 4 four times as much. It is independent of condition, resistance and `max_cost`,
+    and may exceed `max_cost`; a coarse cell holding land and crossable NoData costs the
+    mean of their costs. No effect when `crossing_width` is 0; ignored when
+    `nodata_crossing` is None, with a notice when changed.
+    Width and cost are both independent of `lambdas`. Their defaults are pragmatic,
+    literature-informed choices, not universally calibrated ecological parameters:
+    appropriate values depend on the species, spatial resolution, timescale and assessment
+    objectives, such as longer-term climate-related assessments with `beri()`."""
 
 
 # Connectedness main funciton
@@ -233,7 +236,7 @@ def connectedness(
       for larger cells; mixed cases are judged from whether the extent fits longitude/latitude
       bounds.
     - The default NoData crossing changed in version 3.0 from the legacy handling to
-      "strict" with a 0.5 km width and a cost of 4, an intentional change of method: results
+      "strict" with a 1 km width and a cost of 4, an intentional change of method: results
       change wherever NoData lies near land. Pass `nodata_crossing=None` to reproduce
       results of version 2.x.
     - Appropriate choice of `lambdas` and `levels` significantly affects the output connectedness.
@@ -516,12 +519,10 @@ def beri(
       for larger cells; mixed cases are judged from whether the extent fits longitude/latitude
       bounds.
     - The default NoData crossing changed in version 3.0 from the legacy handling to
-      "strict" with a 0.5 km width and a cost of 4, an intentional change of method: results
+      "strict" with a 1 km width and a cost of 4, an intentional change of method: results
       change wherever NoData lies near land. Pass `nodata_crossing=None` to reproduce
-      results of version 2.x. Wider crossing widths, such as those of some BERI applications,
-      are sensitivity scenarios to set explicitly. Under "strict" and "landmass", coarse cells'
-      climate is averaged over their land cells only, so climate values on NoData never change
-      a score.
+      results of version 2.x. Under "strict" and "landmass", coarse cells' climate is
+      averaged over their land cells only, so climate values on NoData never change a score.
     - BERI is derived by aggregating scenario results to capture the capacity of the ecosystem to maintain biodiversity.
 
     """
